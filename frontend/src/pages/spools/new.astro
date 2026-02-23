@@ -371,7 +371,7 @@ const filamentId = Astro.url.searchParams.get('filament_id')
             sortedFilaments.forEach((f) => {
               const option = document.createElement('option')
               option.value = f.id
-              option.textContent = `${f.designation} (${f.type})`
+              option.textContent = `${f.designation} (${f.material_type})`
               if (filamentId && f.id === parseInt(filamentId)) {
                 option.selected = true
               }

@@ -140,7 +140,7 @@ const { id } = Astro.params
     function renderFilament(f: any) {
       // Build the secondary info cards grid
       const cards: string[] = []
-      cards.push(renderDetailCard(t('filaments.type'), f.type))
+      cards.push(renderDetailCard(t('filaments.type'), f.material_type))
       if (f.material_subgroup) {
         cards.push(renderDetailCard(t('filaments.materialSubgroup'), f.material_subgroup))
       }

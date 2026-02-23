@@ -803,14 +803,14 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
       ;(document.getElementById('designation') as HTMLInputElement).value = f.designation || ''
 
       // Type — check if it's in the loaded types list
-      if (loadedTypes.includes(f.type)) {
-        typeSelect.value = f.type
+      if (loadedTypes.includes(f.material_type)) {
+        typeSelect.value = f.material_type
       } else {
         // Custom type not in the list — select custom and fill the input
         typeSelect.value = CUSTOM_TYPE_VALUE
         customTypeWrapper.classList.remove('hidden')
         customTypeInput.required = true
-        customTypeInput.value = f.type || ''
+        customTypeInput.value = f.material_type || ''
       }
 
       // Diameter

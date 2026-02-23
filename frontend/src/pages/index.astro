@@ -166,7 +166,7 @@ interface PaginatedResponse<T> {
     function getFilamentName(filamentId: number): string {
       const f = allFilaments.find(fil => fil.id === filamentId)
       if (!f) return '-'
-      return `${f.designation} (${f.type || '-'})`
+      return `${f.designation} (${f.material_type || '-'})`
     }
 
     function formatWeight(g: number): string {
@@ -454,7 +454,7 @@ interface PaginatedResponse<T> {
           } else {
             typesContainer.innerHTML = `<table class="fm-table" style="font-size: 0.85rem;"><tbody>` + 
               dashboardData.filament_types.map((t: any) => 
-                `<tr style="cursor: pointer;" onclick="window.location.href='/spools?material=${encodeURIComponent(t.type)}'"><td>${t.type}</td><td style="text-align: right; font-family: monospace;">${t.count}</td></tr>`
+                `<tr style="cursor: pointer;" onclick="window.location.href='/spools?material=${encodeURIComponent(t.material_type)}'"><td>${t.material_type}</td><td style="text-align: right; font-family: monospace;">${t.count}</td></tr>`
               ).join('') +
               `</tbody></table>`
           }

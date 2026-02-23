@@ -318,7 +318,7 @@ const { id } = Astro.params
         ` : ''}
       `
       
-      const printUrl = `/spools/${spool.id}/print?designation=${encodeURIComponent(spool.filament?.designation || '')}&mfr=${encodeURIComponent(spool.filament?.manufacturer?.name || '')}&type=${encodeURIComponent(spool.filament?.type || '')}&color=${encodeURIComponent(spool.filament?.manufacturer_color_name || '')}`
+      const printUrl = `/spools/${spool.id}/print?designation=${encodeURIComponent(spool.filament?.designation || '')}&mfr=${encodeURIComponent(spool.filament?.manufacturer?.name || '')}&type=${encodeURIComponent(spool.filament?.material_type || '')}&color=${encodeURIComponent(spool.filament?.manufacturer_color_name || '')}`
       const printBtn = document.getElementById('btn-print-label') as HTMLAnchorElement
       if (printBtn) printBtn.href = printUrl
       
@@ -479,7 +479,7 @@ const { id } = Astro.params
       qrContainer.innerHTML = ''
       idEl.textContent = `#${spool.id}`
       filEl.textContent = spool.filament?.designation || ''
-      mfrEl.textContent = `${spool.filament?.manufacturer?.name || ''} - ${spool.filament?.type || ''}`
+      mfrEl.textContent = `${spool.filament?.manufacturer?.name || ''} - ${spool.filament?.material_type || ''}`
       colEl.textContent = spool.filament?.manufacturer_color_name || ''
 
       const url = window.location.origin + '/spools/' + spool.id

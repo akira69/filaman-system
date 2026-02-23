@@ -158,7 +158,7 @@ import Layout from '../../layouts/Layout.astro'
         if (manufacturerId && String(f.manufacturer_id) !== manufacturerId) return false
 
         // Type filter
-        if (type && f.type !== type) return false
+        if (type && f.material_type !== type) return false
 
         // Color filter
         if (color) {
@@ -179,7 +179,7 @@ import Layout from '../../layouts/Layout.astro'
             if (fc.display_name_override) parts.push(fc.display_name_override.toLowerCase())
             return parts.join(' ')
           }).join(' ')
-          const typeName = (f.type || '').toLowerCase()
+          const typeName = (f.material_type || '').toLowerCase()
           const mfColorName = (f.manufacturer_color_name || '').toLowerCase()
 
           const haystack = `${designation} ${manufacturerName} ${colorNames} ${typeName} ${mfColorName}`
@@ -229,7 +229,7 @@ import Layout from '../../layouts/Layout.astro'
       // Types
       const typeSelect = document.getElementById('filter-type') as HTMLSelectElement
       const types = new Set<string>()
-      filaments.forEach(f => { if (f.type) types.add(f.type) })
+      filaments.forEach(f => { if (f.material_type) types.add(f.material_type) })
       const sortedTypes = [...types].sort()
       sortedTypes.forEach(type => {
         const opt = document.createElement('option')
@@ -324,7 +324,7 @@ import Layout from '../../layouts/Layout.astro'
             ${f.manufacturer_color_name ? `<div style="font-size: 0.85rem; color: var(--text-muted);">${f.manufacturer_color_name}</div>` : ''}
           </td>
           <td style="padding: 12px;">${renderColorDots(f.colors)}</td>
-          <td style="padding: 12px; color: var(--text-muted);">${f.type}</td>
+          <td style="padding: 12px; color: var(--text-muted);">${f.material_type}</td>
           <td style="padding: 12px; color: var(--text-muted);">${f.diameter_mm}mm</td>
           <td style="padding: 12px; color: var(--text-muted);">${f.manufacturer?.name || '-'}</td>
           <td style="padding: 12px; text-align: right; color: var(--text-muted);">${f.spool_count ?? 0}</td>

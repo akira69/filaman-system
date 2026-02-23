@@ -16,7 +16,7 @@ class ManufacturerSpoolCount(BaseModel):
 
 
 class FilamentTypeCount(BaseModel):
-    type: str
+    material_type: str
     count: int
 
 
@@ -296,7 +296,7 @@ async def get_dashboard_stats(
     ]
 
     filament_types = [
-        FilamentTypeCount(type=row[0], count=row[1])
+        FilamentTypeCount(material_type=row[0], count=row[1])
         for row in types_res.all()
     ]
 

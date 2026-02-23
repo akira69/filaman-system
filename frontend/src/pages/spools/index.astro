@@ -184,7 +184,7 @@ import Layout from '../../layouts/Layout.astro'
 
     function getMaterialType(spool: any): string {
       const fil = getFilamentForSpool(spool)
-      return fil ? fil.type : '-'
+      return fil ? fil.material_type : '-'
     }
 
     function getSortValue(item: any, key: string): any {
@@ -233,12 +233,12 @@ import Layout from '../../layouts/Layout.astro'
         }
         if (material) {
           const fil = getFilamentForSpool(s)
-          if (!fil || fil.type !== material) return false
+          if (!fil || fil.material_type !== material) return false
         }
         if (search) {
           const fil = getFilamentForSpool(s)
           const filName = fil ? (fil.designation || '').toLowerCase() : ''
-          const filType = fil ? (fil.type || '').toLowerCase() : ''
+          const filType = fil ? (fil.material_type || '').toLowerCase() : ''
           const mfName = fil?.manufacturer?.name ? fil.manufacturer.name.toLowerCase() : ''
           const mfColorName = fil ? (fil.manufacturer_color_name || '').toLowerCase() : ''
           const colorNames = fil && fil.colors ? fil.colors.map((fc: any) => {
@@ -298,7 +298,7 @@ import Layout from '../../layouts/Layout.astro'
 
       const matSelect = document.getElementById('filter-material') as HTMLSelectElement
       const materials = new Set<string>()
-      filaments.forEach(f => { if (f.type) materials.add(f.type) })
+      filaments.forEach(f => { if (f.material_type) materials.add(f.material_type) })
       const sortedMats = [...materials].sort()
       sortedMats.forEach(mat => {
         const opt = document.createElement('option')
@@ -395,7 +395,7 @@ import Layout from '../../layouts/Layout.astro'
     
     function getFilamentName(filamentId: number): string {
       const f = filaments.find(f => f.id === filamentId)
-      return f ? `${f.designation} (${f.type})` : `#${filamentId}`
+      return f ? `${f.designation} (${f.material_type})` : `#${filamentId}`
     }
 
     function getStatusLabel(statusId: number): string {
@@ -521,7 +521,7 @@ import Layout from '../../layouts/Layout.astro'
         if (!groups.has(groupKey)) {
           const colorDots = getColorDots(s)
           groups.set(groupKey, {
-            label: fil ? `${fil.designation} (${fil.type})` : `#${s.filament_id}`,
+            label: fil ? `${fil.designation} (${fil.material_type})` : `#${s.filament_id}`,
             colorDots,
             manufacturer: getManufacturerName(s),
             material: getMaterialType(s),
