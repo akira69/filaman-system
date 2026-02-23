@@ -65,3 +65,4 @@ coverage/
 spec
 bump-version.sh
 _layout
+local_cache
