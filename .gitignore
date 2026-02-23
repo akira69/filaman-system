@@ -64,5 +64,5 @@ coverage/
 *.db
 spec
 bump-version.sh
-_layout
+_*
 local_cache
