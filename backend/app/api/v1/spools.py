@@ -40,8 +40,14 @@ async def list_locations(
     # Query Locations with Spool Count
     stmt = (
         select(Location, func.count(Spool.id).label("spool_count"))
-        .outerjoin(Spool, Spool.location_id == Location.id)
-        .where(Spool.status_id != select(SpoolStatus.id).where(SpoolStatus.key == "archived").scalar_subquery())
+        .outerjoin(
+            Spool,
+            (Spool.location_id == Location.id)
+            & (
+                Spool.status_id
+                != select(SpoolStatus.id).where(SpoolStatus.key == "archived").scalar_subquery()
+            ),
+        )
         .group_by(Location.id)
         .order_by(Location.name)
         .offset((page - 1) * page_size)

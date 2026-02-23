@@ -207,10 +207,15 @@ async def get_dashboard_stats(
             func.count(Spool.id).label("spool_count"),
             func.coalesce(func.sum(Spool.remaining_weight_g), 0).label("total_weight"),
         )
-        .outerjoin(Spool, Spool.location_id == Location.id)
-        .outerjoin(SpoolStatus, Spool.status_id == SpoolStatus.id)
+        .outerjoin(
+            Spool,
+            (Spool.location_id == Location.id)
+            & (
+                Spool.status_id
+                != select(SpoolStatus.id).where(SpoolStatus.key == "archived").scalar_subquery()
+            ),
+        )
         .where(Location.name.isnot(None))
-        .where((SpoolStatus.key != "archived") | (SpoolStatus.key.is_(None)))
         .group_by(Location.id, Location.name)
         .order_by(func.count(Spool.id).desc())
     )
@@ -303,7 +308,6 @@ async def get_dashboard_stats(
             total_weight_g=float(row[3]),
         )
         for row in loc_res.all()
-        if row[2] and row[2] > 0
     ]
 
     return DashboardStatsResponse(
