@@ -749,7 +749,7 @@ import Layout from '../../layouts/Layout.astro'
       const data: any = {
         manufacturer_id: parseInt(formData.get('manufacturer_id') as string),
         designation: formData.get('designation'),
-        type: filamentType,
+        material_type: filamentType,
         diameter_mm: parseFloat(formData.get('diameter_mm') as string),
         color_mode: colorMode,
         colors: selectedColorIds.map((cid, idx) => ({
