@@ -119,7 +119,7 @@ jobs:
             # echo ""
 
             if [ -n "$PREV_TAG" ]; then
-              echo "**Full diff:** https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
+              echo "**Full diff:** https://github.com/Fire-Devils/filaman-system/compare/${PREV_TAG}...${TAG}"
             fi
           } > RELEASE_NOTES.md
 
