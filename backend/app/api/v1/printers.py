@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.schemas import PaginatedResponse
-from app.models import Location, Printer, PrinterSlot
+from app.models import Location, Printer, PrinterSlot, PrinterSlotAssignment, Spool, Filament, FilamentColor
 from app.plugins.manager import plugin_manager
 
 logger = logging.getLogger(__name__)
@@ -30,16 +30,31 @@ class PrinterUpdate(BaseModel):
 
 
 
+class SlotAssignmentResponse(BaseModel):
+    present: bool = False
+    spool_id: int | None = None
+    spool_name: str | None = None
+    filament_name: str | None = None
+    manufacturer_name: str | None = None
+    material_type: str | None = None
+    color_hex: str | None = None
+    color_name: str | None = None
+    tray_color: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class SlotResponse(BaseModel):
     id: int
     printer_id: int
     slot_no: int
     name: str | None
     is_active: bool
+    assignment: SlotAssignmentResponse | None = None
 
     class Config:
         from_attributes = True
-
 
 class PrinterResponse(BaseModel):
     id: int
@@ -115,7 +130,16 @@ async def get_printer(
     result = await db.execute(
         select(Printer)
         .where(Printer.id == printer_id, Printer.deleted_at.is_(None))
-        .options(selectinload(Printer.slots))
+        .options(
+            selectinload(Printer.slots)
+            .selectinload(PrinterSlot.assignment)
+            .selectinload(PrinterSlotAssignment.spool)
+            .selectinload(Spool.filament)
+            .options(
+                selectinload(Filament.manufacturer),
+                selectinload(Filament.filament_colors).selectinload(FilamentColor.color),
+            )
+        )
     )
     printer = result.scalar_one_or_none()
 
@@ -125,7 +149,65 @@ async def get_printer(
             detail={"code": "not_found", "message": "Printer not found"},
         )
 
-    return printer
+    # Build slot responses with flattened assignment info
+    slot_responses = []
+    for slot in sorted(printer.slots, key=lambda s: s.slot_no):
+        assignment_data = None
+        if slot.assignment:
+            a = slot.assignment
+            spool = a.spool
+            spool_name = None
+            filament_name = None
+            manufacturer_name = None
+            material_type = None
+            color_hex = None
+            color_name = None
+            if spool:
+                filament = spool.filament
+                spool_name = f"#{spool.id}"
+                if filament:
+                    filament_name = filament.designation
+                    material_type = filament.material_type
+                    if filament.manufacturer:
+                        manufacturer_name = filament.manufacturer.name
+                        spool_name = f"{filament.manufacturer.name} {filament.designation}"
+                    else:
+                        spool_name = filament.designation
+                    if filament.filament_colors:
+                        first_color = filament.filament_colors[0].color
+                        color_hex = first_color.hex_code
+                        color_name = first_color.name
+            tray_color = (a.meta or {}).get("tray_color")
+            assignment_data = SlotAssignmentResponse(
+                present=a.present,
+                spool_id=a.spool_id,
+                spool_name=spool_name,
+                filament_name=filament_name,
+                manufacturer_name=manufacturer_name,
+                material_type=material_type,
+                color_hex=color_hex,
+                color_name=color_name,
+                tray_color=tray_color,
+            )
+        slot_responses.append(SlotResponse(
+            id=slot.id,
+            printer_id=slot.printer_id,
+            slot_no=slot.slot_no,
+            name=slot.name,
+            is_active=slot.is_active,
+            assignment=assignment_data,
+        ))
+
+    return PrinterDetailResponse(
+        id=printer.id,
+        name=printer.name,
+        location_id=printer.location_id,
+        is_active=printer.is_active,
+        driver_key=printer.driver_key,
+        custom_fields=printer.custom_fields,
+        driver_config=printer.driver_config,
+        slots=slot_responses,
+    )
 
 
 @router.patch("/{printer_id}", response_model=PrinterResponse)

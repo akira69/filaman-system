@@ -395,7 +395,11 @@
     "stopDriver": "Treiber stoppen",
     "driverStarting": "Wird gestartet...",
     "driverStopping": "Wird gestoppt...",
-    "checkAll": "Alle Drucker prüfen"
+    "checkAll": "Alle Drucker prüfen",
+    "externalSlot": "Externer Slot",
+    "slotOccupied": "Belegt",
+    "slotEmpty": "Leer",
+    "unknownFilament": "Unbekanntes Filament"
   },
   "locations": {
     "title": "Standorte",

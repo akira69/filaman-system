@@ -3,6 +3,7 @@ import logging
 from typing import Any, Callable
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import async_session_maker
@@ -33,14 +34,18 @@ class PluginManager:
     def _create_event_handler(self, printer_id: int) -> Callable[[dict], None]:
         def handler(event: dict) -> None:
             import asyncio
-
-            asyncio.create_task(self._handle_event(printer_id, event))
+            logger.debug(f"Event handler called for printer {printer_id}: {event.get('event_type')}")
+            try:
+                asyncio.create_task(self._handle_event(printer_id, event))
+            except Exception as e:
+                logger.error(f"Failed to create task for event: {e}", exc_info=True)
 
         return handler
 
     async def _handle_event(self, printer_id: int, event: dict) -> None:
         event_type = event.get("event_type")
-        logger.info(f"Received event {event_type} for printer {printer_id}")
+        slots_count = len(event.get("slots", []))
+        logger.info(f"Received event {event_type} for printer {printer_id} (slots: {slots_count})")
 
         if event_type == "slots_update":
             await self._handle_slots_update(printer_id, event.get("slots", []), event.get("ams_info"))
@@ -71,15 +76,18 @@ class PluginManager:
                         slot_name = slot_data.get("slot_name", f"Slot {slot_no}")
                         present = slot_data.get("present", False)
 
-                        # Upsert PrinterSlot
+                        # Upsert PrinterSlot — eager-load assignment to avoid MissingGreenlet
                         result = await db.execute(
-                            select(PrinterSlot).where(
+                            select(PrinterSlot)
+                            .options(selectinload(PrinterSlot.assignment))
+                            .where(
                                 PrinterSlot.printer_id == printer_id,
                                 PrinterSlot.slot_no == slot_no,
                             )
                         )
                         printer_slot = result.scalar_one_or_none()
 
+                        is_new = False
                         if not printer_slot:
                             printer_slot = PrinterSlot(
                                 printer_id=printer_id,
@@ -90,6 +98,7 @@ class PluginManager:
                             )
                             db.add(printer_slot)
                             await db.flush()
+                            is_new = True
                         else:
                             printer_slot.name = slot_name
                             printer_slot.custom_fields = {
@@ -105,7 +114,16 @@ class PluginManager:
                                 meta[key] = slot_data[key]
 
                         # Upsert PrinterSlotAssignment
-                        if printer_slot.assignment:
+                        # For new slots, always create assignment (no lazy-load risk)
+                        # For existing slots, assignment is eager-loaded via selectinload
+                        if is_new:
+                            assignment = PrinterSlotAssignment(
+                                slot_id=printer_slot.id,
+                                present=present,
+                                meta=meta,
+                            )
+                            db.add(assignment)
+                        elif printer_slot.assignment:
                             printer_slot.assignment.present = present
                             printer_slot.assignment.meta = meta
                         else:
@@ -115,7 +133,6 @@ class PluginManager:
                                 meta=meta,
                             )
                             db.add(assignment)
-
                     await db.commit()
                     logger.info(f"Updated {len(slots_data)} slots for printer {printer_id}")
 

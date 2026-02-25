@@ -182,19 +182,62 @@ const { id } = Astro.params
       if (printer.slots && printer.slots.length > 0) {
         const slotItems = printer.slots
           .sort((a: any, b: any) => a.slot_no - b.slot_no)
-          .map((s: any) => `
-            <div class="fm-card" style="padding: 10px 14px;">
-              <div style="font-weight: 600; font-size: 0.95rem;">${escapeHtml(s.name || t('printers.slotLabel').replace('{no}', s.slot_no))}</div>
-              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-                ${s.is_active ? t('common.active') : t('common.inactive')}
-              </div>
-            </div>`)
+          .map((s: any) => {
+            const a = s.assignment
+            const isExt = s.slot_no >= 1000
+            const slotLabel = escapeHtml(s.name || (isExt ? t('printers.externalSlot') : t('printers.slotLabel').replace('{no}', s.slot_no)))
+
+            // Color indicator from assignment
+            let colorDot = ''
+            let colorHex = a?.color_hex || a?.tray_color || ''
+            // Normalize: add # prefix, strip alpha channel if 8-char hex
+            if (colorHex && !colorHex.startsWith('#')) colorHex = '#' + colorHex
+            if (colorHex.length === 9) colorHex = colorHex.slice(0, 7) // strip alpha
+            if (colorHex.length >= 7) {
+              colorDot = `<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${colorHex};border:1px solid var(--border);flex-shrink:0;"></span>`
+            }
+
+            // Occupied info
+            let occupiedHtml = ''
+            if (a && a.present) {
+              if (a.spool_id && a.spool_name) {
+                occupiedHtml = `
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+                    ${colorDot}
+                    <a href="/spools/${a.spool_id}" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500;" onclick="event.stopPropagation()">${escapeHtml(a.spool_name)}</a>
+                  </div>
+                  <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${escapeHtml(a.material_type || '')}</div>`
+              } else {
+                occupiedHtml = `
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+                    ${colorDot}
+                    <span style="font-size:0.85rem;color:var(--text-muted);font-style:italic;">${t('printers.unknownFilament')}</span>
+                  </div>`
+              }
+            } else {
+              occupiedHtml = `<div style="font-size:0.85rem;color:var(--text-muted);margin-top:6px;">${t('printers.slotEmpty')}</div>`
+            }
+
+            // Status badge
+            const presentBadge = a?.present
+              ? `<span style="padding:2px 8px;font-size:0.7rem;border-radius:999px;background:var(--bg-soft);color:#22c55e;">${t('printers.slotOccupied')}</span>`
+              : `<span style="padding:2px 8px;font-size:0.7rem;border-radius:999px;background:var(--bg-soft);color:var(--text-muted);">${t('printers.slotEmpty')}</span>`
+
+            return `
+              <div class="fm-card" style="padding:12px 14px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <div style="font-weight:600;font-size:0.95rem;">${slotLabel}</div>
+                  ${presentBadge}
+                </div>
+                ${occupiedHtml}
+              </div>`
+          })
           .join('')
 
         slotsSection = `
           <div style="margin-top: 24px;">
             <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 12px;">${t('printers.slots').replace('{count}', printer.slots.length)}</h2>
-            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;">
               ${slotItems}
             </div>
           </div>`

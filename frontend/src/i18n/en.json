@@ -391,7 +391,11 @@
     "stopDriver": "Stop Driver",
     "driverStarting": "Starting...",
     "driverStopping": "Stopping...",
-    "checkAll": "Check All Printers"
+    "checkAll": "Check All Printers",
+    "externalSlot": "External Spool",
+    "slotOccupied": "Occupied",
+    "slotEmpty": "Empty",
+    "unknownFilament": "Unknown filament"
   },
   "locations": {
     "title": "Locations",
