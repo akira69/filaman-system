@@ -390,7 +390,11 @@
     "clearLog": "Leeren",
     "noDebugMessages": "Noch keine Nachrichten",
     "incoming": "IN",
-    "outgoing": "OUT"
+    "outgoing": "OUT",
+    "startDriver": "Treiber starten",
+    "stopDriver": "Treiber stoppen",
+    "driverStarting": "Wird gestartet...",
+    "driverStopping": "Wird gestoppt..."
   },
   "locations": {
     "title": "Standorte",

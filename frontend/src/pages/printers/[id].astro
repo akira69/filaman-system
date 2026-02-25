@@ -202,6 +202,10 @@ const { id } = Astro.params
           statusDot = 'background: var(--error-text);'
           statusText = t('printers.disconnected')
         }
+        const isRunning = driverHealth?.running
+        const startStopBtn = isRunning
+          ? `<button id="btn-driver-toggle" class="fm-btn fm-btn-outline" style="font-size: 0.85rem;">${t('printers.stopDriver')}</button>`
+          : `<button id="btn-driver-toggle" class="fm-btn fm-btn-primary" style="font-size: 0.85rem;">${t('printers.startDriver')}</button>`
         connectionSection = `
           <div class="fm-card" style="margin-top: 24px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -209,7 +213,10 @@ const { id } = Astro.params
                 <span id="health-dot" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; ${statusDot}"></span>
                 <span id="health-text" style="font-weight: 600;">${statusText}</span>
               </div>
-              <button id="btn-debug-console" class="fm-btn fm-btn-outline" style="font-size: 0.85rem;">${t('printers.debugConsole')}</button>
+              <div style="display: flex; gap: 8px;">
+                ${startStopBtn}
+                <button id="btn-debug-console" class="fm-btn fm-btn-outline" style="font-size: 0.85rem;">${t('printers.debugConsole')}</button>
+              </div>
             </div>
           </div>`
       }
@@ -344,6 +351,37 @@ const { id } = Astro.params
       if (editingConfig) {
         bindConfigForm()
       }
+
+      // Driver start/stop button
+      document.getElementById('btn-driver-toggle')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-driver-toggle') as HTMLButtonElement
+        const isRunning = driverHealth?.running
+        const endpoint = isRunning ? 'stop' : 'start'
+
+        btn.disabled = true
+        btn.textContent = isRunning ? t('printers.driverStopping') : t('printers.driverStarting')
+
+        try {
+          const response = await fetch(`/api/v1/printers/${id}/driver/${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            credentials: 'include',
+          })
+
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}))
+            throw new Error(data.detail?.message || 'Failed')
+          }
+
+          // Give driver a moment to connect, then refresh
+          await new Promise(r => setTimeout(r, 1000))
+          await loadDriverHealth()
+          renderPrinter()
+        } catch (err: any) {
+          await (window as any).__fmAlert(err.message || t('printers.failedUpdate'))
+          btn.disabled = false
+        }
+      })
 
       // Debug console button
       document.getElementById('btn-debug-console')?.addEventListener('click', () => {

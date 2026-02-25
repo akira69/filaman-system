@@ -386,7 +386,11 @@
     "clearLog": "Clear",
     "noDebugMessages": "No messages yet",
     "incoming": "IN",
-    "outgoing": "OUT"
+    "outgoing": "OUT",
+    "startDriver": "Start Driver",
+    "stopDriver": "Stop Driver",
+    "driverStarting": "Starting...",
+    "driverStopping": "Stopping..."
   },
   "locations": {
     "title": "Locations",

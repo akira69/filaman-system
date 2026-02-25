@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -8,6 +10,7 @@ from app.api.v1.schemas import PaginatedResponse
 from app.models import Location, Printer, PrinterSlot
 from app.plugins.manager import plugin_manager
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/printers", tags=["printers"])
 
 
@@ -92,6 +95,13 @@ async def create_printer(
     db.add(printer)
     await db.commit()
     await db.refresh(printer)
+
+    # Auto-start driver if printer is active (default)
+    if printer.is_active and printer.driver_key:
+        started = await plugin_manager.start_printer(printer)
+        if not started:
+            logger.warning(f"Driver {printer.driver_key} could not be started for new printer {printer.id}")
+
     return printer
 
 
@@ -135,11 +145,28 @@ async def update_printer(
             detail={"code": "not_found", "message": "Printer not found"},
         )
 
-    for key, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    driver_changed = "driver_key" in updates or "driver_config" in updates
+    active_changed = "is_active" in updates and updates["is_active"] != printer.is_active
+
+    for key, value in updates.items():
         setattr(printer, key, value)
 
     await db.commit()
     await db.refresh(printer)
+
+    # Handle driver lifecycle on relevant changes
+    if active_changed and not printer.is_active:
+        # Deactivated → stop driver
+        await plugin_manager.stop_printer(printer_id)
+    elif active_changed and printer.is_active:
+        # Activated → start driver
+        await plugin_manager.start_printer(printer)
+    elif driver_changed and printer.is_active:
+        # Config/key changed while active → restart
+        await plugin_manager.stop_printer(printer_id)
+        await plugin_manager.start_printer(printer)
+
     return printer
 
 
@@ -161,6 +188,9 @@ async def delete_printer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "not_found", "message": "Printer not found"},
         )
+
+    # Stop driver before soft-delete
+    await plugin_manager.stop_printer(printer_id)
 
     printer.deleted_at = datetime.utcnow()
     await db.commit()
@@ -269,3 +299,57 @@ async def driver_debug_log(
             detail={"code": "driver_not_running", "message": "Driver is not running for this printer"},
         )
     return driver.get_debug_log(since_ts=since)
+
+
+@router.post("/{printer_id}/driver/start", response_model=DriverActionResponse)
+async def start_driver(
+    printer_id: int,
+    db: DBSession,
+    principal=RequirePermission("printers:update"),
+):
+    result = await db.execute(
+        select(Printer).where(Printer.id == printer_id, Printer.deleted_at.is_(None))
+    )
+    printer = result.scalar_one_or_none()
+
+    if not printer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Printer not found"},
+        )
+
+    if printer_id in plugin_manager.drivers:
+        return DriverActionResponse(success=True, message="Driver already running")
+
+    started = await plugin_manager.start_printer(printer)
+    if not started:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "start_failed", "message": "Driver could not be started"},
+        )
+
+    return DriverActionResponse(success=True, message="Driver started")
+
+
+@router.post("/{printer_id}/driver/stop", response_model=DriverActionResponse)
+async def stop_driver(
+    printer_id: int,
+    db: DBSession,
+    principal=RequirePermission("printers:update"),
+):
+    result = await db.execute(
+        select(Printer).where(Printer.id == printer_id, Printer.deleted_at.is_(None))
+    )
+    printer = result.scalar_one_or_none()
+
+    if not printer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Printer not found"},
+        )
+
+    if printer_id not in plugin_manager.drivers:
+        return DriverActionResponse(success=True, message="Driver not running")
+
+    await plugin_manager.stop_printer(printer_id)
+    return DriverActionResponse(success=True, message="Driver stopped")
