@@ -21,12 +21,13 @@ import Layout from '../../layouts/Layout.astro'
           <th data-i18n="printers.name">Name</th>
           <th data-i18n="printers.driver">Driver</th>
           <th data-i18n="common.status">Status</th>
+          <th data-i18n="common.online">Online</th>
           <th style="text-align: right;" data-i18n="common.actions">Actions</th>
         </tr>
       </thead>
       <tbody id="printers-table">
         <tr>
-          <td colspan="4" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
+          <td colspan="5" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
         </tr>
       </tbody>
     </table>
@@ -93,23 +94,50 @@ import Layout from '../../layouts/Layout.astro'
         
         printers = await response.json().then(d => d.items)
         renderPrinters()
+        fetchHealthForAll()
       } catch (error) {
         console.error('Failed to load printers:', error)
         document.getElementById('printers-table')!.innerHTML = `
           <tr>
-            <td colspan="4" style="text-align: center; color: var(--error-text);">${t('printers.failedLoad')}</td>
+            <td colspan="5" style="text-align: center; color: var(--error-text);">${t('printers.failedLoad')}</td>
           </tr>
         `
       }
     }
     
+    async function fetchHealthForAll() {
+      await Promise.all(printers.map(async (p: any) => {
+        const badge = document.getElementById(`online-badge-${p.id}`)
+        if (!badge) return
+        try {
+          const resp = await fetch(`/api/v1/printers/${p.id}/driver/health`, { credentials: 'include' })
+          if (!resp.ok) {
+            badge.textContent = t('common.offline')
+            badge.style.color = 'var(--text-muted)'
+            return
+          }
+          const health = await resp.json()
+          if (health.running && health.connected) {
+            badge.textContent = t('common.online')
+            badge.style.color = '#22c55e'
+          } else {
+            badge.textContent = t('common.offline')
+            badge.style.color = 'var(--error-text)'
+          }
+        } catch {
+          badge.textContent = t('common.offline')
+          badge.style.color = 'var(--text-muted)'
+        }
+      }))
+    }
+
     function renderPrinters() {
       const tbody = document.getElementById('printers-table')!
       
       if (printers.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="4" style="text-align: center; color: var(--text-muted);">
+            <td colspan="5" style="text-align: center; color: var(--text-muted);">
               ${t('printers.noPrinters')}
             </td>
           </tr>
@@ -127,6 +155,9 @@ import Layout from '../../layouts/Layout.astro'
             <span style="padding: 2px 8px; font-size: 0.75rem; border-radius: 999px; background: var(--bg-soft); color: ${p.is_active ? 'var(--accent-2)' : 'var(--error-text)'};">
               ${p.is_active ? t('common.active') : t('common.inactive')}
             </span>
+          </td>
+          <td style="padding: 12px;">
+            <span id="online-badge-${p.id}" style="padding: 2px 8px; font-size: 0.75rem; border-radius: 999px; background: var(--bg-soft); color: var(--text-muted);">—</span>
           </td>
           <td style="padding: 12px; text-align: right;" onclick="event.stopPropagation()">
             <button data-id="${p.id}" data-name="${p.name}" data-driver="${p.driver_key}" class="btn-edit" style="color: var(--accent); background: none; border: none; cursor: pointer; margin-right: 12px;">${t('common.edit')}</button>

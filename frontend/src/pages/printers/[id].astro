@@ -196,7 +196,7 @@ const { id } = Astro.params
           statusDot = 'background: var(--text-muted);'
           statusText = t('printers.driverNotRunning')
         } else if (driverHealth.connected) {
-          statusDot = 'background: var(--accent-2);'
+          statusDot = 'background: #22c55e;'
           statusText = t('printers.connected')
         } else {
           statusDot = 'background: var(--error-text);'
@@ -489,7 +489,7 @@ const { id } = Astro.params
               dot.style.background = 'var(--text-muted)'
               txt.textContent = t('printers.driverNotRunning')
             } else if (driverHealth.connected) {
-              dot.style.background = 'var(--accent-2)'
+              dot.style.background = '#22c55e'
               txt.textContent = t('printers.connected')
             } else {
               dot.style.background = 'var(--error-text)'
