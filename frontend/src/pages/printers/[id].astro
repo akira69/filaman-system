@@ -19,76 +19,7 @@ const { id } = Astro.params
     <p style="color: var(--text-muted);" data-i18n="common.loading">Loading...</p>
   </div>
   
-  <div id="ams-section" class="hidden" style="margin-top: 32px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-      <h2 style="font-size: 1.3rem; font-weight: 600;" data-i18n="printers.amsUnits">AMS Units</h2>
-      <button
-        id="btn-add-ams"
-        class="fm-btn fm-btn-primary"
-        style="font-size: 0.85rem;"
-        data-i18n="printers.addAmsUnit"
-      >
-        Add AMS Unit
-      </button>
-    </div>
-    <div id="ams-units" style="display: flex; flex-direction: column; gap: 16px;"></div>
-  </div>
   
-  <div id="modal-container" class="fm-modal-overlay">
-    <div class="fm-card" style="width: 100%; max-width: 28rem; margin: 0 1rem; padding: 24px;">
-      <h3 id="modal-title" style="font-size: 1.15rem; font-weight: 600; margin-bottom: 16px;" data-i18n="printers.addAmsUnit">Add AMS Unit</h3>
-      <form id="modal-form" style="display: flex; flex-direction: column; gap: 16px;">
-        <div>
-          <label for="ams-unit-no" class="fm-label" data-i18n="printers.unitNumber">
-            Unit Number *
-          </label>
-          <input
-            type="number"
-            id="ams-unit-no"
-            required
-            min="0"
-            value="0"
-            class="fm-input"
-          />
-        </div>
-        <div>
-          <label for="ams-name" class="fm-label" data-i18n="printers.unitName">
-            Name
-          </label>
-          <input
-            type="text"
-            id="ams-name"
-            data-i18n-placeholder="printers.unitNamePlaceholder"
-            placeholder="e.g. Left AMS"
-            class="fm-input"
-          />
-        </div>
-        <div>
-          <label for="ams-slots" class="fm-label" data-i18n="printers.numberOfSlots">
-            Number of Slots *
-          </label>
-          <input
-            type="number"
-            id="ams-slots"
-            required
-            min="1"
-            max="8"
-            value="4"
-            class="fm-input"
-          />
-        </div>
-        <div id="modal-error" class="fm-alert-error hidden"></div>
-        <div style="display: flex; gap: 12px;">
-          <button type="submit" id="modal-submit" class="fm-btn fm-btn-primary" data-i18n="common.add">
-            Add
-          </button>
-          <button type="button" id="modal-cancel" class="fm-btn fm-btn-outline" data-i18n="common.cancel">
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
   
   <script>
     import { t, initI18n } from '../../lib/i18n'
@@ -160,11 +91,6 @@ const { id } = Astro.params
               </span>
             </div>
           </div>
-          <div class="fm-card">
-            <div style="font-size: 0.85rem; color: var(--text-muted);">${t('printers.amsUnits')}</div>
-            <div style="font-size: 1.15rem; font-weight: 600; margin-top: 4px;">${printer.ams_units?.length || 0}</div>
-          </div>
-        </div>
       `
       
       document.getElementById('btn-delete')?.addEventListener('click', async () => {
@@ -209,87 +135,11 @@ const { id } = Astro.params
         }
       })
       
-      if (printer.ams_units && printer.ams_units.length > 0) {
-        document.getElementById('ams-section')!.classList.remove('hidden')
-        renderAmsUnits()
-      }
     }
     
-    function renderAmsUnits() {
-      const container = document.getElementById('ams-units')!
-      
-      container.innerHTML = printer.ams_units.map((unit: any) => `
-        <div class="fm-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <div>
-              <h3 style="font-weight: 600;">${unit.name || t('printers.amsUnitLabel', { no: unit.ams_unit_no })}</h3>
-              <p style="font-size: 0.85rem; color: var(--text-muted);">${t('printers.unitLabel', { no: unit.ams_unit_no })} · ${t('printers.slots', { count: unit.slots_total })}</p>
-            </div>
-            <span style="padding: 2px 8px; font-size: 0.75rem; border-radius: 999px; background: var(--bg-soft); ${unit.is_active ? 'color: var(--accent-2);' : 'color: var(--error-text);'}">
-              ${unit.is_active ? t('common.active') : t('common.inactive')}
-            </span>
-          </div>
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-            ${Array.from({ length: unit.slots_total }, (_, i) => `
-              <div style="padding: 12px; background: var(--bg-soft); border-radius: var(--radius-sm); text-align: center;">
-                <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px;">${t('printers.slotLabel', { no: i + 1 })}</div>
-                <div style="font-size: 0.85rem; font-weight: 500; color: var(--text-muted);">${t('common.empty')}</div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `).join('')
-    }
     
-    document.getElementById('btn-add-ams')?.addEventListener('click', () => {
-      document.getElementById('modal-container')!.classList.add('open')
-    })
     
-    document.getElementById('modal-cancel')?.addEventListener('click', () => {
-      document.getElementById('modal-container')!.classList.remove('open')
-    })
     
-    document.getElementById('modal-form')?.addEventListener('submit', async (e) => {
-      e.preventDefault()
-      
-      const unitNo = (document.getElementById('ams-unit-no') as HTMLInputElement).value
-      const name = (document.getElementById('ams-name') as HTMLInputElement).value || null
-      const slotsTotal = (document.getElementById('ams-slots') as HTMLInputElement).value
-      const error = document.getElementById('modal-error') as HTMLDivElement
-      const submitBtn = document.getElementById('modal-submit') as HTMLButtonElement
-      
-      error.classList.add('hidden')
-      submitBtn.disabled = true
-      submitBtn.textContent = t('printers.adding')
-      
-      try {
-        const params = new URLSearchParams({
-          ams_unit_no: unitNo,
-          slots_total: slotsTotal,
-        })
-        if (name) params.append('name', name)
-        
-        const response = await fetch(`/api/v1/printers/${id}/ams-units?${params.toString()}`, {
-          method: 'POST',
-          headers: { 'X-CSRF-Token': getCsrfToken() },
-          credentials: 'include',
-        })
-        
-        if (!response.ok) {
-          const data = await response.json()
-          throw new Error(data.message || t('printers.failedAddAms'))
-        }
-        
-      document.getElementById('modal-container')!.classList.remove('open')
-        loadPrinter()
-      } catch (err: any) {
-        error.textContent = err.message
-        error.classList.remove('hidden')
-      } finally {
-        submitBtn.disabled = false
-        submitBtn.textContent = t('common.add')
-      }
-    })
     
     loadPrinter()
   </script>

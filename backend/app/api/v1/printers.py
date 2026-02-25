@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.schemas import PaginatedResponse
-from app.models import Location, Printer, PrinterAmsUnit, PrinterSlot
+from app.models import Location, Printer, PrinterSlot
 
 router = APIRouter(prefix="/printers", tags=["printers"])
 
@@ -31,23 +31,10 @@ class PrinterUpdate(BaseModel):
     driver_config: dict | None = None
 
 
-class AmsUnitResponse(BaseModel):
-    id: int
-    printer_id: int
-    ams_unit_no: int
-    name: str | None
-    slots_total: int
-    is_active: bool
-
-    class Config:
-        from_attributes = True
-
 
 class SlotResponse(BaseModel):
     id: int
     printer_id: int
-    is_ams_slot: bool
-    ams_unit_id: int | None
     slot_no: int
     name: str | None
     is_active: bool
@@ -72,7 +59,6 @@ class PrinterResponse(BaseModel):
 
 class PrinterDetailResponse(PrinterResponse):
     driver_config: dict | None = None
-    ams_units: list[AmsUnitResponse] = []
     slots: list[SlotResponse] = []
 
 
@@ -126,7 +112,7 @@ async def get_printer(
     result = await db.execute(
         select(Printer)
         .where(Printer.id == printer_id, Printer.deleted_at.is_(None))
-        .options(selectinload(Printer.ams_units), selectinload(Printer.slots))
+        .options(selectinload(Printer.slots))
     )
     printer = result.scalar_one_or_none()
 
@@ -187,47 +173,6 @@ async def delete_printer(
     printer.deleted_at = datetime.utcnow()
     await db.commit()
 
-
-@router.post("/{printer_id}/ams-units", response_model=AmsUnitResponse, status_code=status.HTTP_201_CREATED)
-async def create_ams_unit(
-    printer_id: int,
-    ams_unit_no: int,
-    slots_total: int,
-    name: str | None = None,
-    db: DBSession = None,
-    principal = RequirePermission("printers:update"),
-):
-    result = await db.execute(
-        select(Printer).where(Printer.id == printer_id, Printer.deleted_at.is_(None))
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "not_found", "message": "Printer not found"},
-        )
-
-    ams_unit = PrinterAmsUnit(
-        printer_id=printer_id,
-        ams_unit_no=ams_unit_no,
-        name=name,
-        slots_total=slots_total,
-    )
-    db.add(ams_unit)
-    await db.commit()
-    await db.refresh(ams_unit)
-    return ams_unit
-
-
-@router.get("/{printer_id}/ams-units", response_model=list[AmsUnitResponse])
-async def list_ams_units(
-    printer_id: int,
-    db: DBSession,
-    principal: PrincipalDep,
-):
-    result = await db.execute(
-        select(PrinterAmsUnit).where(PrinterAmsUnit.printer_id == printer_id).order_by(PrinterAmsUnit.ams_unit_no)
-    )
-    return result.scalars().all()
 
 
 @router.get("/{printer_id}/slots", response_model=list[SlotResponse])

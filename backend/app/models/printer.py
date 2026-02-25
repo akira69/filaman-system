@@ -26,27 +26,11 @@ class Printer(Base, TimestampMixin):
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
 
     location: Mapped["Location"] = relationship(back_populates="printers")
-    ams_units: Mapped[list["PrinterAmsUnit"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+    slots: Mapped[list["PrinterSlot"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
     slots: Mapped[list["PrinterSlot"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
     slot_events: Mapped[list["PrinterSlotEvent"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
     filament_profiles: Mapped[list["FilamentPrinterProfile"]] = relationship(back_populates="printer")
 
-
-class PrinterAmsUnit(Base, TimestampMixin):
-    __tablename__ = "printer_ams_units"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    printer_id: Mapped[int] = mapped_column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False)
-    ams_unit_no: Mapped[int] = mapped_column(Integer, nullable=False)
-    name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    slots_total: Mapped[int] = mapped_column(Integer, nullable=False)
-    is_active: Mapped[bool] = mapped_column(default=True)
-    custom_fields: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
-
-    __table_args__ = (UniqueConstraint("printer_id", "ams_unit_no", name="uq_printer_ams_units_printer_unit"),)
-
-    printer: Mapped["Printer"] = relationship(back_populates="ams_units")
-    slots: Mapped[list["PrinterSlot"]] = relationship(back_populates="ams_unit")
 
 
 class PrinterSlot(Base, TimestampMixin):
@@ -55,8 +39,6 @@ class PrinterSlot(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     printer_id: Mapped[int] = mapped_column(Integer, ForeignKey("printers.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    is_ams_slot: Mapped[bool] = mapped_column(nullable=False)
-    ams_unit_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("printer_ams_units.id", ondelete="SET NULL"), nullable=True, index=True)
     slot_no: Mapped[int] = mapped_column(Integer, nullable=False)
 
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -64,10 +46,9 @@ class PrinterSlot(Base, TimestampMixin):
 
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
 
-    __table_args__ = (UniqueConstraint("printer_id", "is_ams_slot", "ams_unit_id", "slot_no", name="uq_printer_slots_unique"),)
+    __table_args__ = (UniqueConstraint("printer_id", "slot_no", name="uq_printer_slots_unique"),)
 
     printer: Mapped["Printer"] = relationship(back_populates="slots")
-    ams_unit: Mapped["PrinterAmsUnit"] = relationship(back_populates="slots")
     assignment: Mapped["PrinterSlotAssignment"] = relationship(back_populates="slot", uselist=False, cascade="all, delete-orphan")
     events: Mapped[list["PrinterSlotEvent"]] = relationship(back_populates="slot", cascade="all, delete-orphan")
 

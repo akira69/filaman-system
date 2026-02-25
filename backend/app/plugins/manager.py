@@ -1,15 +1,12 @@
 import importlib
 import logging
-from datetime import datetime
 from typing import Any, Callable
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_maker
 from app.models import Printer
 from app.plugins.base import BaseDriver
-from app.services.ams_slots_service import AmsSlotsService
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +18,10 @@ class EventEmitter:
 
     def emit(self, event_dict: dict[str, Any]) -> None:
         event_dict["printer_id"] = self.printer_id
-        if "event_at" not in event_dict:
-            event_dict["event_at"] = datetime.utcnow().isoformat()
         try:
             self.handler(event_dict)
         except Exception as e:
             logger.error(f"Error handling event for printer {self.printer_id}: {e}")
-
 
 class PluginManager:
     def __init__(self):
@@ -44,62 +38,7 @@ class PluginManager:
 
     async def _handle_event(self, printer_id: int, event: dict) -> None:
         event_type = event.get("event_type")
-        event_at_str = event.get("event_at")
-        event_at = datetime.fromisoformat(event_at_str) if event_at_str else datetime.utcnow()
-
-        async with async_session_maker() as db:
-            try:
-                service = AmsSlotsService(db)
-
-                if event_type == "spool_inserted":
-                    slot = event.get("slot", {})
-                    identifiers = event.get("identifiers", {})
-                    await service.apply_spool_inserted(
-                        printer_id=printer_id,
-                        slot_no=slot.get("slot_no", 1),
-                        event_at=event_at,
-                        rfid_uid=identifiers.get("rfid_uid"),
-                        external_id=identifiers.get("external_id"),
-                        ams_unit_no=slot.get("ams_unit_no"),
-                        meta=event.get("meta"),
-                    )
-
-                elif event_type == "spool_removed":
-                    slot = event.get("slot", {})
-                    await service.apply_spool_removed(
-                        printer_id=printer_id,
-                        slot_no=slot.get("slot_no", 1),
-                        event_at=event_at,
-                        ams_unit_no=slot.get("ams_unit_no"),
-                        meta=event.get("meta"),
-                    )
-
-                elif event_type == "unknown_spool_detected":
-                    slot = event.get("slot", {})
-                    identifiers = event.get("identifiers", {})
-                    await service.apply_unknown_spool_detected(
-                        printer_id=printer_id,
-                        slot_no=slot.get("slot_no", 1),
-                        event_at=event_at,
-                        rfid_uid=identifiers.get("rfid_uid"),
-                        external_id=identifiers.get("external_id"),
-                        ams_unit_no=slot.get("ams_unit_no"),
-                        meta=event.get("meta"),
-                    )
-
-                elif event_type == "ams_state":
-                    ams_units = event.get("ams_units", [])
-                    await service.apply_ams_state(
-                        printer_id=printer_id,
-                        state=ams_units,
-                        event_at=event_at,
-                    )
-
-                logger.info(f"Handled event {event_type} for printer {printer_id}")
-
-            except Exception as e:
-                logger.error(f"Error persisting event for printer {printer_id}: {e}")
-
+        logger.info(f"Received event {event_type} for printer {printer_id}")
     def load_driver(self, driver_key: str) -> type[BaseDriver] | None:
         try:
             module = importlib.import_module(f"app.plugins.{driver_key}.driver")
