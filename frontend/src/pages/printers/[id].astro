@@ -98,7 +98,13 @@ const { id } = Astro.params
         if (value === undefined || value === null) continue
         const label = escapeHtml((prop as any).title || key)
         const isSecret = key.toLowerCase().includes('code') || key.toLowerCase().includes('password') || key.toLowerCase().includes('secret') || key.toLowerCase().includes('token')
-        const displayValue = isSecret ? '••••••••' : escapeHtml(String(value))
+        let displayValue = isSecret ? '••••••••' : escapeHtml(String(value))
+        // Enum: Display-Name statt interner Wert anzeigen
+        const p = prop as any
+        if (p.enum && Array.isArray(p.enum) && p.enumNames) {
+          const idx = p.enum.indexOf(value)
+          if (idx >= 0 && p.enumNames[idx]) displayValue = escapeHtml(String(p.enumNames[idx]))
+        }
         html += `
           <div>
             <div style="font-size: 0.8rem; color: var(--text-muted);">${label}</div>
@@ -127,7 +133,14 @@ const { id } = Astro.params
         html += `<div>`
         html += `<label class="fm-label" for="config-${key}">${label}</label>`
 
-        if (p.type === 'integer' || p.type === 'number') {
+        if (p.enum && Array.isArray(p.enum)) {
+          const enumNames: string[] = p.enumNames || p.enum
+          const options = p.enum.map((val: string, i: number) => {
+            const selected = String(val) === String(value) ? ' selected' : ''
+            return `<option value="${escapeHtml(String(val))}"${selected}>${escapeHtml(String(enumNames[i] ?? val))}</option>`
+          }).join('')
+          html += `<select class="fm-input" id="config-${key}" name="${key}"${isRequired ? ' required' : ''}>${options}</select>`
+        } else if (p.type === 'integer' || p.type === 'number') {
           html += `<input class="fm-input" id="config-${key}" name="${key}" type="number" value="${escapeHtml(String(value))}"${p.minimum !== undefined ? ` min="${p.minimum}"` : ''}${p.maximum !== undefined ? ` max="${p.maximum}"` : ''}${isRequired ? ' required' : ''}>`
         } else {
           html += `<input class="fm-input" id="config-${key}" name="${key}" type="text" value="${escapeHtml(String(value))}"${isRequired ? ' required' : ''}>`
@@ -221,6 +234,31 @@ const { id } = Astro.params
           </div>`
       }
 
+      // AMS-Einheiten Section
+      let amsSection = ''
+      if (driverHealth?.running && driverHealth?.connected && driverHealth?.ams_units?.length > 0) {
+        const amsType = driverHealth.ams_type || 'AMS'
+        const amsItems = driverHealth.ams_units.map((ams: any) => {
+          const humidity = ams.humidity != null ? `${ams.humidity}%` : '—'
+          const temp = ams.temp != null ? `${ams.temp}°C` : '—'
+          return `
+            <div class="fm-card" style="padding: 12px 16px;">
+              <div style="font-weight: 600; font-size: 0.95rem;">${amsType} #${ams.ams_id}</div>
+              <div style="display: flex; gap: 16px; margin-top: 6px; font-size: 0.8rem; color: var(--text-muted);">
+                <span>💧 ${humidity}</span>
+                <span>🌡️ ${temp}</span>
+                <span>📥 ${ams.tray_count} Trays</span>
+              </div>
+            </div>`
+        }).join('')
+        amsSection = `
+          <div style="margin-top: 24px;">
+            <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 12px;">${amsType} (${driverHealth.ams_units.length})</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+              ${amsItems}
+            </div>
+          </div>`
+      }
       // Debug console section (hidden by default)
       let debugConsoleSection = ''
       if (debugOpen) {
@@ -287,6 +325,7 @@ const { id } = Astro.params
 
         ${configSection}
         ${connectionSection}
+        ${amsSection}
         ${slotsSection}
         ${debugConsoleSection}
       `

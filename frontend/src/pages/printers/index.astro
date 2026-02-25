@@ -22,12 +22,13 @@ import Layout from '../../layouts/Layout.astro'
           <th data-i18n="printers.driver">Driver</th>
           <th data-i18n="common.status">Status</th>
           <th data-i18n="common.online">Online</th>
+          <th>Slots</th>
           <th style="text-align: right;" data-i18n="common.actions">Actions</th>
         </tr>
       </thead>
       <tbody id="printers-table">
         <tr>
-          <td colspan="5" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
+          <td colspan="6" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
         </tr>
       </tbody>
     </table>
@@ -99,7 +100,7 @@ import Layout from '../../layouts/Layout.astro'
         console.error('Failed to load printers:', error)
         document.getElementById('printers-table')!.innerHTML = `
           <tr>
-            <td colspan="5" style="text-align: center; color: var(--error-text);">${t('printers.failedLoad')}</td>
+            <td colspan="6" style="text-align: center; color: var(--error-text);">${t('printers.failedLoad')}</td>
           </tr>
         `
       }
@@ -108,6 +109,7 @@ import Layout from '../../layouts/Layout.astro'
     async function fetchHealthForAll() {
       await Promise.all(printers.map(async (p: any) => {
         const badge = document.getElementById(`online-badge-${p.id}`)
+        const slotsEl = document.getElementById(`slots-info-${p.id}`)
         if (!badge) return
         try {
           const resp = await fetch(`/api/v1/printers/${p.id}/driver/health`, { credentials: 'include' })
@@ -124,6 +126,17 @@ import Layout from '../../layouts/Layout.astro'
             badge.textContent = t('common.offline')
             badge.style.color = 'var(--error-text)'
           }
+          // Slot info from driver
+          if (slotsEl && health.running && health.connected) {
+            const parts: string[] = []
+            if (health.ams_count > 0) parts.push(`${health.ams_count} AMS`)
+            if (health.slot_count > 0) parts.push(`${health.slot_count} Slots`)
+            if (health.external_spool) parts.push('1 Ext.')
+            if (parts.length > 0) {
+              slotsEl.textContent = parts.join(' \u00b7 ')
+              slotsEl.style.color = 'var(--text)'
+            }
+          }
         } catch {
           badge.textContent = t('common.offline')
           badge.style.color = 'var(--text-muted)'
@@ -137,7 +150,7 @@ import Layout from '../../layouts/Layout.astro'
       if (printers.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="5" style="text-align: center; color: var(--text-muted);">
+            <td colspan="6" style="text-align: center; color: var(--text-muted);">
               ${t('printers.noPrinters')}
             </td>
           </tr>
@@ -158,6 +171,9 @@ import Layout from '../../layouts/Layout.astro'
           </td>
           <td style="padding: 12px;">
             <span id="online-badge-${p.id}" style="padding: 2px 8px; font-size: 0.75rem; border-radius: 999px; background: var(--bg-soft); color: var(--text-muted);">—</span>
+          </td>
+          <td style="padding: 12px;">
+            <span id="slots-info-${p.id}" style="font-size: 0.8rem; color: var(--text-muted);">—</span>
           </td>
           <td style="padding: 12px; text-align: right;" onclick="event.stopPropagation()">
             <button data-id="${p.id}" data-name="${p.name}" data-driver="${p.driver_key}" class="btn-edit" style="color: var(--accent); background: none; border: none; cursor: pointer; margin-right: 12px;">${t('common.edit')}</button>
@@ -329,29 +345,49 @@ import Layout from '../../layouts/Layout.astro'
         label.textContent = (prop.title || key) + (required.includes(key) ? ' *' : '')
         div.appendChild(label)
         
-        const input = document.createElement('input')
-        input.id = `config-${key}`
-        input.name = key
-        input.className = 'fm-input'
-        
-        if (prop.type === 'integer' || prop.type === 'number') {
-          input.type = 'number'
-          if (prop.minimum !== undefined) input.min = String(prop.minimum)
-          if (prop.maximum !== undefined) input.max = String(prop.maximum)
-        } else {
-          input.type = 'text'
-        }
-        
-        if (required.includes(key)) input.required = true
-        
-        // Pre-fill: existing config takes priority over schema default
+        // Bestimme den vorausgewählten Wert
+        let selectedValue = ''
         if (existingConfig && existingConfig[key] !== undefined && existingConfig[key] !== null) {
-          input.value = String(existingConfig[key])
+          selectedValue = String(existingConfig[key])
         } else if (prop.default !== undefined) {
-          input.value = String(prop.default)
+          selectedValue = String(prop.default)
         }
         
-        div.appendChild(input)
+        if (prop.enum && Array.isArray(prop.enum)) {
+          // Enum → <select> Dropdown
+          const select = document.createElement('select')
+          select.id = `config-${key}`
+          select.name = key
+          select.className = 'fm-input'
+          if (required.includes(key)) select.required = true
+          
+          const enumNames: string[] = prop.enumNames || prop.enum
+          prop.enum.forEach((val: string, i: number) => {
+            const opt = document.createElement('option')
+            opt.value = String(val)
+            opt.textContent = String(enumNames[i] ?? val)
+            if (String(val) === selectedValue) opt.selected = true
+            select.appendChild(opt)
+          })
+          div.appendChild(select)
+        } else {
+          const input = document.createElement('input')
+          input.id = `config-${key}`
+          input.name = key
+          input.className = 'fm-input'
+          
+          if (prop.type === 'integer' || prop.type === 'number') {
+            input.type = 'number'
+            if (prop.minimum !== undefined) input.min = String(prop.minimum)
+            if (prop.maximum !== undefined) input.max = String(prop.maximum)
+          } else {
+            input.type = 'text'
+          }
+          
+          if (required.includes(key)) input.required = true
+          input.value = selectedValue
+          div.appendChild(input)
+        }
         
         if (prop.description) {
           const hint = document.createElement('div')
