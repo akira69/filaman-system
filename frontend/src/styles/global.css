@@ -533,6 +533,11 @@ body {
   pointer-events: auto;
 }
 
+.fm-modal-overlay > .fm-card {
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
 .fm-modal-overlay .fm-modal {
   background: var(--bg-elevated);
   border: 1px solid var(--border);

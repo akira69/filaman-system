@@ -1,13 +1,14 @@
 """Admin-Endpoints fuer System, Plugin-Management, Spoolman-Import und Killswitch."""
 
 import logging
+import sys
 from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.api.deps import DBSession, RequirePermission
 from app.models import (
@@ -93,7 +94,7 @@ async def install_plugin(
     file: UploadFile = File(...),
     principal=RequirePermission("admin:plugins_manage"),
 ):
-    """Plugin aus ZIP-Datei installieren.
+    """Plugin aus ZIP-Datei installieren oder aktualisieren.
 
     Fuehrt die vollstaendige Pruefkette durch:
     - ZIP-Validierung
@@ -101,8 +102,10 @@ async def install_plugin(
     - Manifest-Validierung
     - Sicherheits-Pruefung
     - Treiber-Klassen-Pruefung
-    - Konflikt-Pruefung
+    - Upgrade oder Neuinstallation
     """
+    from app.plugins.manager import plugin_manager
+
     # Content-Type pruefen
     if file.content_type not in (
         "application/zip",
@@ -129,12 +132,24 @@ async def install_plugin(
             },
         )
 
+    async def stop_drivers_for_upgrade(driver_key: str) -> None:
+        """Laufende Treiber stoppen und Module-Cache bereinigen."""
+        for pid, drv in list(plugin_manager.drivers.items()):
+            if drv.driver_key == driver_key:
+                await plugin_manager.stop_printer(pid)
+        # Module-Cache invalidieren fuer Neuimport
+        prefix = f"app.plugins.{driver_key}"
+        for mod_name in list(sys.modules.keys()):
+            if mod_name.startswith(prefix):
+                del sys.modules[mod_name]
+
     # Installation durchfuehren
     service = PluginInstallService(db)
     try:
-        plugin = await service.install_from_zip(
+        plugin, is_upgrade = await service.install_from_zip(
             zip_data=zip_data,
             installed_by=principal.user_id,
+            stop_callback=stop_drivers_for_upgrade,
         )
     except PluginInstallError as e:
         raise HTTPException(
@@ -145,8 +160,21 @@ async def install_plugin(
             },
         )
 
+    # Treiber fuer zugehoerige Drucker (neu) starten
+    if plugin.driver_key:
+        result = await db.execute(
+            select(Printer).where(
+                Printer.driver_key == plugin.driver_key,
+                Printer.is_active == True,
+                Printer.deleted_at.is_(None),
+            )
+        )
+        for p in result.scalars().all():
+            await plugin_manager.start_printer(p)
+
+    action = "aktualisiert" if is_upgrade else "installiert"
     return PluginInstallResponse(
-        message=f"Plugin '{plugin.name}' v{plugin.version} erfolgreich installiert",
+        message=f"Plugin '{plugin.name}' v{plugin.version} erfolgreich {action}",
         plugin=PluginResponse.model_validate(plugin),
     )
 
@@ -158,7 +186,24 @@ async def uninstall_plugin(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Plugin deinstallieren."""
+    from app.plugins.manager import plugin_manager
+
     service = PluginInstallService(db)
+
+    # Plugin-Info holen fuer Treiber-Stopp
+    plugin_info = await service.get_plugin(plugin_key)
+    if plugin_info:
+        # Laufende Treiber stoppen
+        driver_key = plugin_info.driver_key or plugin_key
+        for pid, drv in list(plugin_manager.drivers.items()):
+            if drv.driver_key == driver_key:
+                await plugin_manager.stop_printer(pid)
+        # Module-Cache bereinigen
+        prefix = f"app.plugins.{plugin_key}"
+        for mod_name in list(sys.modules.keys()):
+            if mod_name.startswith(prefix):
+                del sys.modules[mod_name]
+
     try:
         await service.uninstall(plugin_key)
     except PluginInstallError as e:

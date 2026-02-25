@@ -380,7 +380,17 @@
     "activate": "Aktivieren",
     "deactivate": "Deaktivieren",
     "slots": "{count} Slots",
-    "slotLabel": "Slot {no}"
+    "slotLabel": "Slot {no}",
+    "connectionStatus": "Verbindungsstatus",
+    "connected": "Verbunden",
+    "disconnected": "Getrennt",
+    "driverNotRunning": "Treiber nicht gestartet",
+    "debugConsole": "Debug-Konsole",
+    "debugConsoleTitle": "MQTT Debug-Konsole",
+    "clearLog": "Leeren",
+    "noDebugMessages": "Noch keine Nachrichten",
+    "incoming": "IN",
+    "outgoing": "OUT"
   },
   "locations": {
     "title": "Standorte",

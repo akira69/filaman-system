@@ -241,3 +241,31 @@ async def driver_action(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "action_failed", "message": str(e)},
         )
+
+
+@router.get("/{printer_id}/driver/health")
+async def driver_health(
+    printer_id: int,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    driver = plugin_manager.drivers.get(printer_id)
+    if not driver:
+        return {"running": False, "connected": False}
+    return driver.health()
+
+
+@router.get("/{printer_id}/driver/debug")
+async def driver_debug_log(
+    printer_id: int,
+    since: str | None = Query(None),
+    db: DBSession = None,
+    principal: PrincipalDep = None,
+):
+    driver = plugin_manager.drivers.get(printer_id)
+    if not driver:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "driver_not_running", "message": "Driver is not running for this printer"},
+        )
+    return driver.get_debug_log(since_ts=since)

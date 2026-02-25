@@ -31,6 +31,12 @@ const { id } = Astro.params
     let printer: any = null
     let pluginSchema: any = null
     let editingConfig = false
+    let driverHealth: any = null
+    let debugOpen = false
+    let debugLog: any[] = []
+    let debugPollTimer: number | null = null
+    let healthPollTimer: number | null = null
+    let lastDebugTs: string | null = null
     
     function getCsrfToken(): string {
       const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
@@ -57,7 +63,9 @@ const { id } = Astro.params
         
         printer = await response.json()
         await loadPluginSchema()
+        await loadDriverHealth()
         renderPrinter()
+        startHealthPolling()
       } catch (error) {
         console.error('Failed to load printer:', error)
         document.getElementById('printer-content')!.innerHTML = `<div style="color: var(--error-text);">${t('printers.failedLoadSingle')}</div>`
@@ -179,6 +187,67 @@ const { id } = Astro.params
           </div>`
       }
 
+      // Connection status section
+      let connectionSection = ''
+      if (printer.driver_key) {
+        let statusDot = ''
+        let statusText = ''
+        if (!driverHealth || !driverHealth.running) {
+          statusDot = 'background: var(--text-muted);'
+          statusText = t('printers.driverNotRunning')
+        } else if (driverHealth.connected) {
+          statusDot = 'background: var(--accent-2);'
+          statusText = t('printers.connected')
+        } else {
+          statusDot = 'background: var(--error-text);'
+          statusText = t('printers.disconnected')
+        }
+        connectionSection = `
+          <div class="fm-card" style="margin-top: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="health-dot" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; ${statusDot}"></span>
+                <span id="health-text" style="font-weight: 600;">${statusText}</span>
+              </div>
+              <button id="btn-debug-console" class="fm-btn fm-btn-outline" style="font-size: 0.85rem;">${t('printers.debugConsole')}</button>
+            </div>
+          </div>`
+      }
+
+      // Debug console section (hidden by default)
+      let debugConsoleSection = ''
+      if (debugOpen) {
+        const logHtml = debugLog.length === 0
+          ? `<div style="color: var(--text-muted); padding: 16px; text-align: center;">${t('printers.noDebugMessages')}</div>`
+          : debugLog.map(entry => {
+              const dirLabel = entry.dir === 'in' ? t('printers.incoming') : t('printers.outgoing')
+              const dirColor = entry.dir === 'in' ? 'var(--accent-2)' : 'var(--accent)'
+              const payloadStr = typeof entry.payload === 'object' ? JSON.stringify(entry.payload, null, 2) : String(entry.payload)
+              return `<div style="border-bottom: 1px solid var(--border); padding: 6px 8px; font-size: 0.8rem;">
+                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+                  <span style="color: ${dirColor}; font-weight: 700; font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; background: var(--bg-soft);">${dirLabel}</span>
+                  <span style="color: var(--text-muted); font-size: 0.7rem;">${escapeHtml(entry.ts)}</span>
+                  <span style="color: var(--text-muted); font-size: 0.7rem;">${escapeHtml(entry.topic)}</span>
+                </div>
+                <pre style="margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 0.75rem; color: var(--text); max-height: 200px; overflow-y: auto;">${escapeHtml(payloadStr)}</pre>
+              </div>`
+            }).join('')
+
+        debugConsoleSection = `
+          <div class="fm-card" style="margin-top: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <h2 style="font-size: 1.2rem; font-weight: 600;">${t('printers.debugConsoleTitle')}</h2>
+              <div style="display: flex; gap: 8px;">
+                <button id="btn-clear-debug" class="fm-btn fm-btn-outline" style="font-size: 0.85rem;">${t('printers.clearLog')}</button>
+                <button id="btn-close-debug" class="fm-btn fm-btn-outline" style="font-size: 0.85rem;">${t('common.close')}</button>
+              </div>
+            </div>
+            <div id="debug-log-container" style="background: var(--bg-deep, var(--bg-soft)); border-radius: 8px; max-height: 400px; overflow-y: auto; font-family: monospace;">
+              ${logHtml}
+            </div>
+          </div>`
+      }
+
       container.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
           <div>
@@ -210,7 +279,9 @@ const { id } = Astro.params
         </div>
 
         ${configSection}
+        ${connectionSection}
         ${slotsSection}
+        ${debugConsoleSection}
       `
       
       bindActions()
@@ -273,6 +344,41 @@ const { id } = Astro.params
       if (editingConfig) {
         bindConfigForm()
       }
+
+      // Debug console button
+      document.getElementById('btn-debug-console')?.addEventListener('click', () => {
+        debugOpen = true
+        lastDebugTs = null
+        debugLog = []
+        renderPrinter()
+        startDebugPolling()
+      })
+
+      document.getElementById('btn-close-debug')?.addEventListener('click', () => {
+        debugOpen = false
+        stopDebugPolling()
+        renderPrinter()
+      })
+
+      document.getElementById('btn-clear-debug')?.addEventListener('click', async () => {
+        try {
+          await fetch(`/api/v1/printers/${id}/driver/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+            credentials: 'include',
+            body: JSON.stringify({ action: 'clear_debug_log', params: {} }),
+          })
+        } catch { /* ignore */ }
+        debugLog = []
+        lastDebugTs = null
+        renderPrinter()
+      })
+
+      // Auto-scroll debug log
+      const debugContainer = document.getElementById('debug-log-container')
+      if (debugContainer) {
+        debugContainer.scrollTop = debugContainer.scrollHeight
+      }
     }
 
     function bindConfigForm() {
@@ -319,7 +425,92 @@ const { id } = Astro.params
         }
       })
     }
-    
+
+    async function loadDriverHealth() {
+      try {
+        const response = await fetch(`/api/v1/printers/${id}/driver/health`, { credentials: 'include' })
+        if (response.ok) {
+          driverHealth = await response.json()
+        }
+      } catch {
+        driverHealth = null
+      }
+    }
+
+    function startHealthPolling() {
+      if (healthPollTimer) clearInterval(healthPollTimer)
+      healthPollTimer = window.setInterval(async () => {
+        const prevConnected = driverHealth?.connected
+        await loadDriverHealth()
+        if (driverHealth?.connected !== prevConnected) {
+          // Update just the status dot + text without full re-render
+          const dot = document.getElementById('health-dot')
+          const txt = document.getElementById('health-text')
+          if (dot && txt) {
+            if (!driverHealth || !driverHealth.running) {
+              dot.style.background = 'var(--text-muted)'
+              txt.textContent = t('printers.driverNotRunning')
+            } else if (driverHealth.connected) {
+              dot.style.background = 'var(--accent-2)'
+              txt.textContent = t('printers.connected')
+            } else {
+              dot.style.background = 'var(--error-text)'
+              txt.textContent = t('printers.disconnected')
+            }
+          }
+        }
+      }, 5000)
+    }
+
+    function startDebugPolling() {
+      stopDebugPolling()
+      async function poll() {
+        try {
+          const url = lastDebugTs
+            ? `/api/v1/printers/${id}/driver/debug?since=${encodeURIComponent(lastDebugTs)}`
+            : `/api/v1/printers/${id}/driver/debug`
+          const response = await fetch(url, { credentials: 'include' })
+          if (response.ok) {
+            const entries: any[] = await response.json()
+            if (entries.length > 0) {
+              debugLog = debugLog.concat(entries)
+              // Keep only last 500
+              if (debugLog.length > 500) debugLog = debugLog.slice(-500)
+              lastDebugTs = entries[entries.length - 1].ts
+              // Update only the debug container
+              const container = document.getElementById('debug-log-container')
+              if (container) {
+                const newHtml = entries.map(entry => {
+                  const dirLabel = entry.dir === 'in' ? t('printers.incoming') : t('printers.outgoing')
+                  const dirColor = entry.dir === 'in' ? 'var(--accent-2)' : 'var(--accent)'
+                  const payloadStr = typeof entry.payload === 'object' ? JSON.stringify(entry.payload, null, 2) : String(entry.payload)
+                  return `<div style="border-bottom: 1px solid var(--border); padding: 6px 8px; font-size: 0.8rem;">
+                    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+                      <span style="color: ${dirColor}; font-weight: 700; font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; background: var(--bg-soft);">${dirLabel}</span>
+                      <span style="color: var(--text-muted); font-size: 0.7rem;">${escapeHtml(entry.ts)}</span>
+                      <span style="color: var(--text-muted); font-size: 0.7rem;">${escapeHtml(entry.topic)}</span>
+                    </div>
+                    <pre style="margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 0.75rem; color: var(--text); max-height: 200px; overflow-y: auto;">${escapeHtml(payloadStr)}</pre>
+                  </div>`
+                }).join('')
+                container.insertAdjacentHTML('beforeend', newHtml)
+                container.scrollTop = container.scrollHeight
+              }
+            }
+          }
+        } catch { /* ignore polling errors */ }
+      }
+      poll()  // immediate first poll
+      debugPollTimer = window.setInterval(poll, 2000)
+    }
+
+    function stopDebugPolling() {
+      if (debugPollTimer) {
+        clearInterval(debugPollTimer)
+        debugPollTimer = null
+      }
+    }
+
     loadPrinter()
   </script>
 </Layout>

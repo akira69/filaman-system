@@ -11,7 +11,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,11 +69,16 @@ class PluginInstallService:
         self,
         zip_data: bytes,
         installed_by: int | None = None,
-    ) -> InstalledPlugin:
-        """Plugin aus ZIP-Daten installieren.
+        stop_callback: Callable | None = None,
+    ) -> tuple[InstalledPlugin, bool]:
+        """Plugin aus ZIP-Daten installieren oder aktualisieren.
 
         Durchlaeuft die komplette Pruefkette und installiert
         das Plugin bei Erfolg in das plugins-Verzeichnis.
+        Bei bestehendem Plugin wird ein Upgrade durchgefuehrt.
+
+        Returns:
+            Tuple aus (InstalledPlugin, is_upgrade).
         """
         # 1. Groessen-Pruefung
         if len(zip_data) > MAX_ZIP_SIZE:
@@ -103,9 +108,14 @@ class PluginInstallService:
             if plugin_type == "driver":
                 self._validate_driver(plugin_dir, manifest)
 
-            # 8. Konflikt-Pruefung (DB)
+            # 8. Upgrade oder Neuinstallation pruefen
             plugin_key = manifest["plugin_key"]
-            await self._check_conflicts(plugin_key)
+            existing = await self._find_existing(plugin_key)
+            is_upgrade = existing is not None
+
+            # 8a. Bei Upgrade: Laufende Treiber stoppen
+            if is_upgrade and stop_callback:
+                await stop_callback(existing.driver_key or plugin_key)
 
             # 9. Plugin in plugins-Verzeichnis kopieren
             target_dir = PLUGINS_DIR / plugin_key
@@ -113,34 +123,56 @@ class PluginInstallService:
                 shutil.rmtree(target_dir)
             shutil.copytree(plugin_dir, target_dir)
 
-            # 9a. Dependencies installieren (falls vorhanden)
-            dependencies = manifest.get("dependencies", [])
-            if dependencies:
-                await self._install_dependencies(dependencies, plugin_key)
+            try:
+                # 9a. Dependencies installieren (falls vorhanden)
+                dependencies = manifest.get("dependencies", [])
+                if dependencies:
+                    await self._install_dependencies(dependencies, plugin_key)
+            except Exception:
+                # Cleanup: Verzeichnis entfernen bei Fehler
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                raise
 
-            # 10. DB-Eintrag erstellen
-            plugin = InstalledPlugin(
-                plugin_key=plugin_key,
-                name=manifest["name"],
-                version=manifest["version"],
-                description=manifest.get("description"),
-                author=manifest.get("author"),
-                homepage=manifest.get("homepage"),
-                license=manifest.get("license"),
-                plugin_type=plugin_type,
-                driver_key=manifest.get("driver_key"),
-                page_url=manifest.get("page_url"),
-                config_schema=manifest.get("config_schema"),
-                capabilities=manifest.get("capabilities"),
-                is_active=True,
-                installed_by=installed_by,
-            )
-            self.db.add(plugin)
-            await self.db.commit()
-            await self.db.refresh(plugin)
-
-            logger.info(f"Plugin '{plugin_key}' v{manifest['version']} installiert")
-            return plugin
+            # 10. DB-Eintrag erstellen oder aktualisieren
+            if existing:
+                existing.name = manifest["name"]
+                existing.version = manifest["version"]
+                existing.description = manifest.get("description")
+                existing.author = manifest.get("author")
+                existing.homepage = manifest.get("homepage")
+                existing.license = manifest.get("license")
+                existing.plugin_type = plugin_type
+                existing.driver_key = manifest.get("driver_key")
+                existing.page_url = manifest.get("page_url")
+                existing.config_schema = manifest.get("config_schema")
+                existing.capabilities = manifest.get("capabilities")
+                await self.db.commit()
+                await self.db.refresh(existing)
+                logger.info(f"Plugin '{plugin_key}' auf v{manifest['version']} aktualisiert")
+                return existing, True
+            else:
+                plugin = InstalledPlugin(
+                    plugin_key=plugin_key,
+                    name=manifest["name"],
+                    version=manifest["version"],
+                    description=manifest.get("description"),
+                    author=manifest.get("author"),
+                    homepage=manifest.get("homepage"),
+                    license=manifest.get("license"),
+                    plugin_type=plugin_type,
+                    driver_key=manifest.get("driver_key"),
+                    page_url=manifest.get("page_url"),
+                    config_schema=manifest.get("config_schema"),
+                    capabilities=manifest.get("capabilities"),
+                    is_active=True,
+                    installed_by=installed_by,
+                )
+                self.db.add(plugin)
+                await self.db.commit()
+                await self.db.refresh(plugin)
+                logger.info(f"Plugin '{plugin_key}' v{manifest['version']} installiert")
+                return plugin, False
 
     # ------------------------------------------------------------------ #
     #  Deinstallation
@@ -452,60 +484,66 @@ class PluginInstallService:
                 "no_driver_key",
             )
 
-    async def _check_conflicts(self, plugin_key: str) -> None:
-        """Pruefen, ob ein Plugin mit dem Key bereits installiert ist."""
+    async def _find_existing(self, plugin_key: str) -> InstalledPlugin | None:
+        """Pruefen, ob ein Plugin mit dem Key bereits installiert ist.
+
+        Gibt das vorhandene Plugin zurueck (fuer Upgrade) oder None.
+        Wirft einen Fehler bei integrierten Plugins (nicht per ZIP ueberschreibbar).
+        """
         result = await self.db.execute(
             select(InstalledPlugin).where(InstalledPlugin.plugin_key == plugin_key)
         )
         existing = result.scalar_one_or_none()
 
-        if existing:
+        if existing and existing.installed_by is None:
             raise PluginInstallError(
-                f"Plugin '{plugin_key}' ist bereits installiert (v{existing.version}). "
-                "Bitte zuerst deinstallieren.",
-                "already_installed",
-            )
-
-        # Pruefen ob ein built-in Plugin mit diesem Key existiert
-        builtin_dir = PLUGINS_DIR / plugin_key
-        if builtin_dir.exists():
-            raise PluginInstallError(
-                f"Ein integriertes Plugin mit dem Key '{plugin_key}' existiert bereits",
+                f"Integriertes Plugin '{plugin_key}' kann nicht ueberschrieben werden",
                 "builtin_conflict",
             )
 
+        return existing
+
     async def _install_dependencies(self, dependencies: list[str], plugin_key: str) -> None:
-        """Python-Pakete via pip installieren."""
+        """Python-Pakete installieren (versucht uv, dann pip)."""
         logger.info(f"Installiere Abhaengigkeiten fuer '{plugin_key}': {dependencies}")
 
-        cmd = [sys.executable, "-m", "pip", "install", "--quiet", *dependencies]
+        # Kommandos: uv pip (falls vorhanden), dann sys.executable -m pip
+        commands: list[list[str]] = []
+        uv_path = shutil.which("uv")
+        if uv_path:
+            commands.append([uv_path, "pip", "install", "--quiet", *dependencies])
+        commands.append([sys.executable, "-m", "pip", "install", "--quiet", *dependencies])
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
+        last_error = ""
+        for cmd in commands:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
 
-            if process.returncode != 0:
-                error_msg = stderr.decode().strip() if stderr else "Unbekannter Fehler"
+                if process.returncode == 0:
+                    logger.info(f"Abhaengigkeiten fuer '{plugin_key}' erfolgreich installiert")
+                    return
+
+                last_error = stderr.decode().strip() if stderr else "Unbekannter Fehler"
+                logger.warning(f"Dependency install fehlgeschlagen mit {cmd[0]}: {last_error}")
+            except FileNotFoundError:
+                last_error = f"{cmd[0]} nicht gefunden"
+                logger.warning(last_error)
+                continue
+            except asyncio.TimeoutError:
                 raise PluginInstallError(
-                    f"Abhaengigkeiten konnten nicht installiert werden: {error_msg}",
-                    "dependency_install_failed",
+                    "Timeout bei der Installation der Abhaengigkeiten (120s)",
+                    "dependency_timeout",
                 )
 
-            logger.info(f"Abhaengigkeiten fuer '{plugin_key}' erfolgreich installiert")
-        except asyncio.TimeoutError:
-            raise PluginInstallError(
-                "Timeout bei der Installation der Abhaengigkeiten (120s)",
-                "dependency_timeout",
-            )
-        except FileNotFoundError:
-            raise PluginInstallError(
-                "pip nicht gefunden — Python-Umgebung pruefen",
-                "pip_not_found",
-            )
+        raise PluginInstallError(
+            f"Abhaengigkeiten konnten nicht installiert werden: {last_error}",
+            "dependency_install_failed",
+        )
     # ------------------------------------------------------------------ #
     #  Eingebaute Plugins registrieren
     # ------------------------------------------------------------------ #

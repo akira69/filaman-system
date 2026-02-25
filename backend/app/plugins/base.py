@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+from collections import deque
+from datetime import datetime
 from typing import Any, Callable
 
 
@@ -15,6 +17,7 @@ class BaseDriver(ABC):
         self.config = config
         self.emit = emitter
         self._running = False
+        self._debug_log: deque[dict[str, Any]] = deque(maxlen=500)
 
     @abstractmethod
     async def start(self) -> None:
@@ -33,3 +36,22 @@ class BaseDriver(ABC):
 
     def validate_config(self) -> None:
         pass
+
+    def log_debug(self, direction: str, topic: str, payload: Any) -> None:
+        """Add a message to the debug ring buffer."""
+        self._debug_log.append({
+            "ts": datetime.utcnow().isoformat(),
+            "dir": direction,
+            "topic": topic,
+            "payload": payload,
+        })
+
+    def get_debug_log(self, since_ts: str | None = None) -> list[dict[str, Any]]:
+        """Return debug log entries, optionally filtered by timestamp."""
+        if since_ts:
+            return [e for e in self._debug_log if e["ts"] > since_ts]
+        return list(self._debug_log)
+
+    def clear_debug_log(self) -> None:
+        """Clear the debug ring buffer."""
+        self._debug_log.clear()
