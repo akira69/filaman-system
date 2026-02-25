@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.core.database import async_session_maker
 from app.models import Printer
+from app.models.printer import PrinterSlot, PrinterSlotAssignment
 from app.plugins.base import BaseDriver
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,84 @@ class PluginManager:
     async def _handle_event(self, printer_id: int, event: dict) -> None:
         event_type = event.get("event_type")
         logger.info(f"Received event {event_type} for printer {printer_id}")
+
+        if event_type == "slots_update":
+            await self._handle_slots_update(printer_id, event.get("slots", []))
+
+    @staticmethod
+    def _slot_index_to_no(slot_index: str) -> int:
+        """Convert driver slot_index string (e.g. '0-1', '255-254') to integer slot_no."""
+        parts = slot_index.split("-", 1)
+        if len(parts) == 2:
+            try:
+                unit, tray = int(parts[0]), int(parts[1])
+                if unit >= 200:  # external tray
+                    return 1000 + tray
+                return unit * 4 + tray
+            except ValueError:
+                pass
+        return hash(slot_index) % 10000
+
+    async def _handle_slots_update(self, printer_id: int, slots_data: list[dict]) -> None:
+        """Upsert PrinterSlot and PrinterSlotAssignment from driver slot events."""
+        if not slots_data:
+            return
+
+        async with async_session_maker() as db:
+            for slot_data in slots_data:
+                slot_index = slot_data.get("slot_index", "")
+                slot_no = self._slot_index_to_no(slot_index)
+                slot_name = slot_data.get("slot_name", f"Slot {slot_no}")
+                present = slot_data.get("present", False)
+
+                # Upsert PrinterSlot
+                result = await db.execute(
+                    select(PrinterSlot).where(
+                        PrinterSlot.printer_id == printer_id,
+                        PrinterSlot.slot_no == slot_no,
+                    )
+                )
+                printer_slot = result.scalar_one_or_none()
+
+                if not printer_slot:
+                    printer_slot = PrinterSlot(
+                        printer_id=printer_id,
+                        slot_no=slot_no,
+                        name=slot_name,
+                        is_active=True,
+                        custom_fields={"slot_index": slot_index},
+                    )
+                    db.add(printer_slot)
+                    await db.flush()
+                else:
+                    printer_slot.name = slot_name
+                    printer_slot.custom_fields = {
+                        **(printer_slot.custom_fields or {}),
+                        "slot_index": slot_index,
+                    }
+
+                # Build meta dict from driver-specific fields
+                meta = {}
+                for key in ("tray_type", "tray_color", "tray_info_idx",
+                            "nozzle_temp_min", "nozzle_temp_max"):
+                    if key in slot_data:
+                        meta[key] = slot_data[key]
+
+                # Upsert PrinterSlotAssignment
+                if printer_slot.assignment:
+                    printer_slot.assignment.present = present
+                    printer_slot.assignment.meta = meta
+                else:
+                    assignment = PrinterSlotAssignment(
+                        slot_id=printer_slot.id,
+                        present=present,
+                        meta=meta,
+                    )
+                    db.add(assignment)
+
+            await db.commit()
+            logger.info(f"Updated {len(slots_data)} slots for printer {printer_id}")
+
     def load_driver(self, driver_key: str) -> type[BaseDriver] | None:
         try:
             module = importlib.import_module(f"app.plugins.{driver_key}.driver")

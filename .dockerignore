@@ -26,3 +26,7 @@ frontend/.astro
 .vscode
 README.md
 spec
+
+# Installed plugins (only spoolman_import ships as default)
+backend/app/plugins/*/
+!backend/app/plugins/spoolman_import/

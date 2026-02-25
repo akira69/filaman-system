@@ -50,6 +50,7 @@ class PluginResponse(BaseModel):
     driver_key: str | None
     page_url: str | None
     config_schema: dict | None
+    capabilities: dict | None = None
     is_active: bool
     installed_at: datetime
     installed_by: int | None

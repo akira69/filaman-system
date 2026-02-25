@@ -24,6 +24,7 @@ class InstalledPlugin(TimestampMixin, Base):
     driver_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
     page_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     config_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    capabilities: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     installed_at: Mapped[datetime] = mapped_column(
         DateTime, default=func.now(), nullable=False

@@ -1,11 +1,13 @@
 """Plugin-Installations-Service mit ZIP-Validierung."""
 
 import ast
+import asyncio
 import json
 import logging
 import os
 import re
 import shutil
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -111,6 +113,11 @@ class PluginInstallService:
                 shutil.rmtree(target_dir)
             shutil.copytree(plugin_dir, target_dir)
 
+            # 9a. Dependencies installieren (falls vorhanden)
+            dependencies = manifest.get("dependencies", [])
+            if dependencies:
+                await self._install_dependencies(dependencies, plugin_key)
+
             # 10. DB-Eintrag erstellen
             plugin = InstalledPlugin(
                 plugin_key=plugin_key,
@@ -124,6 +131,7 @@ class PluginInstallService:
                 driver_key=manifest.get("driver_key"),
                 page_url=manifest.get("page_url"),
                 config_schema=manifest.get("config_schema"),
+                capabilities=manifest.get("capabilities"),
                 is_active=True,
                 installed_by=installed_by,
             )
@@ -466,6 +474,38 @@ class PluginInstallService:
                 "builtin_conflict",
             )
 
+    async def _install_dependencies(self, dependencies: list[str], plugin_key: str) -> None:
+        """Python-Pakete via pip installieren."""
+        logger.info(f"Installiere Abhaengigkeiten fuer '{plugin_key}': {dependencies}")
+
+        cmd = [sys.executable, "-m", "pip", "install", "--quiet", *dependencies]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
+
+            if process.returncode != 0:
+                error_msg = stderr.decode().strip() if stderr else "Unbekannter Fehler"
+                raise PluginInstallError(
+                    f"Abhaengigkeiten konnten nicht installiert werden: {error_msg}",
+                    "dependency_install_failed",
+                )
+
+            logger.info(f"Abhaengigkeiten fuer '{plugin_key}' erfolgreich installiert")
+        except asyncio.TimeoutError:
+            raise PluginInstallError(
+                "Timeout bei der Installation der Abhaengigkeiten (120s)",
+                "dependency_timeout",
+            )
+        except FileNotFoundError:
+            raise PluginInstallError(
+                "pip nicht gefunden — Python-Umgebung pruefen",
+                "pip_not_found",
+            )
     # ------------------------------------------------------------------ #
     #  Eingebaute Plugins registrieren
     # ------------------------------------------------------------------ #

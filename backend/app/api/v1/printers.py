@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.schemas import PaginatedResponse
 from app.models import Location, Printer, PrinterSlot
+from app.plugins.manager import plugin_manager
 
 router = APIRouter(prefix="/printers", tags=["printers"])
 
@@ -176,3 +177,67 @@ async def list_slots(
         select(PrinterSlot).where(PrinterSlot.printer_id == printer_id).order_by(PrinterSlot.slot_no)
     )
     return result.scalars().all()
+
+
+
+class DriverActionRequest(BaseModel):
+    action: str
+    params: dict = {}
+
+
+class DriverActionResponse(BaseModel):
+    success: bool
+    message: str | None = None
+    data: dict | None = None
+
+
+@router.post("/{printer_id}/driver/action", response_model=DriverActionResponse)
+async def driver_action(
+    printer_id: int,
+    data: DriverActionRequest,
+    db: DBSession,
+    principal=RequirePermission("printers:update"),
+):
+    result = await db.execute(
+        select(Printer).where(Printer.id == printer_id, Printer.deleted_at.is_(None))
+    )
+    printer = result.scalar_one_or_none()
+
+    if not printer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Printer not found"},
+        )
+
+    driver = plugin_manager.drivers.get(printer_id)
+    if not driver:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "driver_not_running", "message": "Driver is not running for this printer"},
+        )
+
+    method = getattr(driver, data.action, None)
+    if not method or data.action.startswith("_"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_action", "message": f"Action '{data.action}' not available"},
+        )
+
+    try:
+        if callable(method):
+            import asyncio
+            if asyncio.iscoroutinefunction(method):
+                await method(**data.params)
+            else:
+                method(**data.params)
+        return DriverActionResponse(success=True, message=f"Action '{data.action}' executed")
+    except TypeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_params", "message": str(e)},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "action_failed", "message": str(e)},
+        )

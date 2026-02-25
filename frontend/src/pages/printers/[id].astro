@@ -19,8 +19,6 @@ const { id } = Astro.params
     <p style="color: var(--text-muted);" data-i18n="common.loading">Loading...</p>
   </div>
   
-  
-  
   <script>
     import { t, initI18n } from '../../lib/i18n'
     await initI18n()
@@ -31,10 +29,18 @@ const { id } = Astro.params
     }
 
     let printer: any = null
+    let pluginSchema: any = null
+    let editingConfig = false
     
     function getCsrfToken(): string {
       const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
       return match ? decodeURIComponent(match[1]) : ''
+    }
+
+    function escapeHtml(str: string): string {
+      const d = document.createElement('div')
+      d.textContent = str
+      return d.innerHTML
     }
     
     async function loadPrinter() {
@@ -50,19 +56,133 @@ const { id } = Astro.params
         }
         
         printer = await response.json()
+        await loadPluginSchema()
         renderPrinter()
       } catch (error) {
         console.error('Failed to load printer:', error)
-        document.getElementById('printer-content')!.innerHTML = `<div style="color: var(--error-text);">${t('printers.failedLoad')}</div>`
+        document.getElementById('printer-content')!.innerHTML = `<div style="color: var(--error-text);">${t('printers.failedLoadSingle')}</div>`
       }
+    }
+
+    async function loadPluginSchema() {
+      try {
+        const response = await fetch('/api/v1/admin/system/plugins', { credentials: 'include' })
+        if (!response.ok) return
+        const plugins = await response.json()
+        const plugin = plugins.find((p: any) => p.driver_key === printer.driver_key)
+        pluginSchema = plugin?.config_schema || null
+      } catch {
+        pluginSchema = null
+      }
+    }
+
+    function renderConfigView(): string {
+      const config = printer.driver_config
+      if (!pluginSchema?.properties || !config || Object.keys(config).length === 0) {
+        return `<p style="color: var(--text-muted); font-size: 0.9rem;">${t('printers.noConfig')}</p>`
+      }
+
+      const props = pluginSchema.properties as Record<string, any>
+      let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">'
+      
+      for (const [key, prop] of Object.entries(props)) {
+        const value = config[key]
+        if (value === undefined || value === null) continue
+        const label = escapeHtml((prop as any).title || key)
+        const isSecret = key.toLowerCase().includes('code') || key.toLowerCase().includes('password') || key.toLowerCase().includes('secret') || key.toLowerCase().includes('token')
+        const displayValue = isSecret ? '••••••••' : escapeHtml(String(value))
+        html += `
+          <div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">${label}</div>
+            <div style="font-size: 1rem; font-weight: 500; margin-top: 2px;">${displayValue}</div>
+          </div>`
+      }
+      
+      html += '</div>'
+      return html
+    }
+
+    function renderConfigEdit(): string {
+      if (!pluginSchema?.properties) return ''
+
+      const props = pluginSchema.properties as Record<string, any>
+      const required: string[] = pluginSchema.required || []
+      const config = printer.driver_config || {}
+      let html = '<form id="config-form" style="display: grid; gap: 12px; max-width: 480px;">'
+
+      for (const [key, prop] of Object.entries(props)) {
+        const p = prop as any
+        const isRequired = required.includes(key)
+        const value = config[key] ?? p.default ?? ''
+        const label = escapeHtml(p.title || key) + (isRequired ? ' *' : '')
+        
+        html += `<div>`
+        html += `<label class="fm-label" for="config-${key}">${label}</label>`
+
+        if (p.type === 'integer' || p.type === 'number') {
+          html += `<input class="fm-input" id="config-${key}" name="${key}" type="number" value="${escapeHtml(String(value))}"${p.minimum !== undefined ? ` min="${p.minimum}"` : ''}${p.maximum !== undefined ? ` max="${p.maximum}"` : ''}${isRequired ? ' required' : ''}>`
+        } else {
+          html += `<input class="fm-input" id="config-${key}" name="${key}" type="text" value="${escapeHtml(String(value))}"${isRequired ? ' required' : ''}>`
+        }
+
+        if (p.description) {
+          html += `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">${escapeHtml(p.description)}</div>`
+        }
+        html += '</div>'
+      }
+
+      html += `
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <button type="submit" class="fm-btn fm-btn-primary">${t('common.save')}</button>
+          <button type="button" id="btn-cancel-config" class="fm-btn fm-btn-outline">${t('common.cancel')}</button>
+        </div>
+      </form>`
+      return html
     }
     
     function renderPrinter() {
-      document.getElementById('printer-content')!.innerHTML = `
+      const container = document.getElementById('printer-content')!
+
+      let configSection = ''
+      if (pluginSchema?.properties) {
+        configSection = `
+          <div class="fm-card" style="margin-top: 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <h2 style="font-size: 1.2rem; font-weight: 600;">${t('printers.configuration')}</h2>
+              <button id="btn-edit-config" class="fm-btn fm-btn-outline" style="font-size: 0.85rem;">${t('printers.editConfig')}</button>
+            </div>
+            <div id="config-content">
+              ${editingConfig ? renderConfigEdit() : renderConfigView()}
+            </div>
+          </div>`
+      }
+
+      let slotsSection = ''
+      if (printer.slots && printer.slots.length > 0) {
+        const slotItems = printer.slots
+          .sort((a: any, b: any) => a.slot_no - b.slot_no)
+          .map((s: any) => `
+            <div class="fm-card" style="padding: 10px 14px;">
+              <div style="font-weight: 600; font-size: 0.95rem;">${escapeHtml(s.name || t('printers.slotLabel').replace('{no}', s.slot_no))}</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
+                ${s.is_active ? t('common.active') : t('common.inactive')}
+              </div>
+            </div>`)
+          .join('')
+
+        slotsSection = `
+          <div style="margin-top: 24px;">
+            <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 12px;">${t('printers.slots').replace('{count}', printer.slots.length)}</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;">
+              ${slotItems}
+            </div>
+          </div>`
+      }
+
+      container.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
           <div>
-            <h1 style="font-size: 1.8rem; font-weight: 700; font-family: var(--font-serif);">${printer.name}</h1>
-
+            <h1 style="font-size: 1.8rem; font-weight: 700; font-family: var(--font-serif);">${escapeHtml(printer.name)}</h1>
           </div>
           <div style="display: flex; gap: 8px;">
             <button id="btn-toggle-active" class="${printer.is_active ? 'fm-btn fm-btn-outline' : 'fm-btn fm-btn-primary'}">
@@ -77,7 +197,7 @@ const { id } = Astro.params
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;">
           <div class="fm-card">
             <div style="font-size: 0.85rem; color: var(--text-muted);">${t('printers.driver')}</div>
-            <div style="font-size: 1.15rem; font-weight: 600; margin-top: 4px;">${printer.driver_key}</div>
+            <div style="font-size: 1.15rem; font-weight: 600; margin-top: 4px;">${escapeHtml(printer.driver_key)}</div>
           </div>
           <div class="fm-card">
             <div style="font-size: 0.85rem; color: var(--text-muted);">${t('common.status')}</div>
@@ -87,8 +207,16 @@ const { id } = Astro.params
               </span>
             </div>
           </div>
+        </div>
+
+        ${configSection}
+        ${slotsSection}
       `
       
+      bindActions()
+    }
+
+    function bindActions() {
       document.getElementById('btn-delete')?.addEventListener('click', async () => {
         if (!(await (window as any).__fmConfirm(t('printers.confirmDelete')))) return
         
@@ -130,12 +258,67 @@ const { id } = Astro.params
           await (window as any).__fmAlert(t('printers.failedUpdate'))
         }
       })
-      
+
+      document.getElementById('btn-edit-config')?.addEventListener('click', () => {
+        editingConfig = !editingConfig
+        const configContent = document.getElementById('config-content')!
+        if (editingConfig) {
+          configContent.innerHTML = renderConfigEdit()
+          bindConfigForm()
+        } else {
+          configContent.innerHTML = renderConfigView()
+        }
+      })
+
+      if (editingConfig) {
+        bindConfigForm()
+      }
     }
-    
-    
-    
-    
+
+    function bindConfigForm() {
+      document.getElementById('btn-cancel-config')?.addEventListener('click', () => {
+        editingConfig = false
+        document.getElementById('config-content')!.innerHTML = renderConfigView()
+      })
+
+      document.getElementById('config-form')?.addEventListener('submit', async (e) => {
+        e.preventDefault()
+        const form = e.target as HTMLFormElement
+        const driver_config: Record<string, any> = {}
+        const props = pluginSchema.properties as Record<string, any>
+
+        for (const [key, prop] of Object.entries(props)) {
+          const el = form.elements.namedItem(key) as HTMLInputElement
+          if (!el) continue
+          if ((prop as any).type === 'integer' || (prop as any).type === 'number') {
+            driver_config[key] = el.value ? Number(el.value) : null
+          } else {
+            driver_config[key] = el.value || null
+          }
+        }
+
+        try {
+          const response = await fetch(`/api/v1/printers/${id}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': getCsrfToken(),
+            },
+            credentials: 'include',
+            body: JSON.stringify({ driver_config }),
+          })
+
+          if (response.ok) {
+            editingConfig = false
+            await loadPrinter()
+          } else {
+            await (window as any).__fmAlert(t('printers.failedUpdate'))
+          }
+        } catch {
+          await (window as any).__fmAlert(t('printers.failedUpdate'))
+        }
+      })
+    }
     
     loadPrinter()
   </script>
