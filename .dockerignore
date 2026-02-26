@@ -30,3 +30,6 @@ spec
 # Installed plugins (only spoolman_import ships as default)
 backend/app/plugins/*/
 !backend/app/plugins/spoolman_import/
+!backend/app/plugins/__init__.py
+!backend/app/plugins/manager.py
+!backend/app/plugins/base.py
