@@ -16,6 +16,7 @@ from app.models.printer import PrinterSlot, PrinterSlotAssignment
 from app.models.system_extra_field import SystemExtraField
 from app.models.printer_params import FilamentPrinterParam, SpoolPrinterParam
 from app.plugins.base import BaseDriver
+from app.core.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,8 @@ class PluginManager:
                             db.add(assignment)
                     await db.commit()
                     logger.info(f"Updated {len(slots_data)} slots for printer {printer_id}")
+                    # Broadcast to SSE clients
+                    await event_bus.publish({"event": "slots_update", "printer_id": printer_id})
 
                 # Persist AMS/slot summary to Printer.custom_fields
                 if ams_info:
@@ -151,6 +154,7 @@ class PluginManager:
                         flag_modified(printer, "custom_fields")
                         await db.commit()
                         logger.info(f"Persisted slot_summary for printer {printer_id}")
+                        await event_bus.publish({"event": "printer_update", "printer_id": printer_id})
         except Exception as e:
             logger.error(f"Error in _handle_slots_update for printer {printer_id}: {e}", exc_info=True)
 
