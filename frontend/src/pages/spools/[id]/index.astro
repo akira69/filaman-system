@@ -1125,7 +1125,7 @@ const { id } = Astro.params
           if (externalSlots.length > 0) {
             html += `<div style="display:flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;">` +
               `<span style="font-size:0.6rem;color:var(--text-muted);">Ext</span>`
-            for (const slot of externalSlots) html += renderSlotDot(slot)
+            for (const slot of externalSlots) html += renderSlotDot(slot, printer.id)
             html += `</div>`
           }
 
@@ -1135,7 +1135,7 @@ const { id } = Astro.params
             const amsLabel = sortedAmsIds.length > 1 ? `AMS ${amsId + 1}` : 'AMS'
             html += `<div style="display:flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid var(--border);border-radius:6px;">` +
               `<span style="font-size:0.6rem;color:var(--text-muted);">${amsLabel}</span>`
-            for (const slot of amsGroups[amsId]) html += renderSlotDot(slot)
+            for (const slot of amsGroups[amsId]) html += renderSlotDot(slot, printer.id)
             html += `</div>`
           }
 
@@ -1144,21 +1144,229 @@ const { id } = Astro.params
 
         html += `</div>`
         container.innerHTML = html
+
+        // Attach click handlers to slot dots
+        container.querySelectorAll('.slot-dot[data-slot]').forEach(dot => {
+          dot.addEventListener('click', (e) => {
+            e.stopPropagation()
+            const slotData = JSON.parse(dot.dataset.slot)
+            const pId = parseInt(dot.dataset.printerId)
+            showSlotContextMenu(dot, slotData, pId)
+          })
+        })
       } catch (e) {
         console.error('Failed to load printer slot overview:', e)
       }
     }
 
-    function renderSlotDot(slot) {
+    function renderSlotDot(slot, printerId) {
       let colorHex = slot.tray_color || ''
       if (colorHex && !colorHex.startsWith('#')) colorHex = '#' + colorHex
       if (colorHex.length === 9) colorHex = colorHex.slice(0, 7)
       const hasColor = colorHex.length >= 7
+      const slotJson = JSON.stringify(slot).replace(/"/g, '&quot;')
+      const dotAttrs = `class="slot-dot" data-slot="${slotJson}" data-printer-id="${printerId}"`
       if (hasColor) {
-        return `<span title="${slot.tray_type || ''}" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${colorHex};border:1px solid var(--border);flex-shrink:0;cursor:default;"></span>`
+        return `<span ${dotAttrs} title="${slot.tray_type || ''}" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${colorHex};border:1px solid var(--border);flex-shrink:0;cursor:pointer;"></span>`
       }
       // Empty slot: grey circle with red X
-      return `<span title="Empty" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#d1d5db;border:1px solid var(--border);flex-shrink:0;cursor:default;font-size:11px;line-height:1;color:#dc2626;font-weight:900;">✕</span>`
+      return `<span ${dotAttrs} title="Empty" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#d1d5db;border:1px solid var(--border);flex-shrink:0;cursor:pointer;font-size:11px;line-height:1;color:#dc2626;font-weight:900;">✕</span>`
+    }
+
+    // -- Slot context menu ---------------------------------------------------
+
+    let activeSlotMenu = null
+
+    function closeSlotMenu() {
+      if (activeSlotMenu) {
+        activeSlotMenu.remove()
+        activeSlotMenu = null
+      }
+    }
+
+    document.addEventListener('click', closeSlotMenu)
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSlotMenu() })
+
+    function showSlotContextMenu(dotEl, slot, printerId) {
+      closeSlotMenu()
+
+      const menu = document.createElement('div')
+      menu.className = 'fm-card'
+      menu.style.cssText = 'position:fixed;z-index:9999;padding:4px 0;min-width:220px;font-size:0.82rem;box-shadow:var(--shadow-lg);background:linear-gradient(var(--success-bg),var(--success-bg)),var(--bg-elevated);border-color:var(--success-border);'
+
+      // Position near the dot
+      const rect = dotEl.getBoundingClientRect()
+      menu.style.top = (rect.bottom + 4) + 'px'
+      menu.style.left = rect.left + 'px'
+
+      // Make slot_name user-friendly: AMS 0 → AMS 1
+      let slotLabel = slot.slot_name || slot.slot_index
+      slotLabel = slotLabel.replace(/AMS (\d+)/, (_, n) => `AMS ${parseInt(n) + 1}`)
+      const iconFilter = document.documentElement.dataset.theme === 'light' ? 'none' : 'invert(1)'
+      menu.innerHTML = `
+        <div style="padding:6px 12px;font-weight:600;font-size:0.75rem;color:var(--text-muted);border-bottom:1px solid var(--border);">${slotLabel}</div>
+        <button class="ctx-item" data-action="assign" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 12px;border:none;background:none;color:var(--text);cursor:pointer;font-size:0.82rem;"><img src="/to_printer.svg" width="18" height="18" style="flex-shrink:0;filter:${iconFilter};" />${t('spools.slotAssignSpool')}</button>
+        <button class="ctx-item" data-action="import-spool" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 12px;border:none;background:none;color:var(--text);cursor:pointer;font-size:0.82rem;"><img src="/to_spool.svg" width="18" height="18" style="flex-shrink:0;filter:${iconFilter};" />${t('spools.slotImportToSpool')}</button>
+        <button class="ctx-item" data-action="import-both" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:8px 12px;border:none;background:none;color:var(--text);cursor:pointer;font-size:0.82rem;"><img src="/to_spool.svg" width="18" height="18" style="flex-shrink:0;filter:${iconFilter};" />${t('spools.slotImportToSpoolAndFilament')}</button>
+      `
+
+      // Hover effect
+      menu.querySelectorAll('.ctx-item').forEach(btn => {
+        btn.addEventListener('mouseenter', () => btn.style.background = 'var(--bg-hover, rgba(128,128,128,0.1))')
+        btn.addEventListener('mouseleave', () => btn.style.background = 'none')
+      })
+
+      // Action handlers
+      menu.querySelector('[data-action="assign"]').addEventListener('click', (e) => {
+        e.stopPropagation()
+        closeSlotMenu()
+        handleAssignSpoolToTray(slot, printerId)
+      })
+      menu.querySelector('[data-action="import-spool"]').addEventListener('click', (e) => {
+        e.stopPropagation()
+        closeSlotMenu()
+        handleImportTrayToSpool(slot, printerId)
+      })
+      menu.querySelector('[data-action="import-both"]').addEventListener('click', (e) => {
+        e.stopPropagation()
+        closeSlotMenu()
+        handleImportTrayToSpoolAndFilament(slot, printerId)
+      })
+
+      // Ensure menu stays within viewport
+      document.body.appendChild(menu)
+      const menuRect = menu.getBoundingClientRect()
+      if (menuRect.right > window.innerWidth) {
+        menu.style.left = (window.innerWidth - menuRect.width - 8) + 'px'
+      }
+      if (menuRect.bottom > window.innerHeight) {
+        menu.style.top = (rect.top - menuRect.height - 4) + 'px'
+      }
+
+      activeSlotMenu = menu
+    }
+
+    // -- Slot actions --------------------------------------------------------
+
+    async function handleAssignSpoolToTray(slot, printerId) {
+      if (!spool) return
+      const idx = slot.slot_index || ''
+      const parts = idx.split('-')
+      const amsId = parseInt(parts[0])
+      const trayId = parseInt(parts[1])
+
+      // Gather filament data from spool's printer params or spool/filament defaults
+      let filamentData = {}
+      try {
+        const [spoolParamsRes, filamentParamsRes] = await Promise.all([
+          fetch(`/api/v1/spools/${id}/printer-params?printer_id=${printerId}`, { credentials: 'include' }),
+          fetch(`/api/v1/filaments/${spool.filament_id}/printer-params?printer_id=${printerId}`, { credentials: 'include' }),
+        ])
+        const spoolParams = spoolParamsRes.ok ? await spoolParamsRes.json() : []
+        const filamentParams = filamentParamsRes.ok ? await filamentParamsRes.json() : []
+
+        // Build merged value map (spool overrides filament)
+        const valMap = {}
+        filamentParams.forEach(p => { if (p.param_value) valMap[p.param_key] = p.param_value })
+        spoolParams.forEach(p => { if (p.param_value) valMap[p.param_key] = p.param_value })
+
+        filamentData = {
+          tray_info_idx: valMap['bambu_tray_idx'] || 'GFL99',
+          nozzle_temp_min: parseInt(valMap['bambu_nozzle_temp_min']) || 190,
+          nozzle_temp_max: parseInt(valMap['bambu_nozzle_temp_max']) || 230,
+          material_type: spool.filament?.material_type || 'PLA',
+          color: (spool.filament?.color_hex || 'FFFFFF').replace('#', '').slice(0, 6),
+        }
+      } catch (e) {
+        console.error('Failed to fetch params for assign:', e)
+        filamentData = {
+          tray_info_idx: 'GFL99',
+          nozzle_temp_min: 190,
+          nozzle_temp_max: 230,
+          material_type: spool.filament?.material_type || 'PLA',
+          color: (spool.filament?.color_hex || 'FFFFFF').replace('#', '').slice(0, 6),
+        }
+      }
+
+      try {
+        const res = await fetch(`/api/v1/printers/${printerId}/driver/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({
+            action: 'send_filament_to_tray',
+            params: { ams_id: amsId, tray_id: trayId, filament_data: filamentData }
+          })
+        })
+        if (res.ok) {
+          window.__fmAlert?.(t('spools.slotAssignSuccess'), 'success')
+        } else {
+          const err = await res.json().catch(() => null)
+          window.__fmAlert?.(err?.detail?.message || t('spools.slotAssignError'), 'error')
+        }
+      } catch (e) {
+        console.error('Failed to assign spool to tray:', e)
+        window.__fmAlert?.(t('spools.slotAssignError'), 'error')
+      }
+    }
+
+    async function saveTrayParamsToEntity(slot, printerId, entityType) {
+      // Map tray data to bambu param keys
+      const params = []
+      if (slot.tray_info_idx) params.push({ param_key: 'bambu_tray_idx', param_value: String(slot.tray_info_idx) })
+      if (slot.nozzle_temp_min != null) params.push({ param_key: 'bambu_nozzle_temp_min', param_value: String(slot.nozzle_temp_min) })
+      if (slot.nozzle_temp_max != null) params.push({ param_key: 'bambu_nozzle_temp_max', param_value: String(slot.nozzle_temp_max) })
+
+      if (params.length === 0) {
+        window.__fmAlert?.(t('spools.slotNoData'), 'warning')
+        return false
+      }
+
+      const entityId = entityType === 'spool' ? id : spool.filament_id
+      const urlBase = entityType === 'spool' ? 'spools' : 'filaments'
+
+      try {
+        const res = await fetch(`/api/v1/${urlBase}/${entityId}/printer-params/${printerId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({ params }),
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => null)
+          throw new Error(err?.detail?.message || 'Failed')
+        }
+        return true
+      } catch (e) {
+        console.error(`Failed to save tray params to ${entityType}:`, e)
+        return false
+      }
+    }
+
+    async function handleImportTrayToSpool(slot, printerId) {
+      const ok = await saveTrayParamsToEntity(slot, printerId, 'spool')
+      if (ok) {
+        window.__fmAlert?.(t('spools.slotImportSpoolSuccess'), 'success')
+        // Refresh printer params display if same printer is selected
+        const sel = document.getElementById('printer-select')
+        if (sel && parseInt(sel.value) === printerId) loadSpoolPrinterParams(printerId)
+      } else {
+        window.__fmAlert?.(t('spools.slotImportError'), 'error')
+      }
+    }
+
+    async function handleImportTrayToSpoolAndFilament(slot, printerId) {
+      const [spoolOk, filamentOk] = await Promise.all([
+        saveTrayParamsToEntity(slot, printerId, 'spool'),
+        saveTrayParamsToEntity(slot, printerId, 'filament'),
+      ])
+      if (spoolOk && filamentOk) {
+        window.__fmAlert?.(t('spools.slotImportBothSuccess'), 'success')
+        const sel = document.getElementById('printer-select')
+        if (sel && parseInt(sel.value) === printerId) loadSpoolPrinterParams(printerId)
+      } else {
+        window.__fmAlert?.(t('spools.slotImportError'), 'error')
+      }
     }
 
     loadData()
