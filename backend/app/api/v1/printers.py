@@ -40,6 +40,10 @@ class SlotAssignmentResponse(BaseModel):
     color_hex: str | None = None
     color_name: str | None = None
     tray_color: str | None = None
+    tray_type: str | None = None
+    tray_info_idx: str | None = None
+    nozzle_temp_min: int | None = None
+    nozzle_temp_max: int | None = None
 
     class Config:
         from_attributes = True
@@ -177,7 +181,12 @@ async def get_printer(
                         first_color = filament.filament_colors[0].color
                         color_hex = first_color.hex_code
                         color_name = first_color.name
-            tray_color = (a.meta or {}).get("tray_color")
+            meta = a.meta or {}
+            tray_color = meta.get("tray_color")
+            tray_type = meta.get("tray_type")
+            tray_info_idx = meta.get("tray_info_idx")
+            nozzle_temp_min = meta.get("nozzle_temp_min")
+            nozzle_temp_max = meta.get("nozzle_temp_max")
             assignment_data = SlotAssignmentResponse(
                 present=a.present,
                 spool_id=a.spool_id,
@@ -188,6 +197,10 @@ async def get_printer(
                 color_hex=color_hex,
                 color_name=color_name,
                 tray_color=tray_color,
+                tray_type=tray_type,
+                tray_info_idx=tray_info_idx,
+                nozzle_temp_min=nozzle_temp_min,
+                nozzle_temp_max=nozzle_temp_max,
             )
         slot_responses.append(SlotResponse(
             id=slot.id,

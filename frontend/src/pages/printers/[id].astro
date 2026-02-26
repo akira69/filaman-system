@@ -226,10 +226,11 @@ const { id } = Astro.params
                   </div>
                   <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">${escapeHtml(a.material_type || '')}</div>`
               } else {
+                const trayMaterial = a.tray_type ? escapeHtml(a.tray_type) : t('printers.unknownFilament')
                 occupiedHtml = `
                   <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
                     ${colorDot}
-                    <span style="font-size:0.85rem;color:var(--text-muted);font-style:italic;">${t('printers.unknownFilament')}</span>
+                    <span style="font-size:0.85rem;color:var(--text-muted);font-style:italic;">${trayMaterial}</span>
                   </div>`
               }
             } else {
@@ -241,6 +242,21 @@ const { id } = Astro.params
               ? `<span style="padding:2px 8px;font-size:0.7rem;border-radius:999px;background:var(--bg-soft);color:#22c55e;">${t('printers.slotOccupied')}</span>`
               : `<span style="padding:2px 8px;font-size:0.7rem;border-radius:999px;background:var(--bg-soft);color:var(--text-muted);">${t('printers.slotEmpty')}</span>`
 
+            // Tray details (meta fields)
+            let trayDetailsHtml = ''
+            if (a && a.present) {
+              const details: string[] = []
+              if (a.tray_info_idx) details.push(`<span>Index: ${escapeHtml(a.tray_info_idx)}</span>`)
+              if (a.nozzle_temp_min != null || a.nozzle_temp_max != null) {
+                const min = a.nozzle_temp_min ?? '?'
+                const max = a.nozzle_temp_max ?? '?'
+                details.push(`<span>Nozzle: ${min}\u2013${max}\u00B0C</span>`)
+              }
+              if (details.length > 0) {
+                trayDetailsHtml = `<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.7rem;color:var(--text-muted);margin-top:4px;">${details.join('')}</div>`
+              }
+            }
+
             return `
               <div class="fm-card" style="padding:12px 14px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -248,6 +264,7 @@ const { id } = Astro.params
                   ${presentBadge}
                 </div>
                 ${occupiedHtml}
+                ${trayDetailsHtml}
               </div>`
           })
           .join('')
