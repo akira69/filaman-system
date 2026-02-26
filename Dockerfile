@@ -81,6 +81,10 @@ RUN chmod +x /app/backup_db.sh
 # Expose the port the app runs on
 EXPOSE 8000
 
+# Health check using the /health endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
 # Copy entrypoint script and make it executable
 COPY backend/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
