@@ -17,7 +17,8 @@ class BaseDriver(ABC):
         self.config = config
         self.emit = emitter
         self._running = False
-        self._debug_log: deque[dict[str, Any]] = deque(maxlen=500)
+        self._debug_log: deque[dict[str, Any]] = deque(maxlen=50)
+        self._debug_enabled = False
 
     @abstractmethod
     async def start(self) -> None:
@@ -43,7 +44,9 @@ class BaseDriver(ABC):
         pass
 
     def log_debug(self, direction: str, topic: str, payload: Any) -> None:
-        """Add a message to the debug ring buffer."""
+        """Add a message to the debug ring buffer (only when debug console is open)."""
+        if not self._debug_enabled:
+            return
         self._debug_log.append({
             "ts": datetime.utcnow().isoformat(),
             "dir": direction,
@@ -58,5 +61,15 @@ class BaseDriver(ABC):
         return list(self._debug_log)
 
     def clear_debug_log(self) -> None:
-        """Clear the debug ring buffer."""
+        """Clear the debug ring buffer and disable logging."""
+        self._debug_log.clear()
+        self._debug_enabled = False
+
+    def enable_debug_log(self) -> None:
+        """Enable debug logging (called when console is opened)."""
+        self._debug_enabled = True
+
+    def disable_debug_log(self) -> None:
+        """Disable debug logging and clear buffer."""
+        self._debug_enabled = False
         self._debug_log.clear()

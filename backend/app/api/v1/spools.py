@@ -24,7 +24,7 @@ from app.api.v1.schemas_spool import (
     StatusChangeRequest,
     BulkStatusChangeRequest,
 )
-from app.models import Filament, Location, Spool, SpoolEvent, SpoolStatus
+from app.models import Filament, FilamentColor, Location, Spool, SpoolEvent, SpoolStatus
 from app.services.spool_service import SpoolService
 
 router_locations = APIRouter(prefix="/locations", tags=["locations"])
@@ -196,7 +196,8 @@ async def list_spools(
         query = query.where(Spool.location_id == location_id)
 
     query = query.options(
-        selectinload(Spool.filament).selectinload(Filament.manufacturer)
+        selectinload(Spool.filament).selectinload(Filament.manufacturer),
+        selectinload(Spool.filament).selectinload(Filament.filament_colors).selectinload(FilamentColor.color),
     ).order_by(Spool.id.desc()).offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
@@ -278,7 +279,7 @@ async def create_spool(
     result = await db.execute(
         select(Spool)
         .where(Spool.id == spool.id)
-        .options(selectinload(Spool.filament).selectinload(Filament.manufacturer))
+        .options(selectinload(Spool.filament).selectinload(Filament.manufacturer), selectinload(Spool.filament).selectinload(Filament.filament_colors).selectinload(FilamentColor.color))
     )
     return result.scalar_one()
 
@@ -289,7 +290,8 @@ async def get_spool(spool_id: int, db: DBSession, principal: PrincipalDep):
         select(Spool)
         .where(Spool.id == spool_id)
         .options(
-            selectinload(Spool.filament).selectinload(Filament.manufacturer)
+            selectinload(Spool.filament).selectinload(Filament.manufacturer),
+            selectinload(Spool.filament).selectinload(Filament.filament_colors).selectinload(FilamentColor.color),
         )
     )
     spool = result.scalar_one_or_none()
@@ -327,7 +329,7 @@ async def update_spool(
     result = await db.execute(
         select(Spool)
         .where(Spool.id == spool.id)
-        .options(selectinload(Spool.filament).selectinload(Filament.manufacturer))
+        .options(selectinload(Spool.filament).selectinload(Filament.manufacturer), selectinload(Spool.filament).selectinload(Filament.filament_colors).selectinload(FilamentColor.color))
     )
     return result.scalar_one()
 

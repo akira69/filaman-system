@@ -73,6 +73,10 @@ class Filament(Base, TimestampMixin):
     ratings: Mapped[list["FilamentRating"]] = relationship(back_populates="filament", cascade="all, delete-orphan")
     printer_params: Mapped[list["FilamentPrinterParam"]] = relationship(back_populates="filament", cascade="all, delete-orphan")
 
+    @property
+    def colors(self) -> list["FilamentColor"]:
+        return self.filament_colors
+
 
 class FilamentColor(Base):
     __tablename__ = "filament_colors"
