@@ -1,6 +1,11 @@
 ---
 import Layout from '../../../layouts/Layout.astro'
 
+export function getStaticPaths() {
+  return [
+    {params: {id: 'detail'}},
+  ];
+}
 
 const { id } = Astro.params
 const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
