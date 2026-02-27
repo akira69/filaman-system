@@ -267,7 +267,7 @@ class PluginManager:
         commands: list[list[str]] = []
         uv_path = shutil.which("uv")
         if uv_path:
-            commands.append([uv_path, "pip", "install", "--system", "--quiet", *packages])
+            commands.append([uv_path, "pip", "install", "--python", sys.executable, "--quiet", *packages])
         commands.append([sys.executable, "-m", "pip", "install", "--quiet", *packages])
 
         for cmd in commands:
