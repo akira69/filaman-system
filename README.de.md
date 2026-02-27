@@ -141,7 +141,7 @@ openssl rand -hex 32
 # Alle Secrets auf einmal generieren
 echo "SECRET_KEY=$(openssl rand -hex 32)"
 echo "CSRF_SECRET_KEY=$(openssl rand -hex 32)"
-echo "OIDC_ENC_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+echo "OIDC_ENC_KEY=$(openssl rand -hex 32)"
 ```
 
 #### OIDC / SSO Konfiguration
