@@ -39,13 +39,13 @@ import Layout from '../../layouts/Layout.astro'
         <div style="display: flex; align-items: center; gap: 12px;">
           <span style="font-size: 0.85rem; color: var(--text-muted);" data-i18n="admin.latestVersion">Latest:</span>
           <span id="latest-version" style="font-weight: 600;">...</span>
-          <span id="update-badge" class="invisible" style="font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--success-text); color: #fff;" data-i18n="admin.updateAvailable">Update available</span>
+
         </div>
         <div id="plugin-updates-row" class="invisible" style="display: flex; align-items: center; gap: 12px;">
           <span style="font-size: 0.85rem; color: var(--text-muted);" data-i18n="admin.pluginUpdates">Plugin Updates:</span>
           <span id="plugin-update-count" style="font-weight: 600;"></span>
         </div>
-        <a href="/admin/system/changelog" class="fm-btn fm-btn-outline" style="margin-top: 8px; text-align: center;" data-i18n="admin.viewChangelog">View Changelog</a>
+        <a href="/admin/system/changelog" class="fm-btn fm-btn-outline" style="margin-top: 8px; text-align: center;" data-i18n="admin.viewChangelog">Changelog</a>
       </div>
     </div>
   </div>
@@ -129,15 +129,15 @@ import Layout from '../../layouts/Layout.astro'
 
         const installedEl = document.getElementById('installed-version')!
         const latestEl = document.getElementById('latest-version')!
-        const updateBadge = document.getElementById('update-badge')!
         const pluginRow = document.getElementById('plugin-updates-row')!
         const pluginCount = document.getElementById('plugin-update-count')!
-
         installedEl.textContent = `v${data.installed_version}`
         latestEl.textContent = data.latest_version ? `v${data.latest_version}` : t('admin.versionUnknown')
 
         if (data.update_available) {
-          updateBadge.classList.remove('invisible')
+          latestEl.style.color = 'var(--error-text)'
+        } else {
+          latestEl.style.color = 'var(--success-text)'
         }
 
         const updatablePlugins = (data.latest_plugins || []).filter((p: any) => p.update_available)

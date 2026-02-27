@@ -27,6 +27,21 @@ jobs:
           NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Stamp changelog with new version
+        shell: bash
+        run: |
+          set -eu
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          TODAY="$(date +%Y-%m-%d)"
+          CHANGELOG="frontend/src/changelog.json"
+          if grep -q '"UNRELEASED"' "$CHANGELOG"; then
+            sed -i "s/\"version\": \"UNRELEASED\"/\"version\": \"$NEW_VERSION\"/" "$CHANGELOG"
+            sed -i "s/\"date\": \"UNRELEASED\"/\"date\": \"$TODAY\"/" "$CHANGELOG"
+            echo "Stamped changelog: UNRELEASED -> $NEW_VERSION ($TODAY)"
+          else
+            echo "No UNRELEASED entry found in changelog.json — skipping"
+          fi
+
       - name: Bump version, create tag, push to Gitea + GitHub
         shell: bash
         env:
@@ -39,7 +54,7 @@ jobs:
           git config user.name "gitea-actions"
           git config user.email "actions@local"
 
-          git add version.txt
+          git add version.txt frontend/src/changelog.json
           git commit -m "chore: bump version to $NEW_VERSION"
           git tag "v$NEW_VERSION"
 

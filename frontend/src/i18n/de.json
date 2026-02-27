@@ -619,10 +619,9 @@
     "killswitchFailed": "Killswitch konnte nicht ausgef\u00fchrt werden",
     "versionInfoTitle": "Systemversion",
     "installedVersion": "Installiert:",
-    "latestVersion": "Aktuell:",
-    "updateAvailable": "Update verf\u00fcgbar",
+    "latestVersion": "Verfügbar:",
     "pluginUpdates": "Plugin-Updates:",
-    "viewChangelog": "Changelog anzeigen",
+    "viewChangelog": "Changelog",
     "versionUnknown": "Unbekannt"
   },
   "changelog": {

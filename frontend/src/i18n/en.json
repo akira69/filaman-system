@@ -617,10 +617,9 @@
     "killswitchFailed": "Failed to execute killswitch",
     "versionInfoTitle": "System Version",
     "installedVersion": "Installed:",
-    "latestVersion": "Latest:",
-    "updateAvailable": "Update available",
+    "latestVersion": "Available:",
     "pluginUpdates": "Plugin Updates:",
-    "viewChangelog": "View Changelog",
+    "viewChangelog": "Changelog",
     "versionUnknown": "Unknown"
   },
   "changelog": {
