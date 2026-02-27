@@ -1,8 +1,8 @@
 {
   "versions": [
     {
-      "version": "UNRELEASED",
-      "date": "UNRELEASED",
+      "version": "0.3.11",
+      "date": "2026-02-27",
       "changes": {
         "de": [
           { "type": "feature", "text": "Neues Changelog-Popup zeigt Neuigkeiten nach jedem Update" },
