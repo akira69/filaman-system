@@ -1,6 +1,24 @@
 {
   "versions": [
     {
+      "version": "0.3.10",
+      "date": "2026-02-27",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Neues Changelog-Popup zeigt Neuigkeiten nach jedem Update" },
+          { "type": "feature", "text": "Changelog-Seite mit vollständiger Versionshistorie" },
+          { "type": "feature", "text": "Versionsinformationen auf der Admin-Seite: Installierte und neueste Version auf einen Blick" },
+          { "type": "feature", "text": "Automatische Prüfung auf System- und Plugin-Updates (alle 24h)" }
+        ],
+        "en": [
+          { "type": "feature", "text": "New changelog popup shows what's new after each update" },
+          { "type": "feature", "text": "Changelog page with full version history" },
+          { "type": "feature", "text": "Version info on admin page: Installed and latest version at a glance" },
+          { "type": "feature", "text": "Automatic check for system and plugin updates (every 24h)" }
+        ]
+      }
+    },
+    {
       "version": "0.3.8",
       "date": "2026-02-27",
       "changes": {
