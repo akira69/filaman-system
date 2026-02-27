@@ -170,6 +170,7 @@ import Layout from '../../layouts/Layout.astro'
     let selectedFile: File | null = null
     let availablePlugins: any[] = []
     let selectedRegistryUrl: string = ''
+    let updateMap: Record<string, { version: string; download_url: string }> = {}
     
     function getCsrfToken(): string {
       const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
@@ -235,7 +236,8 @@ import Layout from '../../layouts/Layout.astro'
               <span class="fm-toggle-slider"></span>
             </label>
           </td>
-          <td style="text-align: right;">
+          <td style="text-align: right; white-space: nowrap;">
+            ${updateMap[p.plugin_key] ? `<button data-key="${escapeHtml(p.plugin_key)}" class="btn-update fm-btn fm-btn-primary" style="font-size: 0.8rem; padding: 4px 12px; margin-right: 12px;">${t('admin.pluginUpdateTo').replace('{version}', updateMap[p.plugin_key].version)}</button>` : ''}
             <button data-key="${escapeHtml(p.plugin_key)}" class="btn-detail" style="color: var(--accent); background: none; border: none; cursor: pointer; margin-right: 12px;">${t('admin.pluginDetails')}</button>
             ${p.page_url ? `<a href="${escapeHtml(p.page_url)}" class="fm-btn fm-btn-primary" style="font-size: 0.8rem; padding: 4px 12px; margin-right: 12px;">${t('common.open')}</a>` : ''}
             <button data-key="${escapeHtml(p.plugin_key)}" data-name="${escapeHtml(p.name)}" class="btn-uninstall" style="color: var(--error-text); background: none; border: none; cursor: pointer;">${t('admin.uninstallPlugin')}</button>
@@ -251,6 +253,41 @@ import Layout from '../../layouts/Layout.astro'
         })
       })
       
+      // Update-Buttons
+      document.querySelectorAll('.btn-update').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const btnEl = e.currentTarget as HTMLButtonElement
+          const key = btnEl.dataset.key!
+          const info = updateMap[key]
+          if (!info) return
+
+          btnEl.disabled = true
+          btnEl.textContent = t('admin.pluginUpdating')
+
+          try {
+            const response = await fetch('/api/v1/admin/system/plugins/install-from-registry', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+              credentials: 'include',
+              body: JSON.stringify({ download_url: info.download_url }),
+            })
+
+            if (!response.ok) {
+              const data = await response.json().catch(() => ({}))
+              throw new Error(data.detail?.message || t('admin.pluginInstallFailed'))
+            }
+
+            delete updateMap[key]
+            loadPlugins()
+          } catch (err: any) {
+            console.error('Plugin update failed:', err)
+            await (window as any).__fmAlert(err.message || t('admin.pluginInstallFailed'))
+            btnEl.disabled = false
+            btnEl.textContent = t('admin.pluginUpdateTo').replace('{version}', info.version)
+          }
+        })
+      })
+
       // Uninstall-Buttons
       document.querySelectorAll('.btn-uninstall').forEach(btn => {
         btn.addEventListener('click', async (e) => {
@@ -639,13 +676,22 @@ import Layout from '../../layouts/Layout.astro'
         const available: any[] = await response.json()
 
         const updates = available.filter(p => p.update_available)
+
+        // Populate updateMap for per-plugin update buttons
+        updateMap = {}
+        for (const up of updates) {
+          updateMap[up.plugin_key] = { version: up.version, download_url: up.download_url }
+        }
+
         if (updates.length === 0) {
           await (window as any).__fmAlert(t('admin.pluginUpToDate'))
         } else {
           const msg = t('admin.pluginUpdatesAvailable').replace('{count}', String(updates.length))
-            + '\n\n' + updates.map(p => `${p.name}: ${p.installed_version} → ${p.version}`).join('\n')
           await (window as any).__fmAlert(msg)
         }
+
+        // Re-render plugins to show update buttons
+        renderPlugins()
       } catch (err) {
         console.error('Update check failed:', err)
         await (window as any).__fmAlert(t('admin.pluginRegistryFailed'))

@@ -523,6 +523,8 @@
     "pluginUpdateAvailable": "Update available",
     "pluginUpToDate": "All plugins are up to date",
     "pluginUpdatesAvailable": "{count} update(s) available",
+    "pluginUpdateTo": "Update to v{version}",
+    "pluginUpdating": "Updating...",
     "noPlugins": "No plugins installed",
     "confirmUninstall": "Are you sure you want to uninstall the plugin \"{name}\"? Printers using this driver must be reconfigured manually.",
     "confirmUninstallDeleteData": "Also delete all plugin data (extra fields and printer parameters)?",
