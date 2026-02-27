@@ -265,6 +265,9 @@ const { id } = Astro.params
             <a href="/filaments/${f.id}/edit" class="fm-btn fm-btn-outline">
               ${t('common.edit')}
             </a>
+            <button id="btn-duplicate-filament" type="button" class="fm-btn fm-btn-info">
+              ${t('common.duplicate')}
+            </button>
             <button id="btn-delete-filament" class="fm-btn fm-btn-danger">
               ${t('common.delete')}
             </button>
@@ -280,6 +283,12 @@ const { id } = Astro.params
         ${shopHtml}
         ${customFieldsHtml}
       `
+
+      document.getElementById('btn-duplicate-filament')?.addEventListener('click', () => {
+        sessionStorage.setItem('filaman_duplicate_filament', JSON.stringify(f))
+        window.location.href = '/filaments/new'
+      })
+
 
       document.getElementById('btn-delete-filament')?.addEventListener('click', async () => {
         if (!(await (window as any).__fmConfirm(t('filaments.confirmDelete')))) return

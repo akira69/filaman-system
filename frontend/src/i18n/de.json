@@ -64,7 +64,8 @@
     "extraFields": "Extrafelder",
     "spoolDefaultSettings": "Spool-Standardwerte",
     "on": "An",
-    "off": "Aus"
+    "off": "Aus",
+    "duplicate": "Duplizieren"
   },
   "rfid": {
     "writeTag": "RFID-Tag schreiben",

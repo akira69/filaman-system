@@ -422,6 +422,87 @@ const filamentId = Astro.url.searchParams.get('filament_id')
             select.appendChild(option)
           })
         }
+
+        // ── Apply duplicate data from sessionStorage ──
+        const dupRaw = sessionStorage.getItem('filaman_duplicate_spool')
+        if (dupRaw) {
+          sessionStorage.removeItem('filaman_duplicate_spool')
+          try {
+            const dup = JSON.parse(dupRaw)
+
+            // Filament
+            if (dup.filament_id) {
+              const filSelect = document.getElementById('filament_id') as HTMLSelectElement
+              filSelect.value = String(dup.filament_id)
+            }
+
+            // Initial Total Weight
+            if (dup.initial_total_weight_g != null) {
+              (document.getElementById('initial_total_weight_g') as HTMLInputElement).value = String(dup.initial_total_weight_g)
+            }
+
+            // Empty Spool Weight
+            if (dup.empty_spool_weight_g != null) {
+              (document.getElementById('empty_spool_weight_g') as HTMLInputElement).value = String(dup.empty_spool_weight_g)
+            }
+
+            // Spool Material
+            if (dup.spool_material) {
+              (document.getElementById('spool_material') as HTMLSelectElement).value = dup.spool_material
+            }
+
+            // Spool Outer Diameter
+            if (dup.spool_outer_diameter_mm != null) {
+              (document.getElementById('spool_outer_diameter_mm') as HTMLInputElement).value = String(dup.spool_outer_diameter_mm)
+            }
+
+            // Spool Width
+            if (dup.spool_width_mm != null) {
+              (document.getElementById('spool_width_mm') as HTMLInputElement).value = String(dup.spool_width_mm)
+            }
+
+            // Location
+            if (dup.location_id) {
+              (document.getElementById('location_id') as HTMLSelectElement).value = String(dup.location_id)
+            }
+
+            // Lot Number
+            if (dup.lot_number) {
+              (document.getElementById('lot_number') as HTMLInputElement).value = dup.lot_number
+            }
+
+            // External ID
+            if (dup.external_id) {
+              (document.getElementById('external_id') as HTMLInputElement).value = dup.external_id
+            }
+
+            // Purchase Price
+            if (dup.purchase_price != null) {
+              (document.getElementById('purchase_price') as HTMLInputElement).value = String(dup.purchase_price)
+            }
+
+            // Purchase Date
+            if (dup.purchase_date) {
+              (document.getElementById('purchase_date') as HTMLInputElement).value = dup.purchase_date
+            }
+
+            // Low Weight Threshold
+            if (dup.low_weight_threshold_g != null) {
+              (document.getElementById('low_weight_threshold_g') as HTMLInputElement).value = String(dup.low_weight_threshold_g)
+            }
+
+            // Custom Fields (NOT rfid_uid — already excluded at source)
+            if (dup.custom_fields && typeof dup.custom_fields === 'object') {
+              const entries = Object.entries(dup.custom_fields)
+              if (entries.length > 0) {
+                customFields = entries.map(([key, value]) => ({ key, value: String(value) }))
+                renderCustomFields()
+              }
+            }
+          } catch (e) {
+            console.error('Failed to apply duplicate spool data:', e)
+          }
+        }
       } catch (error) {
         console.error('Failed to load options:', error)
       }

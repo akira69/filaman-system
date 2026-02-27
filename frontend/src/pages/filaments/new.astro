@@ -882,9 +882,115 @@ import Layout from '../../layouts/Layout.astro'
     })
 
     // ── Init ──
-    loadManufacturers()
-    loadTypes()
-    loadColors()
-    loadSystemFields()
+    Promise.all([loadManufacturers(), loadTypes(), loadColors(), loadSystemFields()]).then(() => {
+      // ── Apply duplicate data from sessionStorage ──
+      const dupRaw = sessionStorage.getItem('filaman_duplicate_filament')
+      if (dupRaw) {
+        sessionStorage.removeItem('filaman_duplicate_filament')
+        try {
+          const dup = JSON.parse(dupRaw)
+
+          // Manufacturer
+          if (dup.manufacturer_id) {
+            manufacturerSelect.value = String(dup.manufacturer_id)
+          }
+
+          // Designation
+          const desigInput = document.getElementById('designation') as HTMLInputElement
+          if (dup.designation) desigInput.value = dup.designation
+
+          // Type — check if exists in options, else use custom
+          if (dup.material_type) {
+            const typeExists = Array.from(typeSelect.options).some(o => o.value === dup.material_type)
+            if (typeExists) {
+              typeSelect.value = dup.material_type
+            } else {
+              typeSelect.value = CUSTOM_TYPE_VALUE
+              customTypeWrapper.classList.remove('hidden')
+              customTypeInput.required = true
+              customTypeInput.value = dup.material_type
+            }
+          }
+
+          // Diameter
+          const diamInput = document.getElementById('diameter_mm') as HTMLInputElement
+          if (dup.diameter_mm != null) diamInput.value = String(dup.diameter_mm)
+
+          // Material Subgroup
+          const subgroupInput = document.getElementById('material_subgroup') as HTMLInputElement
+          if (dup.material_subgroup) subgroupInput.value = dup.material_subgroup
+
+          // Finish Type
+          const finishSelect = document.getElementById('finish_type') as HTMLSelectElement
+          if (dup.finish_type) finishSelect.value = dup.finish_type
+
+          // Color Mode
+          if (dup.color_mode) {
+            const radio = document.querySelector(`input[name="color_mode"][value="${dup.color_mode}"]`) as HTMLInputElement
+            if (radio) {
+              radio.checked = true
+              onColorModeChange()
+            }
+          }
+
+          // Multi Color Style
+          if (dup.multi_color_style) {
+            const mcsSelect = document.getElementById('multi_color_style') as HTMLSelectElement
+            mcsSelect.value = dup.multi_color_style
+          }
+
+          // Colors
+          if (dup.colors && Array.isArray(dup.colors)) {
+            selectedColorIds = dup.colors
+              .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+              .map((c: any) => c.color_id)
+            renderSelectedColors()
+            renderColorGrid()
+          }
+
+          // Manufacturer Color Name
+          const mfgColorInput = document.getElementById('manufacturer_color_name') as HTMLInputElement
+          if (dup.manufacturer_color_name) mfgColorInput.value = dup.manufacturer_color_name
+
+          // Weights
+          const rawWeightInput = document.getElementById('raw_material_weight_g') as HTMLInputElement
+          if (dup.raw_material_weight_g != null) rawWeightInput.value = String(dup.raw_material_weight_g)
+
+          const densityInput = document.getElementById('density_g_cm3') as HTMLInputElement
+          if (dup.density_g_cm3 != null) densityInput.value = String(dup.density_g_cm3)
+
+          // Spool Default Settings
+          const ewInput = document.getElementById('default_spool_weight_g') as HTMLInputElement
+          if (dup.default_spool_weight_g != null) ewInput.value = String(dup.default_spool_weight_g)
+
+          const matInput = document.getElementById('spool_material') as HTMLSelectElement
+          if (dup.spool_material) matInput.value = dup.spool_material
+
+          const odInput = document.getElementById('spool_outer_diameter_mm') as HTMLInputElement
+          if (dup.spool_outer_diameter_mm != null) odInput.value = String(dup.spool_outer_diameter_mm)
+
+          const wInput = document.getElementById('spool_width_mm') as HTMLInputElement
+          if (dup.spool_width_mm != null) wInput.value = String(dup.spool_width_mm)
+
+          // Price + Shop URL
+          const priceInput = document.getElementById('price') as HTMLInputElement
+          if (dup.price != null) priceInput.value = String(dup.price)
+
+          const shopInput = document.getElementById('shop_url') as HTMLInputElement
+          if (dup.shop_url) shopInput.value = dup.shop_url
+
+          // Custom Fields
+          if (dup.custom_fields && typeof dup.custom_fields === 'object') {
+            const entries = Object.entries(dup.custom_fields)
+            if (entries.length > 0) {
+              customFields = entries.map(([key, value]) => ({ key, value: String(value) }))
+              renderCustomFields()
+            }
+          }
+        } catch (e) {
+          console.error('Failed to apply duplicate filament data:', e)
+        }
+      }
+    })
   </script>
 </Layout>

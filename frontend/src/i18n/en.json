@@ -64,7 +64,8 @@
     "systemFields": "System Fields",
     "extraFields": "Extra Fields",
     "on": "On",
-    "off": "Off"
+    "off": "Off",
+    "duplicate": "Duplicate"
   },
   "rfid": {
     "writeTag": "Write RFID Tag",
