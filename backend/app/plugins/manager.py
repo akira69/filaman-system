@@ -1,6 +1,8 @@
+import asyncio
 import importlib
 import json
 import logging
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -234,7 +236,64 @@ class PluginManager:
             except Exception as e:
                 logger.error(f"Error stopping driver for printer {printer_id}: {e}")
 
+
+    async def _ensure_all_plugin_dependencies(self) -> None:
+        """Install missing Python dependencies for all user-installed plugins.
+
+        After a Docker image update the container filesystem is replaced but
+        user-installed plugins persist on the volume.  Their pip dependencies
+        may be gone, so we re-install them on every startup."""
+        if USER_PLUGINS_DIR == BUILTIN_PLUGINS_DIR:
+            return  # dev mode — no separate user dir
+
+        for plugin_dir in USER_PLUGINS_DIR.iterdir():
+            if not plugin_dir.is_dir():
+                continue
+            manifest_path = plugin_dir / "plugin.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                dependencies = manifest.get("dependencies", [])
+                if not dependencies:
+                    continue
+                await self._install_pip_packages(dependencies, manifest.get("plugin_key", plugin_dir.name))
+            except Exception as e:
+                logger.warning(f"Could not ensure dependencies for {plugin_dir.name}: {e}")
+
+    @staticmethod
+    async def _install_pip_packages(packages: list[str], plugin_key: str) -> None:
+        """Install Python packages via uv (preferred) or pip."""
+        commands: list[list[str]] = []
+        uv_path = shutil.which("uv")
+        if uv_path:
+            commands.append([uv_path, "pip", "install", "--system", "--quiet", *packages])
+        commands.append([sys.executable, "-m", "pip", "install", "--quiet", *packages])
+
+        for cmd in commands:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
+                if process.returncode == 0:
+                    logger.info(f"Dependencies for '{plugin_key}' ensured successfully")
+                    return
+                logger.warning(
+                    f"Dependency install failed for '{plugin_key}' with {cmd[0]}: "
+                    f"{stderr.decode().strip() if stderr else 'unknown error'}"
+                )
+            except FileNotFoundError:
+                continue
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout installing dependencies for '{plugin_key}'")
+                return
+        logger.error(f"Could not install dependencies for '{plugin_key}': all methods failed")
+
     async def start_all(self) -> None:
+        await self._ensure_all_plugin_dependencies()
         async with async_session_maker() as db:
             result = await db.execute(
                 select(Printer).where(
