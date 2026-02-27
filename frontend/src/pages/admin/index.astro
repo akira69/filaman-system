@@ -28,11 +28,10 @@ import Layout from '../../layouts/Layout.astro'
     </a>
   </div>
 
-  <!-- Version Info Card -->
   <h2 style="font-size: 1.4rem; font-weight: 700; margin: 32px 0 16px; font-family: var(--font-serif);" data-i18n="admin.versionInfoTitle">System Version</h2>
-  <div class="fm-card" style="padding: 24px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap;">
-      <div style="display: grid; gap: 8px; flex: 1;">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+    <div class="fm-card" style="padding: 24px;">
+      <div style="display: grid; gap: 8px;">
         <div style="display: flex; align-items: center; gap: 12px;">
           <span style="font-size: 0.85rem; color: var(--text-muted);" data-i18n="admin.installedVersion">Installed:</span>
           <span id="installed-version" style="font-weight: 600;">...</span>
@@ -46,8 +45,8 @@ import Layout from '../../layouts/Layout.astro'
           <span style="font-size: 0.85rem; color: var(--text-muted);" data-i18n="admin.pluginUpdates">Plugin Updates:</span>
           <span id="plugin-update-count" style="font-weight: 600;"></span>
         </div>
+        <a href="/admin/system/changelog" class="fm-btn fm-btn-outline" style="margin-top: 8px; text-align: center;" data-i18n="admin.viewChangelog">View Changelog</a>
       </div>
-      <a href="/admin/system/changelog" class="fm-btn fm-btn-outline" style="white-space: nowrap; flex-shrink: 0;" data-i18n="admin.viewChangelog">View Changelog</a>
     </div>
   </div>
 
