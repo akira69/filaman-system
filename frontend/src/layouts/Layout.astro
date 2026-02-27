@@ -315,17 +315,21 @@ const { title } = Astro.props
           </div>`
         }).join('')
 
-        function closeChangelog() {
+        function dismissChangelog() {
           overlay.classList.remove('open')
           localStorage.setItem('changelog-seen-version', VERSION)
         }
 
-        closeBtn.addEventListener('click', closeChangelog)
+        function hideChangelog() {
+          overlay.classList.remove('open')
+        }
+
+        closeBtn.addEventListener('click', dismissChangelog)
         overlay.addEventListener('click', (e) => {
-          if (e.target === overlay) closeChangelog()
+          if (e.target === overlay) hideChangelog()
         })
         document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape' && overlay.classList.contains('open')) closeChangelog()
+          if (e.key === 'Escape' && overlay.classList.contains('open')) hideChangelog()
         })
 
         // Show popup after a short delay so page renders first
