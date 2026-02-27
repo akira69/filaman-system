@@ -399,11 +399,20 @@ class SpoolService:
 
         event_at = datetime.utcnow()
         count = 0
-        
-        # We process one by one to ensure events are created. 
-        # For small numbers (dashboard modals), this is fine.
+
+        # Bulk-fetch all spools in one query instead of N+1 per-spool selects
+        result = await self.db.execute(
+            select(Spool)
+            .where(Spool.id.in_(spool_ids))
+            .options(
+                selectinload(Spool.filament).selectinload(Filament.manufacturer),
+                selectinload(Spool.status),
+            )
+        )
+        spools = {s.id: s for s in result.scalars().unique().all()}
+
         for sid in spool_ids:
-            spool = await self.get_spool(sid)
+            spool = spools.get(sid)
             if not spool:
                 continue
             

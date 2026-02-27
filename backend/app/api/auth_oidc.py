@@ -12,7 +12,7 @@ from sqlalchemy import delete, select, update
 from app.api.deps import DBSession
 from app.core.config import settings
 from app.core.oidc_crypto import decrypt_secret
-from app.core.security import generate_token_secret, hash_password_async
+from app.core.security import generate_token_secret, hash_password_async, hash_token
 from app.models import OIDCAuthState, OIDCSettings, OAuthIdentity, User, UserSession
 
 router = APIRouter(prefix="/auth/oidc", tags=["auth"])
@@ -258,7 +258,7 @@ async def oidc_callback(request: Request, db: DBSession):
     secret = generate_token_secret()
     session = UserSession(
         user_id=user.id,
-        session_token_hash=await hash_password_async(secret),
+        session_token_hash=hash_token(secret),
         expires_at=datetime.utcnow() + timedelta(days=30),
     )
     db.add(session)

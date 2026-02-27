@@ -5,11 +5,12 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from app.models import Base
 from app.core.seeds import run_all_seeds
 from app.main import app
-from app.core.security import hash_password, generate_token_secret
+from app.core.security import hash_password, hash_token, generate_token_secret
 
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -24,7 +25,12 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="function")
 async def db_engine():
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        echo=False,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -53,13 +59,38 @@ async def client(db_session, db_engine):
     async def override_db():
         yield db_session
     
-    from app.api.deps import DBSession
-    app.dependency_overrides[DBSession] = override_db
+    from app.api.deps import get_db
+    app.dependency_overrides[get_db] = override_db
+    
+    # Patch the global async_session_maker so the AuthMiddleware
+    # (which creates its own DB sessions) uses the same test session.
+    # SQLite in-memory + StaticPool shares one connection, but concurrent
+    # sessions on that connection can deadlock or miss uncommitted data.
+    # By returning the same session, the middleware sees test fixture data.
+    import app.core.database as db_module
+    import app.core.middleware as mw_module
+    original_db_session_maker = db_module.async_session_maker
+    original_mw_session_maker = mw_module.async_session_maker
+
+    class _FakeSessionContext:
+        """Context manager that returns the existing test session without closing it."""
+        async def __aenter__(self):
+            return db_session
+        async def __aexit__(self, *args):
+            pass  # Don't close the shared test session
+
+    def _fake_session_maker():
+        return _FakeSessionContext()
+
+    db_module.async_session_maker = _fake_session_maker
+    mw_module.async_session_maker = _fake_session_maker
     
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     
+    db_module.async_session_maker = original_db_session_maker
+    mw_module.async_session_maker = original_mw_session_maker
     app.dependency_overrides.clear()
 
 
@@ -122,7 +153,7 @@ async def auth_client(client, admin_user, db_session):
     secret = generate_token_secret()
     session = UserSession(
         user_id=admin_user.id,
-        session_token_hash=hash_password(secret),
+        session_token_hash=hash_token(secret),
     )
     db_session.add(session)
     await db_session.commit()

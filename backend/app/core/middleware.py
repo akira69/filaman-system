@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_maker
-from app.core.security import parse_token, pwd_context, Principal, verify_password_async
+from app.core.security import parse_token, pwd_context, Principal, verify_password_async, verify_token, is_argon2_hash, hash_token
 from app.core.logging_config import set_request_id
 from app.core.config import settings
 
@@ -103,8 +103,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return None
             if session.expires_at and session.expires_at < datetime.utcnow():
                 return None
-            if not await verify_password_async(secret, session.session_token_hash):
-                return None
+            if is_argon2_hash(session.session_token_hash):
+                # Legacy argon2 hash — verify and migrate to SHA-256
+                if not await verify_password_async(secret, session.session_token_hash):
+                    return None
+                # Migrate: replace argon2 hash with fast SHA-256 hash
+                session.session_token_hash = hash_token(secret)
+                await db.execute(
+                    update(UserSession)
+                    .where(UserSession.id == session_id)
+                    .values(session_token_hash=hash_token(secret))
+                )
+            else:
+                # Fast SHA-256 verification (microseconds, not 100-500ms)
+                if not verify_token(secret, session.session_token_hash):
+                    return None
 
             result = await db.execute(select(User).where(User.id == session.user_id))
             user = result.scalar_one_or_none()
@@ -159,8 +172,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
             if api_key is None:
                 return None
-            if not await verify_password_async(secret, api_key.key_hash):
-                return None
+            if is_argon2_hash(api_key.key_hash):
+                # Legacy argon2 hash — verify and migrate to SHA-256
+                if not await verify_password_async(secret, api_key.key_hash):
+                    return None
+                await db.execute(
+                    update(UserApiKey)
+                    .where(UserApiKey.id == key_id)
+                    .values(key_hash=hash_token(secret))
+                )
+            else:
+                if not verify_token(secret, api_key.key_hash):
+                    return None
 
             result = await db.execute(select(User).where(User.id == api_key.user_id))
             user = result.scalar_one_or_none()
@@ -203,8 +226,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return None
             if not device.is_active or device.deleted_at is not None:
                 return None
-            if not await verify_password_async(secret, device.token_hash):
-                return None
+            if is_argon2_hash(device.token_hash):
+                # Legacy argon2 hash — verify and migrate to SHA-256
+                if not await verify_password_async(secret, device.token_hash):
+                    return None
+                await db.execute(
+                    update(Device)
+                    .where(Device.id == device_id)
+                    .values(token_hash=hash_token(secret))
+                )
+            else:
+                if not verify_token(secret, device.token_hash):
+                    return None
 
             await db.execute(
                 update(Device)

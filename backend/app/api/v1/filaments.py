@@ -50,8 +50,7 @@ async def list_manufacturers(
     materials_map: dict[int, list[str]] = {m.id: [] for m in items}
 
     if mfr_ids:
-        # Run the count queries concurrently for better performance
-        import asyncio
+        # Run the count queries sequentially (same AsyncSession cannot run concurrent queries)
         
         fc_stmt = select(Filament.manufacturer_id, func.count(Filament.id)).where(Filament.manufacturer_id.in_(mfr_ids)).group_by(Filament.manufacturer_id)
         types_stmt = select(Filament.manufacturer_id, Filament.material_type).where(Filament.manufacturer_id.in_(mfr_ids)).distinct()
@@ -72,11 +71,9 @@ async def list_manufacturers(
             .group_by(Filament.manufacturer_id)
         )
 
-        fc_result, types_result, spool_stats_result = await asyncio.gather(
-            db.execute(fc_stmt),
-            db.execute(types_stmt),
-            db.execute(spool_stats_stmt)
-        )
+        fc_result = await db.execute(fc_stmt)
+        types_result = await db.execute(types_stmt)
+        spool_stats_result = await db.execute(spool_stats_stmt)
 
         fil_counts = {row[0]: row[1] for row in fc_result.all()}
         
@@ -372,11 +369,8 @@ async def list_filaments(
 
     query = query.order_by(Filament.designation).offset((page - 1) * page_size).limit(page_size)
 
-    import asyncio
-    result, count_result = await asyncio.gather(
-        db.execute(query),
-        db.execute(count_query)
-    )
+    result = await db.execute(query)
+    count_result = await db.execute(count_query)
     
     items = result.scalars().unique().all()
     total = count_result.scalar() or 0

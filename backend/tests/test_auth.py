@@ -1,7 +1,7 @@
 import pytest
 from httpx import AsyncClient
 
-from app.core.security import hash_password, generate_token_secret
+from app.core.security import hash_password, hash_token, generate_token_secret
 from app.models import User, UserSession
 
 
@@ -27,7 +27,7 @@ class TestAuthLogin:
         })
         
         assert response.status_code == 401
-        assert response.json()["code"] == "invalid_credentials"
+        assert response.json()["detail"]["code"] == "invalid_credentials"
 
     @pytest.mark.asyncio
     async def test_login_invalid_email(self, client: AsyncClient):
@@ -37,7 +37,7 @@ class TestAuthLogin:
         })
         
         assert response.status_code == 401
-        assert response.json()["code"] == "invalid_credentials"
+        assert response.json()["detail"]["code"] == "invalid_credentials"
 
     @pytest.mark.asyncio
     async def test_login_disabled_user(self, client: AsyncClient, db_session):
@@ -55,7 +55,7 @@ class TestAuthLogin:
         })
         
         assert response.status_code == 401
-        assert response.json()["code"] == "account_disabled"
+        assert response.json()["detail"]["code"] == "account_disabled"
 
 
 class TestAuthMe:
@@ -90,8 +90,14 @@ class TestAuthLogout:
         
         assert response.status_code == 200
         
-        session_id = client.cookies.get("session_id")
-        assert session_id is None
+        # httpx does not automatically remove expired cookies from the jar,
+        # so check the response Set-Cookie header instead.
+        set_cookie_headers = response.headers.get_list("set-cookie")
+        session_deleted = any(
+            "session_id" in h and ('max-age=0' in h.lower() or 'expires=thu, 01 jan 1970' in h.lower())
+            for h in set_cookie_headers
+        )
+        assert session_deleted, f"Expected session_id cookie to be deleted. Set-Cookie headers: {set_cookie_headers}"
 
 
 class TestCSRF:
@@ -157,7 +163,7 @@ class TestAuthMiddleware:
         api_key = UserApiKey(
             user_id=admin_user.id,
             name="Test Key",
-            key_hash=hash_password(secret),
+            key_hash=hash_token(secret),
         )
         db_session.add(api_key)
         await db_session.commit()
@@ -178,7 +184,8 @@ class TestAuthMiddleware:
         secret = generate_token_secret()
         device = Device(
             name="Test Device",
-            token_hash=hash_password(secret),
+            device_type="scale",
+            token_hash=hash_token(secret),
             scopes=["spool_events:create_measurement"],
         )
         db_session.add(device)

@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, require_auth
 from app.core.config import settings
-from app.core.security import generate_token_secret, hash_password_async, parse_token, pwd_context, Principal, verify_password_async
+from app.core.security import generate_token_secret, hash_password_async, hash_token, parse_token, pwd_context, Principal, verify_password_async
 from app.models import Role, User, UserSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -71,7 +71,7 @@ async def login(
     secret = generate_token_secret()
     session = UserSession(
         user_id=user.id,
-        session_token_hash=await hash_password_async(secret),
+        session_token_hash=hash_token(secret),
         expires_at=datetime.utcnow() + timedelta(days=30),
     )
     db.add(session)

@@ -1,9 +1,10 @@
 import asyncio
+import hashlib
+import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
-
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
@@ -28,6 +29,21 @@ async def verify_password_async(plain_password: str, hashed_password: str) -> bo
 def generate_token_secret() -> str:
     return secrets.token_urlsafe(32)
 
+
+def hash_token(secret: str) -> str:
+    """Hash a high-entropy token using SHA-256. Fast and secure for random tokens (not passwords)."""
+    return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def verify_token(secret: str, token_hash: str) -> bool:
+    """Verify a token against its SHA-256 hash using constant-time comparison."""
+    computed = hashlib.sha256(secret.encode()).hexdigest()
+    return hmac.compare_digest(computed, token_hash)
+
+
+def is_argon2_hash(h: str) -> bool:
+    """Check if a hash string is an argon2 hash (starts with $argon2)."""
+    return h.startswith('$argon2')
 
 def parse_token(token: str) -> tuple[str, int, str] | None:
     parts = token.split(".")

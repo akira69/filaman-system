@@ -10,7 +10,7 @@ from app.api.deps import DBSession
 
 logger = logging.getLogger(__name__)
 from app.api.v1.schemas_device import HeartbeatRequest, LocateRequest, LocateResponse, WeighRequest, WeighResponse, WriteTagRequest, WriteTagResponse, RfidResultRequest, RfidResultResponse, WriteStatusResponse
-from app.core.security import Principal, generate_token_secret, hash_password_async
+from app.core.security import Principal, generate_token_secret, hash_token
 from app.models import Device, Location, Spool, SpoolStatus
 from app.services.spool_service import SpoolService
 
@@ -79,7 +79,7 @@ async def register_device(
         
     # Generate Token
     secret = generate_token_secret()
-    device.token_hash = await hash_password_async(secret)
+    device.token_hash = hash_token(secret)
     device.device_code = None # Invalidate the code (one-time use)
     device.is_active = True  # Activate device after registration
     await db.commit()

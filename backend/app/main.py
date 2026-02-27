@@ -90,8 +90,8 @@ if cors_origins:
     )
 
 app.add_middleware(RequestIdMiddleware)
-app.add_middleware(AuthMiddleware)
 app.add_middleware(CsrfMiddleware)
+app.add_middleware(AuthMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 

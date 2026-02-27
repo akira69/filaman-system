@@ -371,16 +371,19 @@ import Layout from '../../layouts/Layout.astro'
         allSpools = data.items
         if (data.total > 200) {
           const totalPages = Math.ceil(data.total / 200)
+          const pagePromises = []
           for (let p = 2; p <= totalPages; p++) {
             let pUrl = `/api/v1/spools?page=${p}&page_size=200`
             if (statusId) pUrl += `&status_id=${statusId}`
             if (isArchivedSelected) pUrl += `&include_archived=true`
-            const res = await fetch(pUrl, { credentials: 'include' })
-            if (res.ok) {
-              const d = await res.json()
-              allSpools = allSpools.concat(d.items)
-            }
+            pagePromises.push(
+              fetch(pUrl, { credentials: 'include' })
+                .then(res => res.ok ? res.json() : null)
+                .then(d => d ? d.items : [])
+            )
           }
+          const additionalPages = await Promise.all(pagePromises)
+          additionalPages.forEach(items => { allSpools = allSpools.concat(items) })
         }
         applyFiltersAndRender()
       } catch (error) {
@@ -632,8 +635,7 @@ import Layout from '../../layouts/Layout.astro'
     document.getElementById('filter-group')?.addEventListener('change', () => applyFiltersAndRender())
     
     setupSortableHeaders()
-    loadFilters()
-      .then(() => loadActiveDevices())
+    Promise.all([loadFilters(), loadActiveDevices()])
       .then(() => loadSpools())
 
     // RFID Modal Logic

@@ -38,7 +38,7 @@ const { title } = Astro.props
     </script>
   </head>
   <body>
-    <div id="fm-page" class="fm-page">
+    <div id="fm-page" class="fm-page" style="visibility: hidden;">
       <aside class="fm-sidebar fm-surface">
         <button id="sidebar-toggle" class="fm-sidebar-toggle" aria-label="Toggle Sidebar">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -300,7 +300,7 @@ const { title } = Astro.props
           })
 
           if (!response.ok) {
-            // Delete cookies manually on client side to ensure clean slate
+            // Server explicitly rejected auth — clear cookies and redirect
             document.cookie = 'session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
             document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
             window.location.href = '/login'
@@ -320,8 +320,15 @@ const { title } = Astro.props
           if (user.is_superadmin || user.permissions.some((p: string) => p.startsWith('admin:'))) {
             adminNav.classList.remove('invisible')
           }
-        } catch {
-          // Clean cookies on network error (like disconnected Docker container)
+
+          // Auth succeeded — reveal page content
+          document.getElementById('fm-page')!.style.visibility = 'visible'
+        } catch (err) {
+          // Network abort (e.g. fast page switch) — do NOT clear cookies
+          if (err instanceof DOMException && err.name === 'AbortError') return
+          if (err instanceof TypeError && (err.message.includes('fetch') || err.message.includes('network'))) return
+
+          // Genuine network error (e.g. disconnected backend) — clear cookies and redirect
           document.cookie = 'session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
           document.cookie = 'csrf_token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
           window.location.href = '/login'

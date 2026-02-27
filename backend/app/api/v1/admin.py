@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.schemas import PaginatedResponse
-from app.core.security import generate_token_secret, hash_password_async, generate_device_code
+from app.core.security import generate_token_secret, hash_password_async, hash_token, generate_device_code
 from app.models import Device, Permission, Role, User, UserRole, RolePermission
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -601,7 +601,7 @@ async def rotate_device_token(
         )
 
     secret = generate_token_secret()
-    device.token_hash = await hash_password_async(secret)
+    device.token_hash = hash_token(secret)
     await db.commit()
 
     token = f"dev.{device.id}.{secret}"
