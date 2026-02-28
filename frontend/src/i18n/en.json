@@ -242,7 +242,18 @@
     "confirmCascadeDelete": "This filament still has associated spools. Are you sure you want to delete this filament along with all its spools? This action cannot be undone!",
     "failedDelete": "Failed to delete filament",
     "groupByManufacturer": "Group by Manufacturer",
-    "filamentsInGroup": "{count} filament(s)"
+    "filamentsInGroup": "{count} filament(s)",
+    "bulkSelected": "{count} filament(s) selected",
+    "bulkDelete": "Delete",
+    "bulkSetPrice": "Set Price",
+    "bulkSetDiameter": "Set Diameter",
+    "bulkSetSpoolWeight": "Set Spool Weight",
+    "bulkSetDensity": "Set Density",
+    "bulkConfirmDelete": "Are you sure you want to delete {count} filament(s)?",
+    "bulkConfirmDeleteForce": "Also delete all associated spools permanently. This cannot be undone.",
+    "bulkSuccess": "{count} filament(s) updated successfully",
+    "bulkDeleteSuccess": "{count} filament(s) deleted successfully",
+    "bulkError": "Bulk operation failed"
   },
   "spools": {
     "title": "Spools",

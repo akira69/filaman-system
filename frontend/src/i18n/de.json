@@ -244,7 +244,18 @@
     "confirmCascadeDelete": "Dieses Filament hat noch zugehörige Spulen. Möchten Sie das Filament und alle zugehörigen Spulen wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden!",
     "failedDelete": "Filament konnte nicht gelöscht werden",
     "groupByManufacturer": "Nach Hersteller gruppieren",
-    "filamentsInGroup": "{count} Filament(e)"
+    "filamentsInGroup": "{count} Filament(e)",
+    "bulkSelected": "{count} Filament(e) ausgewählt",
+    "bulkDelete": "Löschen",
+    "bulkSetPrice": "Preis setzen",
+    "bulkSetDiameter": "Durchmesser setzen",
+    "bulkSetSpoolWeight": "Spulengewicht setzen",
+    "bulkSetDensity": "Dichte setzen",
+    "bulkConfirmDelete": "Möchten Sie {count} Filament(e) wirklich löschen?",
+    "bulkConfirmDeleteForce": "Auch alle zugehörigen Spulen endgültig löschen. Dies kann nicht rückgängig gemacht werden.",
+    "bulkSuccess": "{count} Filament(e) erfolgreich aktualisiert",
+    "bulkDeleteSuccess": "{count} Filament(e) erfolgreich gelöscht",
+    "bulkError": "Massenoperation fehlgeschlagen"
   },
   "spools": {
     "title": "Spulen",

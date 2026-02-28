@@ -8,6 +8,8 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.schemas import PaginatedResponse
 from app.api.v1.schemas_filament import (
+    BulkFilamentDeleteRequest,
+    BulkFilamentUpdateRequest,
     ColorCreate,
     ColorResponse,
     ColorUpdate,
@@ -497,6 +499,64 @@ async def get_filament(filament_id: int, db: DBSession, principal: PrincipalDep)
             "colors": sorted(filament.filament_colors, key=lambda fc: fc.position),
         }
     )
+
+@router_filaments.patch("/bulk", status_code=status.HTTP_200_OK)
+async def update_filaments_bulk(
+    data: BulkFilamentUpdateRequest,
+    db: DBSession,
+    principal = RequirePermission("filaments:update"),
+):
+    """Bulk update fields on multiple filaments (price, diameter, spool weight, density)."""
+    result = await db.execute(
+        select(Filament).where(Filament.id.in_(data.filament_ids))
+    )
+    filaments = result.scalars().all()
+
+    count = 0
+    for filament in filaments:
+        if data.price is not None:
+            filament.price = data.price
+        if data.diameter_mm is not None:
+            filament.diameter_mm = data.diameter_mm
+        if data.default_spool_weight_g is not None:
+            filament.default_spool_weight_g = data.default_spool_weight_g
+        if data.density_g_cm3 is not None:
+            filament.density_g_cm3 = data.density_g_cm3
+        count += 1
+
+    await db.commit()
+    return {"success": True, "count": count}
+
+
+@router_filaments.delete("/bulk", status_code=status.HTTP_200_OK)
+async def delete_filaments_bulk(
+    data: BulkFilamentDeleteRequest,
+    db: DBSession,
+    principal = RequirePermission("filaments:delete"),
+):
+    """Bulk delete multiple filaments. Use force=true to cascade-delete associated spools."""
+    result = await db.execute(
+        select(Filament).where(Filament.id.in_(data.filament_ids))
+    )
+    filaments = result.scalars().all()
+
+    count = 0
+    for filament in filaments:
+        # Check for associated spools
+        spool_result = await db.execute(select(Spool).where(Spool.filament_id == filament.id).limit(1))
+        if spool_result.scalar_one_or_none():
+            if not data.force:
+                continue  # Skip filaments with spools when force is not set
+            else:
+                # Force delete all spools associated with this filament
+                spools_result = await db.execute(select(Spool).where(Spool.filament_id == filament.id))
+                for s in spools_result.scalars().all():
+                    await db.delete(s)
+        await db.delete(filament)
+        count += 1
+
+    await db.commit()
+    return {"success": True, "count": count}
 
 
 @router_filaments.patch("/{filament_id}", response_model=FilamentResponse)

@@ -165,3 +165,16 @@ class FilamentDetailResponse(FilamentResponse):
     manufacturer: ManufacturerResponse | None = None
     spool_count: int = 0
     colors: list[FilamentColorResponse] = []
+
+
+class BulkFilamentUpdateRequest(BaseModel):
+    filament_ids: list[int] = Field(..., min_length=1)
+    price: float | None = None
+    diameter_mm: float | None = None
+    default_spool_weight_g: float | None = None
+    density_g_cm3: float | None = None
+
+
+class BulkFilamentDeleteRequest(BaseModel):
+    filament_ids: list[int] = Field(..., min_length=1)
+    force: bool = False

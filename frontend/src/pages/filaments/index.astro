@@ -21,6 +21,17 @@ import Layout from '../../layouts/Layout.astro'
       min-width: 200px;
       max-width: 400px;
     }
+    .bulk-checkbox { cursor: pointer; vertical-align: middle; }
+    tr.bulk-selected { background: var(--bg-hover) !important; }
+    .bulk-action-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+      background: var(--bg-elevated); border-top: 2px solid var(--accent);
+      padding: 12px 24px; display: flex; align-items: center; gap: 12px;
+      box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
+      transform: translateY(100%); transition: transform 0.2s ease;
+    }
+    .bulk-action-bar.visible { transform: translateY(0); }
+    .bulk-action-bar .bulk-count { font-weight: 600; margin-right: 8px; white-space: nowrap; }
   </style>
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
     <h1 style="font-size: 1.8rem; font-weight: 700; margin: 0; font-family: var(--font-serif);" data-i18n="filaments.title">Filaments</h1>
@@ -61,6 +72,7 @@ import Layout from '../../layouts/Layout.astro'
     <table class="fm-table">
       <thead>
         <tr style="background: var(--bg-soft);">
+          <th style="width: 40px; text-align: center;"><input type="checkbox" id="bulk-select-all" class="fm-checkbox bulk-checkbox" /></th>
           <th data-i18n="filaments.manufacturer" data-sort="manufacturer" class="sortable">Manufacturer</th>
           <th data-i18n="filaments.type" data-sort="type" class="sortable">Type</th>
           <th data-i18n="filaments.designation" data-sort="designation" class="sortable">Designation</th>
@@ -71,16 +83,38 @@ import Layout from '../../layouts/Layout.astro'
       </thead>
       <tbody id="filaments-table">
         <tr>
-          <td colspan="6" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
+          <td colspan="7" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
         </tr>
       </tbody>
     </table>
   </div>
   
   <div id="pagination" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;"></div>
+
+  <!-- Bulk Action Bar -->
+  <div id="bulk-action-bar" class="bulk-action-bar">
+    <span class="bulk-count" id="bulk-count"></span>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-price" data-i18n="filaments.bulkSetPrice">Set Price</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-diameter" data-i18n="filaments.bulkSetDiameter">Set Diameter</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-spool-weight" data-i18n="filaments.bulkSetSpoolWeight">Set Spool Weight</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-density" data-i18n="filaments.bulkSetDensity">Set Density</button>
+    <button class="fm-btn fm-btn-danger" id="bulk-btn-delete" data-i18n="filaments.bulkDelete">Delete</button>
+  </div>
+
+  <!-- Bulk Prompt Modal -->
+  <div id="bulk-prompt-modal" class="fm-modal-overlay">
+    <div class="fm-card" style="width: 100%; max-width: 24rem; margin: 0 1rem; padding: 24px;">
+      <h3 id="bulk-prompt-title" style="font-size: 1.15rem; font-weight: 600; margin-bottom: 16px;"></h3>
+      <div id="bulk-prompt-content" style="margin-bottom: 16px;"></div>
+      <div style="display: flex; gap: 12px;">
+        <button id="bulk-prompt-ok" class="fm-btn fm-btn-primary" data-i18n="common.confirm">Confirm</button>
+        <button id="bulk-prompt-cancel" class="fm-btn fm-btn-outline" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
   
   <script>
-    import { t, initI18n } from '../../lib/i18n'
+    import { t, initI18n, translatePage } from '../../lib/i18n'
     await initI18n()
 
     let currentPage = 1
@@ -89,6 +123,7 @@ import Layout from '../../layouts/Layout.astro'
     let filteredFilaments: any[] = []
     let sortKey: string | null = null
     let sortDirection: 'asc' | 'desc' | null = null
+    const selectedFilamentIds = new Set<number>()
 
     // Restore sort state from localStorage
     try {
@@ -108,6 +143,11 @@ import Layout from '../../layouts/Layout.astro'
 
     // Debounce timer for search input
     let searchTimeout: ReturnType<typeof setTimeout> | null = null
+
+    function getCsrfToken(): string {
+      const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
+      return match ? decodeURIComponent(match[1]) : ''
+    }
 
     function setupSortableHeaders() {
       document.querySelectorAll('th[data-sort]').forEach(th => {
@@ -317,7 +357,7 @@ import Layout from '../../layouts/Layout.astro'
         console.error('Failed to load filaments:', error)
         document.getElementById('filaments-table')!.innerHTML = `
           <tr>
-            <td colspan="6" style="text-align: center; color: var(--error-text);">${t('filaments.failedLoad')}</td>
+            <td colspan="7" style="text-align: center; color: var(--error-text);">${t('filaments.failedLoad')}</td>
           </tr>
         `
       }
@@ -340,7 +380,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || manufacturerId || type || color
         tbody.innerHTML = `
           <tr>
-            <td colspan="6" style="text-align: center; color: var(--text-muted);">
+            <td colspan="7" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('filaments.noResults') : `${t('filaments.noFilaments')} <a href="/filaments/new" style="color: var(--accent);">${t('filaments.addOne')}</a>.`}
             </td>
           </tr>
@@ -348,24 +388,13 @@ import Layout from '../../layouts/Layout.astro'
         return
       }
       
-      tbody.innerHTML = filaments.map(f => `
-        <tr style="cursor: pointer;" onclick="window.location='/filaments/${f.id}'">
-          <td style="padding: 12px; color: var(--text-muted);">${f.manufacturer?.name || '-'}</td>
-          <td style="padding: 12px; color: var(--text-muted);">${f.material_type}</td>
-          <td style="padding: 12px;">
-            <div style="font-weight: 500;">${f.designation}</div>
-            ${f.manufacturer_color_name ? `<div style="font-size: 0.85rem; color: var(--text-muted);">${f.manufacturer_color_name}</div>` : ''}
-          </td>
-          <td style="padding: 12px;">${renderColorDots(f.colors)}</td>
-          <td style="padding: 12px; color: var(--text-muted);">${f.diameter_mm}mm</td>
-          <td style="padding: 12px; text-align: right; color: var(--text-muted);">${f.spool_count ?? 0}</td>
-        </tr>
-      `).join('')
+      tbody.innerHTML = filaments.map(f => renderFilamentRow(f)).join('')
     }
 
     function renderFilamentRow(f: any): string {
       return `
-        <tr style="cursor: pointer;" onclick="window.location='/filaments/${f.id}'">
+        <tr class="${selectedFilamentIds.has(f.id) ? 'bulk-selected' : ''}" style="cursor: pointer;" onclick="window.location='/filaments/${f.id}'">
+          <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-filament-id="${f.id}" ${selectedFilamentIds.has(f.id) ? 'checked' : ''} onchange="window.__toggleFilamentSelection(${f.id}, this.checked)" /></td>
           <td style="padding: 12px; color: var(--text-muted);">${f.manufacturer?.name || '-'}</td>
           <td style="padding: 12px; color: var(--text-muted);">${f.material_type}</td>
           <td style="padding: 12px;">
@@ -387,7 +416,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || manufacturerId || type || color
         tbody.innerHTML = `
           <tr>
-            <td colspan="6" style="text-align: center; color: var(--text-muted);">
+            <td colspan="7" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('filaments.noResults') : `${t('filaments.noFilaments')} <a href="/filaments/new" style="color: var(--accent);">${t('filaments.addOne')}</a>.`}
             </td>
           </tr>
@@ -415,7 +444,7 @@ import Layout from '../../layouts/Layout.astro'
         const gid = `group-${groupIdx}`
         html += `
           <tr data-group="${gid}" style="background: var(--group-header-bg); font-weight: 600; cursor: pointer; user-select: none; border-left: 3px solid var(--group-header-border);" onmouseenter="this.style.background='var(--group-header-bg-hover)'" onmouseleave="this.style.background='var(--group-header-bg)'">
-            <td colspan="6" style="padding: 10px 12px; color: var(--text);">
+            <td colspan="7" style="padding: 10px 12px; color: var(--text);">
               <span data-toggle="${gid}" style="display: inline-block;">&#9660; ${group.label}</span>
               <span style="margin-left: 12px; font-weight: 400; color: var(--text-muted); font-size: 0.85rem;">${t('filaments.filamentsInGroup', { count: group.filaments.length })}</span>
             </td>
@@ -510,5 +539,187 @@ import Layout from '../../layouts/Layout.astro'
     setupSortableHeaders()
     if (sortKey && sortDirection) updateSortIndicators()
     loadFilaments()
+
+    // ── Bulk Selection & Actions ──────────────────────────────
+    function updateBulkBar() {
+      const bar = document.getElementById('bulk-action-bar')!
+      const countEl = document.getElementById('bulk-count')!
+      const selectAllCb = document.getElementById('bulk-select-all') as HTMLInputElement
+      countEl.textContent = t('filaments.bulkSelected', { count: selectedFilamentIds.size })
+      if (selectedFilamentIds.size > 0) {
+        bar.classList.add('visible')
+      } else {
+        bar.classList.remove('visible')
+      }
+      // Update select-all checkbox state
+      const visibleCheckboxes = document.querySelectorAll('#filaments-table input.bulk-checkbox[data-filament-id]')
+      const visibleIds = Array.from(visibleCheckboxes).map(cb => Number((cb as HTMLInputElement).dataset.filamentId))
+      const allChecked = visibleIds.length > 0 && visibleIds.every(id => selectedFilamentIds.has(id))
+      const someChecked = visibleIds.some(id => selectedFilamentIds.has(id))
+      selectAllCb.checked = allChecked
+      selectAllCb.indeterminate = someChecked && !allChecked
+    }
+
+    function toggleFilamentSelection(id: number, checked: boolean) {
+      if (checked) {
+        selectedFilamentIds.add(id)
+      } else {
+        selectedFilamentIds.delete(id)
+      }
+      const row = document.querySelector(`#filaments-table input.bulk-checkbox[data-filament-id="${id}"]`)?.closest('tr')
+      if (row) row.classList.toggle('bulk-selected', checked)
+      updateBulkBar()
+    }
+
+    ;(window as any).__toggleFilamentSelection = toggleFilamentSelection
+
+    // Select all checkbox
+    document.getElementById('bulk-select-all')?.addEventListener('change', (e) => {
+      const checked = (e.target as HTMLInputElement).checked
+      const visibleCheckboxes = document.querySelectorAll('#filaments-table input.bulk-checkbox[data-filament-id]') as NodeListOf<HTMLInputElement>
+      visibleCheckboxes.forEach(cb => {
+        const id = Number(cb.dataset.filamentId)
+        cb.checked = checked
+        const row = cb.closest('tr')
+        if (checked) {
+          selectedFilamentIds.add(id)
+          if (row) row.classList.add('bulk-selected')
+        } else {
+          selectedFilamentIds.delete(id)
+          if (row) row.classList.remove('bulk-selected')
+        }
+      })
+      updateBulkBar()
+    })
+
+    // Generic bulk prompt modal
+    function openBulkPrompt(title: string, contentHtml: string): Promise<string | null> {
+      const modal = document.getElementById('bulk-prompt-modal')!
+      const titleEl = document.getElementById('bulk-prompt-title')!
+      const contentEl = document.getElementById('bulk-prompt-content')!
+      titleEl.textContent = title
+      contentEl.innerHTML = contentHtml
+      modal.classList.add('open')
+      translatePage()
+      return new Promise((resolve) => {
+        function cleanup() {
+          modal.classList.remove('open')
+          okBtn.removeEventListener('click', onOk)
+          cancelBtn.removeEventListener('click', onCancel)
+          modal.removeEventListener('click', onOverlay)
+        }
+        function onOk() {
+          const input = contentEl.querySelector('select, input') as HTMLInputElement | HTMLSelectElement | null
+          cleanup()
+          resolve(input ? input.value : '')
+        }
+        function onCancel() {
+          cleanup()
+          resolve(null)
+        }
+        function onOverlay(e: Event) {
+          if (e.target === modal) { cleanup(); resolve(null) }
+        }
+        const okBtn = document.getElementById('bulk-prompt-ok')!
+        const cancelBtn = document.getElementById('bulk-prompt-cancel')!
+        okBtn.addEventListener('click', onOk)
+        cancelBtn.addEventListener('click', onCancel)
+        modal.addEventListener('click', onOverlay)
+      })
+    }
+
+    async function bulkPatch(body: Record<string, unknown>) {
+      const count = selectedFilamentIds.size
+      try {
+        const res = await fetch('/api/v1/filaments/bulk', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({ filament_ids: [...selectedFilamentIds], ...body })
+        })
+        if (!res.ok) throw new Error('API error')
+        await (window as any).__fmSuccess(t('filaments.bulkSuccess', { count }))
+        selectedFilamentIds.clear()
+        updateBulkBar()
+        loadFilaments()
+      } catch {
+        (window as any).__fmAlert(t('filaments.bulkError'))
+      }
+    }
+
+    // Delete
+    document.getElementById('bulk-btn-delete')?.addEventListener('click', async () => {
+      const count = selectedFilamentIds.size
+      if (count === 0) return
+      const result = await (window as any).__fmConfirm(
+        t('filaments.bulkConfirmDelete', { count }),
+        {
+          title: t('filaments.bulkDelete'),
+          okLabel: t('filaments.bulkDelete'),
+          isDanger: true,
+          checkbox: { label: t('filaments.bulkConfirmDeleteForce', { count }), checked: false }
+        }
+      )
+      if (!result.confirmed) return
+      try {
+        const res = await fetch('/api/v1/filaments/bulk', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({ filament_ids: [...selectedFilamentIds], force: result.checked })
+        })
+        if (!res.ok) throw new Error('API error')
+        await (window as any).__fmSuccess(t('filaments.bulkDeleteSuccess', { count }))
+        selectedFilamentIds.clear()
+        updateBulkBar()
+        loadFilaments()
+      } catch {
+        (window as any).__fmAlert(t('filaments.bulkError'))
+      }
+    })
+
+    // Set Price
+    document.getElementById('bulk-btn-price')?.addEventListener('click', async () => {
+      if (selectedFilamentIds.size === 0) return
+      const value = await openBulkPrompt(
+        t('filaments.bulkSetPrice'),
+        `<input type="number" class="fm-input" style="width: 100%;" min="0" step="0.01" value="0" />`
+      )
+      if (value === null) return
+      await bulkPatch({ price: Number(value) })
+    })
+
+    // Set Diameter
+    document.getElementById('bulk-btn-diameter')?.addEventListener('click', async () => {
+      if (selectedFilamentIds.size === 0) return
+      const value = await openBulkPrompt(
+        t('filaments.bulkSetDiameter'),
+        `<input type="number" class="fm-input" style="width: 100%;" min="0" step="0.01" value="1.75" />`
+      )
+      if (value === null) return
+      await bulkPatch({ diameter_mm: Number(value) })
+    })
+
+    // Set Spool Weight
+    document.getElementById('bulk-btn-spool-weight')?.addEventListener('click', async () => {
+      if (selectedFilamentIds.size === 0) return
+      const value = await openBulkPrompt(
+        t('filaments.bulkSetSpoolWeight'),
+        `<input type="number" class="fm-input" style="width: 100%;" min="0" step="0.1" value="0" />`
+      )
+      if (value === null) return
+      await bulkPatch({ default_spool_weight_g: Number(value) })
+    })
+
+    // Set Density
+    document.getElementById('bulk-btn-density')?.addEventListener('click', async () => {
+      if (selectedFilamentIds.size === 0) return
+      const value = await openBulkPrompt(
+        t('filaments.bulkSetDensity'),
+        `<input type="number" class="fm-input" style="width: 100%;" min="0" step="0.01" value="1.24" />`
+      )
+      if (value === null) return
+      await bulkPatch({ density_g_cm3: Number(value) })
+    })
   </script>
 </Layout>
