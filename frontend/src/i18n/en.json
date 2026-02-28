@@ -360,7 +360,22 @@
     "spoolMaterialOther": "Other",
     "purchasePrice": "Purchase Price",
     "purchaseDate": "Purchase Date",
-    "expirationDate": "Expiration Date"
+    "expirationDate": "Expiration Date",
+    "bulkSelected": "{count} spool(s) selected",
+    "bulkDelete": "Delete",
+    "bulkSetLocation": "Set Location",
+    "bulkClearLocation": "Remove Location",
+    "bulkSetStatus": "Set Status",
+    "bulkSetThreshold": "Set Threshold",
+    "bulkSetEmptyWeight": "Set Empty Spool Weight",
+    "bulkSetPrice": "Set Price",
+    "bulkConfirmDelete": "Are you sure you want to archive {count} spool(s)?",
+    "bulkConfirmDeletePermanent": "Are you sure you want to permanently delete {count} spool(s)? This cannot be undone.",
+    "bulkSuccess": "{count} spool(s) updated successfully",
+    "bulkDeleteSuccess": "{count} spool(s) deleted successfully",
+    "bulkError": "Bulk operation failed",
+    "bulkSelectAll": "Select all",
+    "bulkDeselectAll": "Deselect all"
   },
   "colors": {
     "title": "Manage Colors",

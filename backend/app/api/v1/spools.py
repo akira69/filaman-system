@@ -9,6 +9,9 @@ from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.schemas import PaginatedResponse
 from app.api.v1.schemas_spool import (
     AdjustmentRequest,
+    BulkSpoolDeleteRequest,
+    BulkSpoolUpdateRequest,
+    BulkStatusChangeRequest,
     ConsumptionRequest,
     DeviceMeasurementRequest,
     LocationCreate,
@@ -23,7 +26,6 @@ from app.api.v1.schemas_spool import (
     SpoolStatusResponse,
     SpoolUpdate,
     StatusChangeRequest,
-    BulkStatusChangeRequest,
 )
 from app.models import Filament, FilamentColor, Location, Spool, SpoolEvent, SpoolStatus
 from app.services.spool_service import SpoolService
@@ -356,6 +358,72 @@ async def create_spools_bulk(
         )
     )
     return result.scalars().all()
+
+@router_spools.patch("/bulk", status_code=status.HTTP_200_OK)
+async def update_spools_bulk(
+    data: BulkSpoolUpdateRequest,
+    db: DBSession,
+    principal = RequirePermission("spools:update"),
+):
+    """Bulk update fields on multiple spools (location, threshold, empty weight, price)."""
+    result = await db.execute(
+        select(Spool).where(Spool.id.in_(data.spool_ids))
+    )
+    spools = result.scalars().all()
+
+    count = 0
+    for spool in spools:
+        if data.clear_location:
+            spool.location_id = None
+        elif data.location_id is not None:
+            spool.location_id = data.location_id
+        if data.status_id is not None:
+            spool.status_id = data.status_id
+        if data.low_weight_threshold_g is not None:
+            spool.low_weight_threshold_g = data.low_weight_threshold_g
+        if data.empty_spool_weight_g is not None:
+            spool.empty_spool_weight_g = data.empty_spool_weight_g
+        if data.purchase_price is not None:
+            spool.purchase_price = data.purchase_price
+        count += 1
+
+    await db.commit()
+    return {"success": True, "count": count}
+
+
+@router_spools.delete("/bulk", status_code=status.HTTP_200_OK)
+async def delete_spools_bulk(
+    data: BulkSpoolDeleteRequest,
+    db: DBSession,
+    principal = RequirePermission("spools:delete"),
+):
+    """Bulk archive or permanently delete multiple spools."""
+    result = await db.execute(
+        select(Spool).where(Spool.id.in_(data.spool_ids))
+    )
+    spools = result.scalars().all()
+
+    count = 0
+    if data.permanent:
+        for spool in spools:
+            await db.delete(spool)
+            count += 1
+    else:
+        archived_result = await db.execute(
+            select(SpoolStatus).where(SpoolStatus.key == "archived")
+        )
+        archived_status = archived_result.scalar_one_or_none()
+        if not archived_status:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"code": "config_error", "message": "Archived status not found"},
+            )
+        for spool in spools:
+            spool.status_id = archived_status.id
+            count += 1
+
+    await db.commit()
+    return {"success": True, "count": count}
 
 @router_spools.get("/{spool_id}", response_model=SpoolResponse)
 async def get_spool(spool_id: int, db: DBSession, principal: PrincipalDep):

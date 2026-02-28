@@ -6,11 +6,13 @@
       "changes": {
         "de": [
           { "type": "fix", "text": "Killswitch (Alle Daten löschen) funktioniert jetzt korrekt" },
-          { "type": "feature", "text": "Sortiereinstellungen bleiben jetzt erhalten" }
+          { "type": "feature", "text": "Sortiereinstellungen bleiben jetzt erhalten" },
+          { "type": "feature", "text": "Massenbearbeitung in der Spulenübersicht: Löschen, Standort, Status, Schwellenwert, Leergewicht und Preis für mehrere Spulen gleichzeitig setzen" }
         ],
         "en": [
           { "type": "fix", "text": "Killswitch (Delete all data) now works correctly" },
-          { "type": "feature", "text": "Sort settings are now preserved" }
+          { "type": "feature", "text": "Sort settings are now preserved" },
+          { "type": "feature", "text": "Bulk editing in spool overview: Delete, set location, status, threshold, empty weight and price for multiple spools at once" }
         ]
       }
     },

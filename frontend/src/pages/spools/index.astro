@@ -35,6 +35,17 @@ import Layout from '../../layouts/Layout.astro'
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+    .bulk-checkbox { cursor: pointer; vertical-align: middle; }
+    tr.bulk-selected { background: var(--bg-hover) !important; }
+    .bulk-action-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+      background: var(--bg-elevated); border-top: 2px solid var(--accent);
+      padding: 12px 24px; display: flex; align-items: center; gap: 12px;
+      box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
+      transform: translateY(100%); transition: transform 0.2s ease;
+    }
+    .bulk-action-bar.visible { transform: translateY(0); }
+    .bulk-action-bar .bulk-count { font-weight: 600; margin-right: 8px; white-space: nowrap; }
   
   </style>
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
@@ -74,6 +85,7 @@ import Layout from '../../layouts/Layout.astro'
     <table class="fm-table">
       <thead>
         <tr style="background: var(--bg-soft);">
+          <th style="width: 40px; text-align: center;"><input type="checkbox" id="bulk-select-all" class="fm-checkbox bulk-checkbox" /></th>
           <th data-i18n="spools.id" data-sort="id" class="sortable">ID</th>
           <th data-i18n="spools.filament" data-sort="filament_id" class="sortable">Filament</th>
           <th data-i18n="spools.manufacturer" data-sort="manufacturer" class="sortable">Manufacturer</th>
@@ -86,13 +98,37 @@ import Layout from '../../layouts/Layout.astro'
       </thead>
       <tbody id="spools-table">
         <tr>
-          <td colspan="8" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
+          <td colspan="9" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
         </tr>
       </tbody>
     </table>
   </div>
   
   <div id="pagination" style="margin-top: 16px; display: flex; justify-content: space-between; align-items: center;"></div>
+
+  <!-- Bulk Action Bar -->
+  <div id="bulk-action-bar" class="bulk-action-bar">
+    <span class="bulk-count" id="bulk-count"></span>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-location" data-i18n="spools.bulkSetLocation">Set Location</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-clear-location" data-i18n="spools.bulkClearLocation">Remove Location</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-status" data-i18n="spools.bulkSetStatus">Set Status</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-threshold" data-i18n="spools.bulkSetThreshold">Set Threshold</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-empty-weight" data-i18n="spools.bulkSetEmptyWeight">Set Empty Weight</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-price" data-i18n="spools.bulkSetPrice">Set Price</button>
+    <button class="fm-btn fm-btn-danger" id="bulk-btn-delete" data-i18n="spools.bulkDelete">Delete</button>
+  </div>
+
+  <!-- Bulk Prompt Modal -->
+  <div id="bulk-prompt-modal" class="fm-modal-overlay">
+    <div class="fm-card" style="width: 100%; max-width: 24rem; margin: 0 1rem; padding: 24px;">
+      <h3 id="bulk-prompt-title" style="font-size: 1.15rem; font-weight: 600; margin-bottom: 16px;"></h3>
+      <div id="bulk-prompt-content" style="margin-bottom: 16px;"></div>
+      <div style="display: flex; gap: 12px;">
+        <button id="bulk-prompt-ok" class="fm-btn fm-btn-primary" data-i18n="common.confirm">Confirm</button>
+        <button id="bulk-prompt-cancel" class="fm-btn fm-btn-outline" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
   
   <!-- RFID Modal -->
   <div id="rfid-modal" class="fm-modal-overlay">
@@ -129,6 +165,7 @@ import Layout from '../../layouts/Layout.astro'
     let activeDevices: any[] = []
     let sortKey: string | null = null
     let sortDirection: 'asc' | 'desc' | null = null
+    const selectedSpoolIds = new Set<number>()
 
     // Restore sort state from localStorage
     try {
@@ -408,7 +445,7 @@ import Layout from '../../layouts/Layout.astro'
         console.error('Failed to load spools:', error)
         document.getElementById('spools-table')!.innerHTML = `
           <tr>
-            <td colspan="8" style="text-align: center; color: var(--error-text);">${t('spools.failedLoad')}</td>
+            <td colspan="9" style="text-align: center; color: var(--error-text);">${t('spools.failedLoad')}</td>
           </tr>
         `
       }
@@ -483,7 +520,8 @@ import Layout from '../../layouts/Layout.astro'
 
       
       return `
-        <tr style="cursor: pointer;" onclick="window.location='/spools/${s.id}'">
+        <tr class="${selectedSpoolIds.has(s.id) ? 'bulk-selected' : ''}" style="cursor: pointer;" onclick="window.location='/spools/${s.id}'">
+          <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-spool-id="${s.id}" ${selectedSpoolIds.has(s.id) ? 'checked' : ''} onchange="window.__toggleSpoolSelection(${s.id}, this.checked)" /></td>
           <td style="padding: 12px; font-weight: 500;">${t('spools.spoolId', { id: s.id })}</td>
           <td style="padding: 12px;">${colorDots} ${getFilamentName(s.filament_id)}</td>
           <td style="padding: 12px; color: var(--text-muted);">${getManufacturerName(s)}</td>
@@ -505,7 +543,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || statusId || locationId || manufacturerId || material
         tbody.innerHTML = `
           <tr>
-            <td colspan="8" style="text-align: center; color: var(--text-muted);">
+            <td colspan="9" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('spools.noResults') : `${t('spools.noSpools')} <a href="/spools/new" style="color: var(--accent);">${t('spools.addOne')}</a>.`}
             </td>
           </tr>
@@ -525,7 +563,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || statusId || locationId || manufacturerId || material
         tbody.innerHTML = `
           <tr>
-            <td colspan="8" style="text-align: center; color: var(--text-muted);">
+            <td colspan="9" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('spools.noResults') : `${t('spools.noSpools')} <a href="/spools/new" style="color: var(--accent);">${t('spools.addOne')}</a>.`}
             </td>
           </tr>
@@ -558,7 +596,7 @@ import Layout from '../../layouts/Layout.astro'
         const gid = `group-${groupIdx}`
         html += `
           <tr data-group="${gid}" style="background: var(--group-header-bg); font-weight: 600; cursor: pointer; user-select: none; border-left: 3px solid var(--group-header-border);" onmouseenter="this.style.background='var(--group-header-bg-hover)'" onmouseleave="this.style.background='var(--group-header-bg)'">
-            <td colspan="8" style="padding: 10px 12px; color: var(--text);">
+            <td colspan="9" style="padding: 10px 12px; color: var(--text);">
               <span data-toggle="${gid}" style="display: inline-block;">&#9660; ${group.colorDots} ${group.label}</span>
               <span style="margin-left: 12px; font-weight: 400; color: var(--text-muted); font-size: 0.85rem;">${group.manufacturer} &middot; ${group.material} &middot; ${t('spools.spoolsInGroup', { count: group.spools.length })}</span>
             </td>
@@ -656,6 +694,216 @@ import Layout from '../../layouts/Layout.astro'
     if (sortKey && sortDirection) updateSortIndicators()
     Promise.all([loadFilters(), loadActiveDevices()])
       .then(() => loadSpools())
+
+
+    // ── Bulk Selection & Actions ──────────────────────────────
+    function updateBulkBar() {
+      const bar = document.getElementById('bulk-action-bar')!
+      const countEl = document.getElementById('bulk-count')!
+      const selectAllCb = document.getElementById('bulk-select-all') as HTMLInputElement
+      countEl.textContent = t('spools.bulkSelected', { count: selectedSpoolIds.size })
+      if (selectedSpoolIds.size > 0) {
+        bar.classList.add('visible')
+      } else {
+        bar.classList.remove('visible')
+      }
+      // Update select-all checkbox state
+      const visibleCheckboxes = document.querySelectorAll('#spools-table input.bulk-checkbox[data-spool-id]')
+      const visibleIds = Array.from(visibleCheckboxes).map(cb => Number((cb as HTMLInputElement).dataset.spoolId))
+      const allChecked = visibleIds.length > 0 && visibleIds.every(id => selectedSpoolIds.has(id))
+      const someChecked = visibleIds.some(id => selectedSpoolIds.has(id))
+      selectAllCb.checked = allChecked
+      selectAllCb.indeterminate = someChecked && !allChecked
+    }
+
+    function toggleSpoolSelection(id: number, checked: boolean) {
+      if (checked) {
+        selectedSpoolIds.add(id)
+      } else {
+        selectedSpoolIds.delete(id)
+      }
+      const row = document.querySelector(`#spools-table input.bulk-checkbox[data-spool-id="${id}"]`)?.closest('tr')
+      if (row) row.classList.toggle('bulk-selected', checked)
+      updateBulkBar()
+    }
+
+    ;(window as any).__toggleSpoolSelection = toggleSpoolSelection
+
+    // Select all checkbox
+    document.getElementById('bulk-select-all')?.addEventListener('change', (e) => {
+      const checked = (e.target as HTMLInputElement).checked
+      const visibleCheckboxes = document.querySelectorAll('#spools-table input.bulk-checkbox[data-spool-id]') as NodeListOf<HTMLInputElement>
+      visibleCheckboxes.forEach(cb => {
+        const id = Number(cb.dataset.spoolId)
+        cb.checked = checked
+        const row = cb.closest('tr')
+        if (checked) {
+          selectedSpoolIds.add(id)
+          if (row) row.classList.add('bulk-selected')
+        } else {
+          selectedSpoolIds.delete(id)
+          if (row) row.classList.remove('bulk-selected')
+        }
+      })
+      updateBulkBar()
+    })
+
+    // Generic bulk prompt modal
+    function openBulkPrompt(title: string, contentHtml: string): Promise<string | null> {
+      const modal = document.getElementById('bulk-prompt-modal')!
+      const titleEl = document.getElementById('bulk-prompt-title')!
+      const contentEl = document.getElementById('bulk-prompt-content')!
+      titleEl.textContent = title
+      contentEl.innerHTML = contentHtml
+      modal.classList.add('open')
+      translatePage()
+      return new Promise((resolve) => {
+        function cleanup() {
+          modal.classList.remove('open')
+          okBtn.removeEventListener('click', onOk)
+          cancelBtn.removeEventListener('click', onCancel)
+          modal.removeEventListener('click', onOverlay)
+        }
+        function onOk() {
+          const input = contentEl.querySelector('select, input') as HTMLInputElement | HTMLSelectElement | null
+          cleanup()
+          resolve(input ? input.value : '')
+        }
+        function onCancel() {
+          cleanup()
+          resolve(null)
+        }
+        function onOverlay(e: Event) {
+          if (e.target === modal) { cleanup(); resolve(null) }
+        }
+        const okBtn = document.getElementById('bulk-prompt-ok')!
+        const cancelBtn = document.getElementById('bulk-prompt-cancel')!
+        okBtn.addEventListener('click', onOk)
+        cancelBtn.addEventListener('click', onCancel)
+        modal.addEventListener('click', onOverlay)
+      })
+    }
+
+    async function bulkPatch(body: Record<string, unknown>) {
+      const count = selectedSpoolIds.size
+      try {
+        const res = await fetch('/api/v1/spools/bulk', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({ spool_ids: [...selectedSpoolIds], ...body })
+        })
+        if (!res.ok) throw new Error('API error')
+        await (window as any).__fmSuccess(t('spools.bulkSuccess', { count }))
+        selectedSpoolIds.clear()
+        updateBulkBar()
+        loadSpools()
+      } catch {
+        (window as any).__fmAlert(t('spools.bulkError'))
+      }
+    }
+
+    // Delete
+    document.getElementById('bulk-btn-delete')?.addEventListener('click', async () => {
+      const count = selectedSpoolIds.size
+      if (count === 0) return
+      const result = await (window as any).__fmConfirm(
+        t('spools.bulkConfirmDelete', { count }),
+        {
+          title: t('spools.bulkDelete'),
+          okLabel: t('spools.bulkDelete'),
+          isDanger: true,
+          checkbox: { label: t('spools.bulkConfirmDeletePermanent', { count }), checked: false }
+        }
+      )
+      if (!result.confirmed) return
+      try {
+        const res = await fetch('/api/v1/spools/bulk', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({ spool_ids: [...selectedSpoolIds], permanent: result.checked })
+        })
+        if (!res.ok) throw new Error('API error')
+        await (window as any).__fmSuccess(t('spools.bulkDeleteSuccess', { count }))
+        selectedSpoolIds.clear()
+        updateBulkBar()
+        loadSpools()
+      } catch {
+        (window as any).__fmAlert(t('spools.bulkError'))
+      }
+    })
+
+    // Set Location
+    document.getElementById('bulk-btn-location')?.addEventListener('click', async () => {
+      if (selectedSpoolIds.size === 0) return
+      const options = locations.map((l: any) => `<option value="${l.id}">${l.name}</option>`).join('')
+      const value = await openBulkPrompt(
+        t('spools.bulkSetLocation'),
+        `<select class="fm-select" style="width: 100%;">${options}</select>`
+      )
+      if (value === null) return
+      await bulkPatch({ location_id: Number(value) })
+    })
+
+    // Clear Location
+    document.getElementById('bulk-btn-clear-location')?.addEventListener('click', async () => {
+      if (selectedSpoolIds.size === 0) return
+      const confirmed = await (window as any).__fmConfirm(
+        t('spools.bulkClearLocation'),
+        { title: t('spools.bulkClearLocation'), okLabel: t('common.confirm'), isDanger: false }
+      )
+      if (!confirmed) return
+      await bulkPatch({ clear_location: true })
+    })
+
+    // Set Status
+    document.getElementById('bulk-btn-status')?.addEventListener('click', async () => {
+      if (selectedSpoolIds.size === 0) return
+      const options = statuses.map((s: any) => {
+        const i18nKey = `spools.status${s.key.charAt(0).toUpperCase() + s.key.slice(1)}`
+        return `<option value="${s.id}">${t(i18nKey) || s.label}</option>`
+      }).join('')
+      const value = await openBulkPrompt(
+        t('spools.bulkSetStatus'),
+        `<select class="fm-select" style="width: 100%;">${options}</select>`
+      )
+      if (value === null) return
+      await bulkPatch({ status_id: Number(value) })
+    })
+
+    // Set Threshold
+    document.getElementById('bulk-btn-threshold')?.addEventListener('click', async () => {
+      if (selectedSpoolIds.size === 0) return
+      const value = await openBulkPrompt(
+        t('spools.bulkSetThreshold'),
+        `<input type="number" class="fm-input" style="width: 100%;" min="0" step="1" value="100" />`
+      )
+      if (value === null) return
+      await bulkPatch({ low_weight_threshold_g: Number(value) })
+    })
+
+    // Set Empty Spool Weight
+    document.getElementById('bulk-btn-empty-weight')?.addEventListener('click', async () => {
+      if (selectedSpoolIds.size === 0) return
+      const value = await openBulkPrompt(
+        t('spools.bulkSetEmptyWeight'),
+        `<input type="number" class="fm-input" style="width: 100%;" min="0" step="0.1" value="0" />`
+      )
+      if (value === null) return
+      await bulkPatch({ empty_spool_weight_g: Number(value) })
+    })
+
+    // Set Price
+    document.getElementById('bulk-btn-price')?.addEventListener('click', async () => {
+      if (selectedSpoolIds.size === 0) return
+      const value = await openBulkPrompt(
+        t('spools.bulkSetPrice'),
+        `<input type="number" class="fm-input" style="width: 100%;" min="0" step="0.01" value="0" />`
+      )
+      if (value === null) return
+      await bulkPatch({ purchase_price: Number(value) })
+    })
 
     // RFID Modal Logic
     let currentRfidSpoolId: number | null = null

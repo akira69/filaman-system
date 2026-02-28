@@ -140,6 +140,20 @@ class BulkStatusChangeRequest(BaseModel):
     note: str | None = None
 
 
+class BulkSpoolUpdateRequest(BaseModel):
+    spool_ids: list[int] = Field(..., min_length=1)
+    location_id: int | None = None
+    clear_location: bool = False
+    status_id: int | None = None
+    low_weight_threshold_g: int | None = None
+    empty_spool_weight_g: float | None = None
+    purchase_price: float | None = None
+
+
+class BulkSpoolDeleteRequest(BaseModel):
+    spool_ids: list[int] = Field(..., min_length=1)
+    permanent: bool = False
+
 class MoveLocationRequest(BaseModel):
     location_id: int | None
     event_at: datetime | None = None

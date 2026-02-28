@@ -362,7 +362,22 @@
     "spoolMaterialOther": "Sonstiges",
     "purchasePrice": "Kaufpreis",
     "purchaseDate": "Kaufdatum",
-    "expirationDate": "Ablaufdatum"
+    "expirationDate": "Ablaufdatum",
+    "bulkSelected": "{count} Spule(n) ausgewählt",
+    "bulkDelete": "Löschen",
+    "bulkSetLocation": "Standort setzen",
+    "bulkClearLocation": "Standort entfernen",
+    "bulkSetStatus": "Status setzen",
+    "bulkSetThreshold": "Schwellenwert setzen",
+    "bulkSetEmptyWeight": "Leergewicht setzen",
+    "bulkSetPrice": "Preis setzen",
+    "bulkConfirmDelete": "Möchten Sie {count} Spule(n) wirklich archivieren?",
+    "bulkConfirmDeletePermanent": "Möchten Sie {count} Spule(n) wirklich endgültig löschen? Dies kann nicht rückgängig gemacht werden.",
+    "bulkSuccess": "{count} Spule(n) erfolgreich aktualisiert",
+    "bulkDeleteSuccess": "{count} Spule(n) erfolgreich gelöscht",
+    "bulkError": "Massenoperation fehlgeschlagen",
+    "bulkSelectAll": "Alle auswählen",
+    "bulkDeselectAll": "Alle abwählen"
   },
   "colors": {
     "title": "Farben verwalten",
