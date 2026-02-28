@@ -1,6 +1,20 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Killswitch (Alle Daten löschen) funktioniert jetzt korrekt" },
+          { "type": "feature", "text": "Sortiereinstellungen bleiben jetzt erhalten" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Killswitch (Delete all data) now works correctly" },
+          { "type": "feature", "text": "Sort settings are now preserved" }
+        ]
+      }
+    },
+    {
       "version": "1.0.2",
       "date": "",
       "changes": {
