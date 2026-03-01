@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, update, func
@@ -397,7 +397,7 @@ class SpoolService:
         if new_status is None:
             raise ValueError(f"Status not found: {status_key}")
 
-        event_at = datetime.utcnow()
+        event_at = datetime.now(timezone.utc)
         count = 0
 
         # Bulk-fetch all spools in one query instead of N+1 per-spool selects
@@ -481,7 +481,7 @@ class SpoolService:
                     await self._create_event(
                         spool_id=spool.id,
                         event_type="manual_adjust",
-                        event_at=datetime.utcnow(),
+                        event_at=datetime.now(timezone.utc),
                         source="system",
                         meta={
                             "source": "rebuild",
@@ -509,7 +509,7 @@ class SpoolService:
                         await self._create_event(
                             spool_id=spool.id,
                             event_type="manual_adjust",
-                            event_at=datetime.utcnow(),
+                            event_at=datetime.now(timezone.utc),
                             source="system",
                             meta={
                                 "source": "rebuild",
@@ -549,7 +549,7 @@ class SpoolService:
                 await self._create_event(
                     spool_id=spool.id,
                     event_type="empty",
-                    event_at=datetime.utcnow(),
+                    event_at=datetime.now(timezone.utc),
                     source="system",
                     to_status_id=empty_status.id,
                     meta={

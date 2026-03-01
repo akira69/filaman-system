@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, TZDateTime
 
 
 class OIDCSettings(Base, TimestampMixin):
@@ -54,7 +54,7 @@ class OIDCAuthState(Base):
     # Where to redirect the user after successful login
     redirect_uri: Mapped[str] = mapped_column(String(500), nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=func.now(), nullable=False)
 
     # Set once the state has been consumed (one-time use)
-    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)

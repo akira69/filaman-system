@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
@@ -284,7 +284,7 @@ async def delete_user(
             )
 
     # 4. Soft delete
-    user.deleted_at = datetime.utcnow()
+    user.deleted_at = datetime.now(timezone.utc)
     await db.commit()
 
 
@@ -553,7 +553,7 @@ async def delete_device(
             detail={"code": "not_found", "message": "Device not found"},
         )
 
-    device.deleted_at = datetime.utcnow()
+    device.deleted_at = datetime.now(timezone.utc)
     await db.commit()
 
 

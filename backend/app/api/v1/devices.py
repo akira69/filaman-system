@@ -1,7 +1,7 @@
 import logging
 
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy import select
@@ -51,7 +51,7 @@ async def get_current_device(
         )
     
     # Update last_used_at
-    device.last_used_at = datetime.utcnow()
+    device.last_used_at = datetime.now(timezone.utc)
     await db.commit()
     
     return device
@@ -95,7 +95,7 @@ async def device_heartbeat(
     device: Device = Depends(get_current_device),
 ):
     device.ip_address = data.ip_address
-    device.last_seen_at = datetime.utcnow()
+    device.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
     return {"status": "ok"}
 
@@ -105,7 +105,7 @@ async def list_active_devices(
     db: DBSession,
 ):
     # Find active devices (last seen < 3 min)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     # We filter in Python because of the 3 min logic, or we can do it in SQL
     # select * from devices where last_seen_at > now - 3min
     from datetime import timedelta
@@ -171,7 +171,7 @@ async def write_rfid_tag(
     new_custom_fields = dict(device.custom_fields)
     new_custom_fields["last_write_result"] = {
         "status": "pending",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
     device.custom_fields = new_custom_fields
     await db.commit()
@@ -244,7 +244,7 @@ async def device_rfid_result(
         "status": "success" if data.success else "error",
         "tag_uuid": data.tag_uuid,
         "error_message": data.error_message,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "removed_from": None
     }
     
@@ -424,7 +424,7 @@ async def weigh_spool(
     event, remaining = await service.record_measurement(
         spool=spool,
         measured_weight_g=data.measured_weight_g,
-        event_at=datetime.utcnow(),
+        event_at=datetime.now(timezone.utc),
         principal=principal,
         source="device",
         note=f"Recorded by device {device.name}",
@@ -518,7 +518,7 @@ async def locate_spool(
     await service.move_location(
         spool=spool,
         to_location_id=location.id,
-        event_at=datetime.utcnow(),
+        event_at=datetime.now(timezone.utc),
         principal=principal,
         source="device",
         note=f"Located by device {device.name}"

@@ -1,10 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, func, text
+from sqlalchemy import Boolean, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, TZDateTime
 
 
 class Device(Base, TimestampMixin):
@@ -19,11 +19,11 @@ class Device(Base, TimestampMixin):
     token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     scopes: Mapped[list[str] | None] = mapped_column(nullable=True)
 
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     auto_assign_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
     auto_assign_timeout: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
@@ -34,9 +34,8 @@ class Device(Base, TimestampMixin):
     def is_online(self) -> bool:
         if not self.last_seen_at:
             return False
-        from datetime import datetime
-        delta = datetime.utcnow() - self.last_seen_at
-        return delta.total_seconds() < 180 # 3 minutes
+        delta = datetime.now(timezone.utc) - self.last_seen_at
+        return delta.total_seconds() < 180  # 3 minutes
 
     spool_events: Mapped[list["SpoolEvent"]] = relationship(back_populates="device")
 

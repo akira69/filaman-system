@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -557,7 +557,7 @@ async def record_measurement(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.utcnow()
+    event_at = data.event_at or datetime.now(timezone.utc)
     event, _ = await service.record_measurement(
         spool=spool,
         measured_weight_g=data.measured_weight_g,
@@ -583,7 +583,7 @@ async def record_adjustment(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.utcnow()
+    event_at = data.event_at or datetime.now(timezone.utc)
     event, _ = await service.record_adjustment(
         spool=spool,
         adjustment_type=data.adjustment_type,
@@ -611,7 +611,7 @@ async def record_consumption(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.utcnow()
+    event_at = data.event_at or datetime.now(timezone.utc)
     event, _ = await service.record_consumption(
         spool=spool,
         delta_weight_g=data.delta_weight_g,
@@ -637,7 +637,7 @@ async def change_status(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.utcnow()
+    event_at = data.event_at or datetime.now(timezone.utc)
     event = await service.change_status(
         spool=spool,
         status_key=data.status,
@@ -664,7 +664,7 @@ async def move_location(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.utcnow()
+    event_at = data.event_at or datetime.now(timezone.utc)
     event = await service.move_location(
         spool=spool,
         to_location_id=data.location_id,
@@ -724,7 +724,7 @@ async def device_measurement(
             detail={"code": "not_found", "message": "Spool not found by identifier"},
         )
 
-    event_at = data.event_at or datetime.utcnow()
+    event_at = data.event_at or datetime.now(timezone.utc)
     event, _ = await service.record_measurement(
         spool=spool,
         measured_weight_g=data.measured_weight_g,

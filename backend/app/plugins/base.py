@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 
@@ -48,7 +48,7 @@ class BaseDriver(ABC):
         if not self._debug_enabled:
             return
         self._debug_log.append({
-            "ts": datetime.utcnow().isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
             "dir": direction,
             "topic": topic,
             "payload": payload,

@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Integer, String, Text, Boolean, JSON, func
+from sqlalchemy import Integer, String, Text, Boolean, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, TZDateTime
 
 
 class InstalledPlugin(TimestampMixin, Base):
@@ -27,6 +27,6 @@ class InstalledPlugin(TimestampMixin, Base):
     capabilities: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     installed_at: Mapped[datetime] = mapped_column(
-        DateTime, default=func.now(), nullable=False
+        TZDateTime(), default=func.now(), nullable=False
     )
     installed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)

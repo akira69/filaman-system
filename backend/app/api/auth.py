@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
@@ -72,7 +72,7 @@ async def login(
     session = UserSession(
         user_id=user.id,
         session_token_hash=hash_token(secret),
-        expires_at=datetime.utcnow() + timedelta(days=30),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
     )
     db.add(session)
     await db.commit()
@@ -112,7 +112,7 @@ async def login(
     )
 
     await db.execute(
-        update(User).where(User.id == user.id).values(last_login_at=datetime.utcnow())
+        update(User).where(User.id == user.id).values(last_login_at=datetime.now(timezone.utc))
     )
     await db.commit()
 
@@ -135,7 +135,7 @@ async def logout(
         await db.execute(
             update(UserSession)
             .where(UserSession.id == principal.session_id)
-            .values(revoked_at=datetime.utcnow())
+            .values(revoked_at=datetime.now(timezone.utc))
         )
         await db.commit()
 

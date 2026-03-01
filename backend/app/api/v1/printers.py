@@ -279,7 +279,7 @@ async def delete_printer(
     principal = RequirePermission("printers:delete"),
     delete_params: bool = Query(False, description="Also hard-delete printer_params for this printer"),
 ):
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     from app.models.printer_params import FilamentPrinterParam, SpoolPrinterParam
 
@@ -303,7 +303,7 @@ async def delete_printer(
         await db.execute(sa_delete(SpoolPrinterParam).where(SpoolPrinterParam.printer_id == printer_id))
         logger.info(f"Deleted printer_params for printer {printer_id}")
 
-    printer.deleted_at = datetime.utcnow()
+    printer.deleted_at = datetime.now(timezone.utc)
     await db.commit()
 
 

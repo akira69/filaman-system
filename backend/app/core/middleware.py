@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 import uuid
 
@@ -101,7 +101,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return None
             if session.revoked_at is not None:
                 return None
-            if session.expires_at and session.expires_at < datetime.utcnow():
+            if session.expires_at and session.expires_at < datetime.now(timezone.utc):
                 return None
             if is_argon2_hash(session.session_token_hash):
                 # Legacy argon2 hash — verify and migrate to SHA-256
@@ -125,7 +125,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if user is None or not user.is_active or user.deleted_at is not None:
                 return None
 
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             update_values = {"last_used_at": now}
             
             # Rolling session: If session expires in less than 15 days, extend it by another 30 days
@@ -194,7 +194,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             await db.execute(
                 update(UserApiKey)
                 .where(UserApiKey.id == key_id)
-                .values(last_used_at=datetime.utcnow())
+                .values(last_used_at=datetime.now(timezone.utc))
             )
             await db.commit()
 
@@ -242,7 +242,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             await db.execute(
                 update(Device)
                 .where(Device.id == device_id)
-                .values(last_used_at=datetime.utcnow())
+                .values(last_used_at=datetime.now(timezone.utc))
             )
             await db.commit()
 

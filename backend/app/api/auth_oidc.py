@@ -1,5 +1,5 @@
 from base64 import urlsafe_b64encode
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
 
@@ -24,7 +24,7 @@ def _build_code_challenge(code_verifier: str) -> str:
 
 
 def _is_expired(created_at: datetime, ttl_minutes: int = 10) -> bool:
-    return created_at < datetime.utcnow() - timedelta(minutes=ttl_minutes)
+    return created_at < datetime.now(timezone.utc) - timedelta(minutes=ttl_minutes)
 
 
 async def _load_settings(db: DBSession) -> OIDCSettings:
@@ -50,7 +50,7 @@ async def _discover(issuer_url: str) -> dict:
 @router.get("/start")
 async def start_oidc(request: Request, db: DBSession):
     await db.execute(
-        delete(OIDCAuthState).where(OIDCAuthState.created_at < datetime.utcnow() - timedelta(minutes=10))
+        delete(OIDCAuthState).where(OIDCAuthState.created_at < datetime.now(timezone.utc) - timedelta(minutes=10))
     )
     await db.commit()
 
@@ -131,7 +131,7 @@ async def oidc_callback(request: Request, db: DBSession):
     await db.execute(
         update(OIDCAuthState)
         .where(OIDCAuthState.id == auth_state.id)
-        .values(used_at=datetime.utcnow())
+        .values(used_at=datetime.now(timezone.utc))
     )
     await db.commit()
 
@@ -259,7 +259,7 @@ async def oidc_callback(request: Request, db: DBSession):
     session = UserSession(
         user_id=user.id,
         session_token_hash=hash_token(secret),
-        expires_at=datetime.utcnow() + timedelta(days=30),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
     )
     db.add(session)
     await db.commit()
@@ -295,13 +295,13 @@ async def oidc_callback(request: Request, db: DBSession):
     )
 
     await db.execute(
-        update(User).where(User.id == user.id).values(last_login_at=datetime.utcnow())
+        update(User).where(User.id == user.id).values(last_login_at=datetime.now(timezone.utc))
     )
     if identity is not None:
         await db.execute(
             update(OAuthIdentity)
             .where(OAuthIdentity.id == identity.id)
-            .values(last_used_at=datetime.utcnow())
+            .values(last_used_at=datetime.now(timezone.utc))
         )
     await db.commit()
 

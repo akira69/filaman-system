@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, TZDateTime
 
 
 class Manufacturer(Base, TimestampMixin):
@@ -86,7 +86,7 @@ class FilamentColor(Base):
     color_id: Mapped[int] = mapped_column(Integer, ForeignKey("colors.id"), nullable=False, index=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     display_name_override: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=func.now(), nullable=False)
 
     __table_args__ = (UniqueConstraint("filament_id", "position", name="uq_filament_colors_filament_position"),)
 

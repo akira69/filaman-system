@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, TZDateTime
 
 
 class SpoolStatus(Base, TimestampMixin):
@@ -36,11 +36,11 @@ class Spool(Base, TimestampMixin):
 
     location_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("locations.id"), nullable=True, index=True)
 
-    purchase_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    purchase_date: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
     purchase_price: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    stocked_in_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    stocked_in_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     initial_total_weight_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     empty_spool_weight_g: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -70,7 +70,7 @@ class SpoolEvent(Base):
     spool_id: Mapped[int] = mapped_column(Integer, ForeignKey("spools.id", ondelete="CASCADE"), nullable=False)
 
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    event_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    event_at: Mapped[datetime] = mapped_column(TZDateTime(), nullable=False)
 
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     device_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("devices.id"), nullable=True)
@@ -86,7 +86,7 @@ class SpoolEvent(Base):
 
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     meta: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=func.now(), nullable=False)
 
     spool: Mapped["Spool"] = relationship(back_populates="events")
     user: Mapped["User"] = relationship(back_populates="spool_events")

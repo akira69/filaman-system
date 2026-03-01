@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, TZDateTime
 
 
 class Printer(Base, TimestampMixin):
@@ -15,7 +15,7 @@ class Printer(Base, TimestampMixin):
 
     location_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("locations.id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     driver_key: Mapped[str] = mapped_column(String(100), nullable=False)
     driver_config: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
@@ -63,8 +63,8 @@ class PrinterSlotAssignment(Base):
     rfid_uid: Mapped[str | None] = mapped_column(String(100), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
-    inserted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+    inserted_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(TZDateTime(), default=func.now(), onupdate=func.now(), nullable=False)
 
     meta: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
 
@@ -80,14 +80,14 @@ class PrinterSlotEvent(Base):
     slot_id: Mapped[int] = mapped_column(Integer, ForeignKey("printer_slots.id", ondelete="CASCADE"), nullable=False)
 
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    event_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    event_at: Mapped[datetime] = mapped_column(TZDateTime(), nullable=False)
 
     spool_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("spools.id", ondelete="SET NULL"), nullable=True)
     rfid_uid: Mapped[str | None] = mapped_column(String(100), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     meta: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=func.now(), nullable=False)
 
     printer: Mapped["Printer"] = relationship(back_populates="slot_events")
     slot: Mapped["PrinterSlot"] = relationship(back_populates="events")

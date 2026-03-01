@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, TZDateTime
 
 
 class User(Base, TimestampMixin):
@@ -22,8 +22,8 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(default=True)
     is_superadmin: Mapped[bool] = mapped_column(default=False)
 
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
 
@@ -48,9 +48,9 @@ class OAuthIdentity(Base, TimestampMixin):
 
     access_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
-    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="oauth_identities")
 
@@ -65,7 +65,7 @@ class UserApiKey(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     scopes: Mapped[list[str] | None] = mapped_column(nullable=True)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="api_keys")
 
@@ -77,10 +77,10 @@ class UserSession(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     session_token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=func.now(), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(50), nullable=True)
