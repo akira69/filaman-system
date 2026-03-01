@@ -29,9 +29,9 @@ def json_extract(column: Column, path: str, dialect: Any = None) -> expression.C
     """
     name = _dialect_name(dialect)
     if name == "postgresql":
-        # PostgreSQL: column->>'key'
+        # PostgreSQL: column->>'key' (returns text directly)
         key = path.removeprefix("$.")
-        return column[key].astext
+        return column.op("->>")(key)
     elif name == "mysql":
         # MySQL: JSON_EXTRACT(column, '$.key')
         return column.op('JSON_EXTRACT')(path)
@@ -56,7 +56,7 @@ def json_extract_cast_string(column: Column, path: str, dialect: Any = None) -> 
     if name == "postgresql":
         # PostgreSQL: column->>'key' (already returns text)
         key = path.removeprefix("$.")
-        return column[key].astext
+        return column.op("->>")(key)
     elif name == "mysql":
         # MySQL: CAST(JSON_EXTRACT(...) AS CHAR)
         return func.cast(column.op('JSON_EXTRACT')(path), String())
