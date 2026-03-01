@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.add_column('devices', sa.Column('auto_assign_enabled', sa.Boolean(), server_default='0', nullable=False))
+    op.add_column('devices', sa.Column('auto_assign_enabled', sa.Boolean(), server_default=sa.text('false'), nullable=False))
     op.add_column('devices', sa.Column('auto_assign_timeout', sa.Integer(), server_default='60', nullable=False))
 
 

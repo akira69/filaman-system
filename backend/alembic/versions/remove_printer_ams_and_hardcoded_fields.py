@@ -63,7 +63,7 @@ def downgrade() -> None:
         sa.Column('printer_id', sa.Integer(), nullable=False),
         sa.Column('ams_unit_no', sa.Integer(), nullable=False),
         sa.Column('name', sa.String(100), nullable=True),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('true')),
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.ForeignKeyConstraint(['printer_id'], ['printers.id'], ondelete='CASCADE'),
@@ -73,7 +73,7 @@ def downgrade() -> None:
     # 3. Restore AMS columns on printer_slots
     with op.batch_alter_table('printer_slots') as batch_op:
         batch_op.drop_constraint('uq_printer_slots_unique', type_='unique')
-        batch_op.add_column(sa.Column('is_ams_slot', sa.Boolean(), nullable=False, server_default=sa.text('0')))
+        batch_op.add_column(sa.Column('is_ams_slot', sa.Boolean(), nullable=False, server_default=sa.text('false')))
         batch_op.add_column(sa.Column('ams_unit_id', sa.Integer(), nullable=True))
         batch_op.create_foreign_key(
             'fk_printer_slots_ams_unit_id_printer_ams_units',

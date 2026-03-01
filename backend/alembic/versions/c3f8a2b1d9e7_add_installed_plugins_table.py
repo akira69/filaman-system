@@ -32,7 +32,7 @@ def upgrade() -> None:
         sa.Column('license', sa.String(length=100), nullable=True),
         sa.Column('driver_key', sa.String(length=50), nullable=False),
         sa.Column('config_schema', sa.JSON(), nullable=True),
-        sa.Column('is_active', sa.Boolean(), nullable=False, server_default='1'),
+        sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('true')),
         sa.Column('installed_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.Column('installed_by', sa.Integer(), nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),

@@ -23,7 +23,7 @@ def upgrade() -> None:
     op.create_table(
         'oidc_settings',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('enabled', sa.Boolean(), nullable=False, server_default=sa.text('0')),
+        sa.Column('enabled', sa.Boolean(), nullable=False, server_default=sa.text('false')),
         sa.Column('issuer_url', sa.String(500), nullable=True),
         sa.Column('client_id', sa.String(255), nullable=True),
         sa.Column('client_secret_enc', sa.Text(), nullable=True),
