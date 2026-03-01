@@ -94,6 +94,14 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
             )
             return False
 
+        # Alte Routes dieses Plugins entfernen (bei Update/Reinstall),
+        # damit die neuen nicht von verwaisten alten Routen ueberschattet werden.
+        full_prefix = f"/api/v1{plugin_router.prefix}"
+        app.router.routes = [
+            route for route in app.router.routes
+            if not (hasattr(route, 'path') and route.path.startswith(full_prefix))
+        ]
+
         app.include_router(plugin_router, prefix="/api/v1")
 
         # Catch-all StaticFiles-Mount (name="static") muss am Ende der
