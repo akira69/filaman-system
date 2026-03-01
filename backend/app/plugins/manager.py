@@ -368,7 +368,8 @@ class PluginManager:
         """Resolve dropdown options for a field definition.
 
         If field_def has 'options_file', loads the JSON file from the plugin directory
-        and builds 'key \u2014 name' strings.  If field_def has static 'options', returns those.
+        and returns the material names sorted alphabetically.  If field_def has static
+        'options', returns those.
         """
         options_file = field_def.get("options_file")
         if options_file:
@@ -383,7 +384,6 @@ class PluginManager:
                         name = info.get("name", idx) if isinstance(info, dict) else str(info)
                         options.append(name)
                     options.sort()
-                    logger.info(f"Resolved {len(options)} options from {options_file} for {driver_key} (sample: {options[:3]})")
                     return options
                 except (OSError, json.JSONDecodeError):
                     continue
