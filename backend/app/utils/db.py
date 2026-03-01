@@ -3,10 +3,14 @@
 from typing import Any
 
 from sqlalchemy import Column, String, func
-from sqlalchemy.dialects.sqlite import dialect as sqlite_dialect
-from sqlalchemy.dialects.postgresql import dialect as postgresql_dialect
-from sqlalchemy.dialects.mysql import dialect as mysql_dialect
 from sqlalchemy.sql import expression
+
+
+def _dialect_name(dialect: Any) -> str:
+    """Extract dialect name string (sqlite, postgresql, mysql)."""
+    if dialect is None:
+        return "sqlite"
+    return getattr(dialect, "name", "sqlite")
 
 
 def json_extract(column: Column, path: str, dialect: Any = None) -> expression.ColumnElement:
@@ -23,18 +27,16 @@ def json_extract(column: Column, path: str, dialect: Any = None) -> expression.C
     Returns:
         SQLAlchemy expression for JSON extraction
     """
-    if dialect is None or isinstance(dialect, sqlite_dialect):
-        # SQLite: json_extract(column, '$.key')
-        return func.json_extract(column, path)
-    elif isinstance(dialect, postgresql_dialect):
-        # PostgreSQL: column->>'key' or column['key']::text
-        key = path.lstrip('$.')
+    name = _dialect_name(dialect)
+    if name == "postgresql":
+        # PostgreSQL: column->>'key'
+        key = path.removeprefix("$.")
         return column[key].astext
-    elif isinstance(dialect, mysql_dialect):
-        # MySQL: JSON_EXTRACT(column, '$.key') or column->>'$.key'
+    elif name == "mysql":
+        # MySQL: JSON_EXTRACT(column, '$.key')
         return column.op('JSON_EXTRACT')(path)
     else:
-        # Fallback to SQLite behavior
+        # SQLite: json_extract(column, '$.key')
         return func.json_extract(column, path)
 
 
@@ -50,16 +52,14 @@ def json_extract_cast_string(column: Column, path: str, dialect: Any = None) -> 
     Returns:
         SQLAlchemy expression for JSON extraction cast to string
     """
-    if dialect is None or isinstance(dialect, sqlite_dialect):
-        # SQLite: CAST(json_extract(...) AS TEXT)
-        return func.cast(func.json_extract(column, path), String())
-    elif isinstance(dialect, postgresql_dialect):
-        # PostgreSQL: column->>'key'
-        key = path.lstrip('$.')
+    name = _dialect_name(dialect)
+    if name == "postgresql":
+        # PostgreSQL: column->>'key' (already returns text)
+        key = path.removeprefix("$.")
         return column[key].astext
-    elif isinstance(dialect, mysql_dialect):
+    elif name == "mysql":
         # MySQL: CAST(JSON_EXTRACT(...) AS CHAR)
         return func.cast(column.op('JSON_EXTRACT')(path), String())
     else:
-        # Fallback
+        # SQLite: CAST(json_extract(...) AS TEXT)
         return func.cast(func.json_extract(column, path), String())
