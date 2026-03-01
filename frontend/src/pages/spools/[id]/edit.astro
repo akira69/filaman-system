@@ -256,6 +256,7 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
   
   <script>
     import { t, initI18n } from '../../../lib/i18n'
+    import { fetchAllPages } from '../../../lib/api'
     await initI18n()
 
     const pathParts = window.location.pathname.split('/').filter(Boolean)
@@ -426,9 +427,7 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
 
     async function loadFilaments() {
       try {
-        const response = await fetch('/api/v1/filaments?page_size=200', { credentials: 'include' })
-        if (!response.ok) throw new Error('Failed to fetch filaments')
-        const data = await response.json()
+        const data = await fetchAllPages('/api/v1/filaments')
         const select = document.getElementById('filament_id')
         allFilaments = data.items
         allFilaments.forEach(f => {
@@ -463,9 +462,7 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
 
     async function loadLocations() {
       try {
-        const response = await fetch('/api/v1/locations?page_size=200', { credentials: 'include' })
-        if (!response.ok) throw new Error('Failed to fetch locations')
-        const data = await response.json()
+        const data = await fetchAllPages('/api/v1/locations')
         const select = document.getElementById('location_id')
         allLocations = data.items
         allLocations.forEach(l => {

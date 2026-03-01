@@ -141,6 +141,7 @@ const { id } = Astro.params
 
   <script>
     import { t, initI18n } from '../../../lib/i18n'
+    import { fetchAllPages } from '../../../lib/api'
     await initI18n()
 
     const id = window.location.pathname.split('/').filter(Boolean).pop()!
@@ -206,7 +207,7 @@ const { id } = Astro.params
         const [spoolRes, statusesRes, locationsRes] = await Promise.all([
           fetch(`/api/v1/spools/${id}`, { credentials: 'include' }),
           fetch('/api/v1/spools/statuses', { credentials: 'include' }),
-          fetch('/api/v1/locations?page_size=200', { credentials: 'include' }),
+          fetchAllPages('/api/v1/locations').then(d => d.items).catch(() => []),
         ])
         
         if (!spoolRes.ok) {
@@ -223,10 +224,7 @@ const { id } = Astro.params
           statuses = await statusesRes.json()
         }
         
-        if (locationsRes.ok) {
-          const data = await locationsRes.json()
-          locations = data.items
-        }
+        locations = locationsRes
         
         // Load active devices for RFID functionality
         const devicesRes = await fetch('/api/v1/devices/active', { credentials: 'include' })

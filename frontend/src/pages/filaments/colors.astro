@@ -89,6 +89,7 @@ import Layout from '../../layouts/Layout.astro'
   
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
+    import { fetchAllPages } from '../../lib/api'
     await initI18n()
 
     let colors: any[] = []
@@ -100,10 +101,7 @@ import Layout from '../../layouts/Layout.astro'
     
     async function loadColors() {
       try {
-        const res = await fetch('/api/v1/colors?page_size=200', { credentials: 'include' })
-        if (!res.ok) throw new Error('Failed to fetch colors')
-        
-        const data = await res.json()
+        const data = await fetchAllPages('/api/v1/colors')
         colors = data.items
         renderColors()
       } catch (error) {

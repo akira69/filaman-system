@@ -333,6 +333,7 @@ import Layout from '../../layouts/Layout.astro'
   
   <script>
     import { t, initI18n } from '../../lib/i18n'
+    import { fetchAllPages } from '../../lib/api'
     await initI18n()
 
     const CUSTOM_TYPE_VALUE = '__custom__'
@@ -483,9 +484,7 @@ import Layout from '../../layouts/Layout.astro'
     // ── Load data ──
     async function loadManufacturers() {
       try {
-        const response = await fetch('/api/v1/manufacturers?page_size=200', { credentials: 'include' })
-        if (!response.ok) throw new Error('Failed to fetch manufacturers')
-        const data = await response.json()
+        const data = await fetchAllPages('/api/v1/manufacturers')
         allManufacturers = data.items
         const select = document.getElementById('manufacturer_id') as HTMLSelectElement
         allManufacturers.forEach((m: any) => {
@@ -554,9 +553,7 @@ import Layout from '../../layouts/Layout.astro'
 
     async function loadColors() {
       try {
-        const response = await fetch('/api/v1/colors?page_size=200', { credentials: 'include' })
-        if (!response.ok) throw new Error('Failed to fetch colors')
-        const data = await response.json()
+        const data = await fetchAllPages('/api/v1/colors')
         allColors = data.items
         renderColorGrid()
       } catch (error) {

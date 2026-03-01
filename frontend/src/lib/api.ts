@@ -86,3 +86,34 @@ export const api = {
     }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 }
+
+/**
+ * Fetches all pages of a paginated API endpoint.
+ * Handles endpoints returning { items: T[], total: number }.
+ */
+export async function fetchAllPages<T = any>(baseUrl: string): Promise<{ items: T[], total: number }> {
+  const separator = baseUrl.includes('?') ? '&' : '?'
+  const firstUrl = `${baseUrl}${separator}page=1&page_size=200`
+  const response = await fetch(firstUrl, { credentials: 'include' })
+  if (!response.ok) throw new Error(`Failed to fetch ${baseUrl}`)
+  const data = await response.json()
+  let items: T[] = data.items
+  const total: number = data.total
+
+  if (total > 200) {
+    const totalPages = Math.ceil(total / 200)
+    const pagePromises: Promise<T[]>[] = []
+    for (let p = 2; p <= totalPages; p++) {
+      const pageUrl = `${baseUrl}${separator}page=${p}&page_size=200`
+      pagePromises.push(
+        fetch(pageUrl, { credentials: 'include' })
+          .then(res => res.ok ? res.json() : null)
+          .then(d => d ? d.items : [])
+      )
+    }
+    const additionalPages = await Promise.all(pagePromises)
+    additionalPages.forEach(pageItems => { items = items.concat(pageItems) })
+  }
+
+  return { items, total }
+}

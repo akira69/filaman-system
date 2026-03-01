@@ -110,6 +110,7 @@ import Layout from '../../layouts/Layout.astro'
   
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
+    import { fetchAllPages } from '../../lib/api'
     await initI18n()
 
     let locations: any[] = []
@@ -133,9 +134,8 @@ import Layout from '../../layouts/Layout.astro'
 
     async function loadLocations() {
       try {
-        const locRes = await fetch('/api/v1/locations?page_size=200', { credentials: 'include' })
-        if (!locRes.ok) throw new Error('Failed to fetch locations')
-        locations = await locRes.json().then(d => d.items)
+        const data = await fetchAllPages('/api/v1/locations')
+        locations = data.items
         renderLocations()
       } catch (error) {
         console.error('Failed to load locations:', error)

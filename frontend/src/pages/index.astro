@@ -177,6 +177,7 @@ interface PaginatedResponse<T> {
     import { t, initI18n, getLang } from '../lib/i18n'
     import { VERSION } from '../version.js'
     import changelogData from '../changelog.json'
+    import { fetchAllPages } from '../lib/api'
 
     let allSpools: any[] = []
     let allFilaments: any[] = []
@@ -348,25 +349,19 @@ interface PaginatedResponse<T> {
 
     async function loadDashboardData() {
       try {
-        const [spoolsRes, filamentsRes, dashboardRes] = await Promise.all([
-          fetch('/api/v1/spools?page_size=200', { credentials: 'include' }),
-          fetch('/api/v1/filaments?page_size=200', { credentials: 'include' }),
+        const [spoolsData, filamentsData, dashboardRes] = await Promise.all([
+          fetchAllPages('/api/v1/spools'),
+          fetchAllPages('/api/v1/filaments'),
           fetch('/api/v1/dashboard/stats?limit=20', { credentials: 'include' }),
         ])
         
-        if (!spoolsRes.ok || !filamentsRes.ok) {
-          throw new Error('Failed to fetch data')
-        }
-        
-        const spoolsData = await spoolsRes.json()
-        const filamentsData = await filamentsRes.json()
         const dashboardData = dashboardRes.ok ? await dashboardRes.json() : null
         
         allSpools = spoolsData.items
         allFilaments = filamentsData.items
         
-        document.getElementById('stat-total-spools')!.textContent = spoolsData.total
-        document.getElementById('stat-total-filaments')!.textContent = filamentsData.total
+        document.getElementById('stat-total-spools')!.textContent = String(spoolsData.total)
+        document.getElementById('stat-total-filaments')!.textContent = String(filamentsData.total)
         
         if (dashboardData) {
           const dist = dashboardData.spool_distribution || { full: 0, normal: 0, low: 0, critical: 0, empty: 0 }

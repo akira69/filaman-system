@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Spulenübersicht zeigt IDs statt Filamentnamen bei mehr als 200 Filamenten in der Datenbank" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Spool overview shows IDs instead of filament names when more than 200 filaments exist in the database" }
+        ]
+      }
+    },
+    {
       "version": "1.0.8",
       "date": "",
       "changes": {

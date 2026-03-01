@@ -164,6 +164,7 @@ import Layout from '../../layouts/Layout.astro'
 
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
+    import { fetchAllPages } from '../../lib/api'
     await initI18n()
 
     let currentPage = 1
@@ -394,10 +395,10 @@ import Layout from '../../layouts/Layout.astro'
     
     async function loadFilters() {
       try {
-        const [statusesRes, locationsRes, filamentsRes] = await Promise.all([
+        const [statusesRes, locationsData, filamentsData] = await Promise.all([
           fetch('/api/v1/spools/statuses', { credentials: 'include' }).catch(() => null),
-          fetch('/api/v1/locations?page_size=200', { credentials: 'include' }),
-          fetch('/api/v1/filaments?page_size=200', { credentials: 'include' }),
+          fetchAllPages('/api/v1/locations').catch(() => null),
+          fetchAllPages('/api/v1/filaments').catch(() => null),
         ])
 
         if (statusesRes?.ok) {
@@ -412,9 +413,8 @@ import Layout from '../../layouts/Layout.astro'
           })
         }
         
-        if (locationsRes?.ok) {
-          const data = await locationsRes.json()
-          locations = data.items
+        if (locationsData) {
+          locations = locationsData.items
           const select = document.getElementById('filter-location') as HTMLSelectElement
           locations.forEach((l: any) => {
             const opt = document.createElement('option')
@@ -425,9 +425,8 @@ import Layout from '../../layouts/Layout.astro'
           if (filterLocationId) select.value = filterLocationId
         }
         
-        if (filamentsRes?.ok) {
-          const data = await filamentsRes.json()
-          filaments = data.items
+        if (filamentsData) {
+          filaments = filamentsData.items
         }
 
         populateFilterDropdowns()

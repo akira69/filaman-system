@@ -239,6 +239,7 @@ const filamentId = Astro.url.searchParams.get('filament_id')
   
   <script>
     import { t, initI18n } from '../../lib/i18n'
+    import { fetchAllPages } from '../../lib/api'
     await initI18n()
 
     // Set default purchase_date to today
@@ -511,9 +512,9 @@ const filamentId = Astro.url.searchParams.get('filament_id')
 
     async function loadOptions() {
       try {
-        const [filamentsRes, locationsRes, systemFieldsRes] = await Promise.all([
-          fetch('/api/v1/filaments?page_size=200', { credentials: 'include' }),
-          fetch('/api/v1/locations?page_size=200', { credentials: 'include' }),
+        const [filamentsData, locationsData, systemFieldsRes] = await Promise.all([
+          fetchAllPages('/api/v1/filaments'),
+          fetchAllPages('/api/v1/locations'),
           fetch('/api/v1/system-extra-fields?target_type=spool', { credentials: 'include' }),
         ])
         
@@ -522,19 +523,17 @@ const filamentId = Astro.url.searchParams.get('filament_id')
           renderSystemFields()
         }
         
-        if (filamentsRes.ok) {
-          const data = await filamentsRes.json()
-          filaments = data.items
-          populateFilamentDropdown(data.items, filamentId)
+        if (filamentsData) {
+          filaments = filamentsData.items
+          populateFilamentDropdown(filamentsData.items, filamentId)
           if (filamentId) {
             applyFilamentDefaults(parseInt(filamentId))
           }
         }
         
-        if (locationsRes.ok) {
-          const data = await locationsRes.json()
+        if (locationsData) {
           const select = document.getElementById('location_id')
-          data.items.forEach((l) => {
+          locationsData.items.forEach((l) => {
             const option = document.createElement('option')
             option.value = l.id
             option.textContent = l.name
