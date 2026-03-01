@@ -5,10 +5,12 @@
       "date": "",
       "changes": {
         "de": [
-          { "type": "fix", "text": "Spulenübersicht zeigt IDs statt Filamentnamen bei mehr als 200 Filamenten in der Datenbank" }
+          { "type": "fix", "text": "Spulenübersicht zeigt IDs statt Filamentnamen bei mehr als 200 Filamenten in der Datenbank" },
+          { "type": "feature", "text": "SpoolmanDB Plugin: Durchsuchbares Filament-Dropdown mit Filter-Suche und Farbpunkten" }
         ],
         "en": [
-          { "type": "fix", "text": "Spool overview shows IDs instead of filament names when more than 200 filaments exist in the database" }
+          { "type": "fix", "text": "Spool overview shows IDs instead of filament names when more than 200 filaments exist in the database" },
+          { "type": "feature", "text": "SpoolmanDB Plugin: Searchable filament dropdown with filter search and color dots" }
         ]
       }
     },
