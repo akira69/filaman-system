@@ -174,6 +174,12 @@ _VERSION_CACHE: dict[str, Any] = {"data": None, "ts": 0.0}
 _VERSION_CACHE_TTL = 86400  # 24 hours in seconds
 
 
+def _invalidate_version_cache() -> None:
+    """Version-Cache invalidieren (nach Plugin-Installation/-Deinstallation)."""
+    _VERSION_CACHE["data"] = None
+    _VERSION_CACHE["ts"] = 0.0
+
+
 def _read_installed_version() -> str:
     """Installierte System-Version aus version.txt lesen."""
     # In Docker: /app/version.txt; lokal: ../version.txt relativ zum Backend
@@ -416,6 +422,9 @@ async def install_from_registry(
         from app.api.v1.router import mount_plugin_router_on_app
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
 
+    # Version-Cache invalidieren (Plugin-Status hat sich geaendert)
+    _invalidate_version_cache()
+
     action = "aktualisiert" if is_upgrade else "installiert"
     return PluginInstallResponse(
         message=f"Plugin '{plugin.name}' v{plugin.version} erfolgreich {action}",
@@ -515,6 +524,9 @@ async def install_plugin(
         from app.api.v1.router import mount_plugin_router_on_app
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
 
+    # Version-Cache invalidieren (Plugin-Status hat sich geaendert)
+    _invalidate_version_cache()
+
     action = "aktualisiert" if is_upgrade else "installiert"
     return PluginInstallResponse(
         message=f"Plugin '{plugin.name}' v{plugin.version} erfolgreich {action}",
@@ -591,6 +603,9 @@ async def uninstall_plugin(
                 "message": str(e),
             },
         )
+
+    # Version-Cache invalidieren (Plugin entfernt)
+    _invalidate_version_cache()
 
 @router.patch("/plugins/{plugin_key}/active", response_model=PluginResponse)
 async def toggle_plugin_active(
