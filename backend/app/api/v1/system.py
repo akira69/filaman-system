@@ -433,8 +433,8 @@ async def install_from_registry(
         for p in result.scalars().all():
             await plugin_manager.start_printer(p)
 
-    # Import-Plugin Router dynamisch mounten (nur bei Neuinstallation)
-    if not is_upgrade and plugin.plugin_type == "import":
+    # Import-Plugin Router dynamisch mounten
+    if plugin.plugin_type == "import":
         from app.api.v1.router import mount_plugin_router_on_app
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
 
@@ -532,8 +532,8 @@ async def install_plugin(
         for p in result.scalars().all():
             await plugin_manager.start_printer(p)
 
-    # Import-Plugin Router dynamisch mounten (nur bei Neuinstallation)
-    if not is_upgrade and plugin.plugin_type == "import":
+    # Import-Plugin Router dynamisch mounten
+    if plugin.plugin_type == "import":
         from app.api.v1.router import mount_plugin_router_on_app
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
 

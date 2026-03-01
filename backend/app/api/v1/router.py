@@ -62,6 +62,11 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
     router_path = plugin_dir / "router.py"
 
     if not manifest_path.exists() or not router_path.exists():
+        _logger.warning(
+            "mount_plugin_router_on_app: manifest oder router.py nicht gefunden fuer '%s' in %s",
+            plugin_key,
+            plugin_dir,
+        )
         return False
 
     try:
@@ -72,12 +77,15 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
         if str(PLUGINS_DIR) not in sys.path:
             sys.path.insert(0, str(PLUGINS_DIR))
 
-        # Module-Cache invalidieren fuer frischen Import
-        mod_name = f"{plugin_key}.router"
-        if mod_name in sys.modules:
-            del sys.modules[mod_name]
+        # Alle Module des Plugins aus dem Cache entfernen
+        for mod_name in list(sys.modules.keys()):
+            if mod_name == plugin_key or mod_name.startswith(f"{plugin_key}."):
+                del sys.modules[mod_name]
 
-        module = importlib.import_module(mod_name)
+        # Finder-Caches invalidieren damit Python neue Dateien/Pakete erkennt
+        importlib.invalidate_caches()
+
+        module = importlib.import_module(f"{plugin_key}.router")
         plugin_router = getattr(module, "router", None)
         if plugin_router is None:
             _logger.warning(
@@ -90,14 +98,9 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
         _logger.info("Plugin-Router '%s' dynamisch auf App gemountet", plugin_key)
         return True
 
-    except Exception as exc:
-        _logger.warning(
-            "Plugin-Router '%s' konnte nicht dynamisch geladen werden: %s",
-            plugin_key,
-            exc,
-        )
+    except Exception:
+        _logger.exception("Plugin-Router '%s' konnte nicht dynamisch geladen werden", plugin_key)
         return False
-
 
 # ---------------------------------------------------------------------------
 # Auto-discovery: mount routers from user-installed import plugins
