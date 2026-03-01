@@ -383,6 +383,7 @@ class PluginManager:
                         name = info.get("name", idx) if isinstance(info, dict) else str(info)
                         options.append(name)
                     options.sort()
+                    logger.info(f"Resolved {len(options)} options from {options_file} for {driver_key} (sample: {options[:3]})")
                     return options
                 except (OSError, json.JSONDecodeError):
                     continue
@@ -441,6 +442,7 @@ class PluginManager:
                         # Update options/label/field_type if changed (plugin may have been updated)
                         changed = False
                         if field.options != fdef["options"]:
+                            logger.info(f"Options changed for {target_type}/{fdef['key']}: DB has {len(field.options or [])} entries, new has {len(fdef['options'] or [])} entries")
                             field.options = fdef["options"]
                             flag_modified(field, "options")
                             changed = True
