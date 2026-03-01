@@ -105,7 +105,7 @@ async def list_plugins(
     return plugins
 
 
-GITHUB_RELEASES_URL = "https://api.github.com/repos/Fire-Devils/filaman-plugins/releases"
+FILAMAN_PLUGINS_URL = "https://www.filaman.app/plugins/"
 GITHUB_SYSTEM_RELEASES_URL = "https://api.github.com/repos/Fire-Devils/filaman-system/releases/latest"
 
 _SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
@@ -116,6 +116,54 @@ def _parse_semver(ver: str) -> tuple[int, ...] | None:
     m = _SEMVER_RE.match(ver)
     return tuple(int(x) for x in m.groups()) if m else None
 
+
+_ZIP_LINK_RE = re.compile(r'href="([^"]+\.zip)"', re.IGNORECASE)
+_ZIP_NAME_RE = re.compile(r'^(.+?)-([\d]+\.[\d]+\.[\d]+)\.zip$')
+
+
+async def _fetch_available_from_filaman() -> dict[str, dict]:
+    """Verfuegbare Plugins von filaman.app/plugins/ abrufen.
+
+    Parst das Directory-Listing nach ZIP-Dateien im Format
+    '{plugin_key}-{version}.zip' und gibt ein Dict zurueck:
+    {plugin_key: {"plugin_key": ..., "version": ..., "download_url": ...}}
+    mit jeweils nur der neuesten Version pro Plugin.
+    """
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(FILAMAN_PLUGINS_URL)
+        resp.raise_for_status()
+
+    html = resp.text
+    zip_links = _ZIP_LINK_RE.findall(html)
+
+    latest: dict[str, dict] = {}
+    for link in zip_links:
+        # Nur den Dateinamen extrahieren (falls relativer oder absoluter Pfad)
+        filename = link.rsplit("/", 1)[-1]
+        m = _ZIP_NAME_RE.match(filename)
+        if not m:
+            continue
+        key, ver = m.group(1), m.group(2)
+        semver = _parse_semver(ver)
+        if semver is None:
+            continue
+
+        # Download-URL bauen
+        if link.startswith("http"):
+            download_url = link
+        else:
+            download_url = FILAMAN_PLUGINS_URL + filename
+
+        if key not in latest or (_parse_semver(latest[key]["version"]) or ()) < semver:
+            latest[key] = {
+                "plugin_key": key,
+                "name": key,
+                "version": ver,
+                "description": None,
+                "download_url": download_url,
+            }
+
+    return latest
 
 
 # ------------------------------------------------------------------ #
@@ -182,40 +230,10 @@ async def version_check(
         except httpx.HTTPError:
             logger.warning("Failed to fetch latest system version from GitHub")
 
-    # Fetch available plugins (reuse existing logic)
+    # Fetch available plugins from filaman.app
     plugin_updates: list[AvailablePluginResponse] = []
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                GITHUB_RELEASES_URL,
-                headers={"Accept": "application/vnd.github+json"},
-            )
-            resp.raise_for_status()
-            releases = resp.json()
-
-        latest: dict[str, dict] = {}
-        for rel in releases:
-            tag = rel.get("tag_name", "")
-            if "-v" not in tag:
-                continue
-            key, _, ver = tag.rpartition("-v")
-            if not key or not ver:
-                continue
-            semver = _parse_semver(ver)
-            if semver is None:
-                continue
-            assets = rel.get("assets", [])
-            zip_asset = next((a for a in assets if a["name"].endswith(".zip")), None)
-            if not zip_asset:
-                continue
-            if key not in latest or (_parse_semver(latest[key]["version"]) or ()) < semver:
-                latest[key] = {
-                    "plugin_key": key,
-                    "name": rel.get("name", key),
-                    "version": ver,
-                    "description": rel.get("body", "")[:200] if rel.get("body") else None,
-                    "download_url": zip_asset["browser_download_url"],
-                }
+        latest = await _fetch_available_from_filaman()
 
         service = PluginInstallService(db)
         installed_plugins = await service.list_installed()
@@ -237,7 +255,7 @@ async def version_check(
                 ),
             ))
     except httpx.HTTPError:
-        logger.warning("Failed to fetch plugin updates from GitHub")
+        logger.warning("Failed to fetch plugin updates from filaman.app")
 
     update_available = (
         (_parse_semver(latest_version) or ()) > (_parse_semver(installed) or ())
@@ -260,62 +278,22 @@ async def list_available_plugins(
     db: DBSession,
     principal=RequirePermission("admin:plugins_manage"),
 ):
-    """Verfuegbare Plugins aus dem GitHub-Registry abrufen.
+    """Verfuegbare Plugins aus dem FilaMan-Plugin-Verzeichnis abrufen.
 
-    Fragt die GitHub Releases API ab, parst Tags im Format
-    '{plugin_key}-v{version}' und gibt die jeweils neueste
-    Version je Plugin zurueck, inklusive Install-/Update-Status.
+    Fragt das Directory-Listing auf filaman.app/plugins/ ab, parst
+    ZIP-Dateinamen im Format '{plugin_key}-{version}.zip' und gibt
+    die jeweils neueste Version je Plugin zurueck, inklusive Install-/Update-Status.
     """
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            resp = await client.get(
-                GITHUB_RELEASES_URL,
-                headers={"Accept": "application/vnd.github+json"},
-            )
-            resp.raise_for_status()
-        except httpx.HTTPError as e:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail={
-                    "code": "registry_unavailable",
-                    "message": f"GitHub-Registry nicht erreichbar: {e}",
-                },
-            )
-
-    releases = resp.json()
-
-    # Releases nach plugin_key gruppieren, nur neueste Version behalten
-    latest: dict[str, dict] = {}
-    for rel in releases:
-        tag = rel.get("tag_name", "")
-        # Format: {plugin_key}-v{version}
-        if "-v" not in tag:
-            continue
-        key, _, ver = tag.rpartition("-v")
-        if not key or not ver:
-            continue
-
-        semver = _parse_semver(ver)
-        if semver is None:
-            continue
-
-        # ZIP-Asset finden
-        assets = rel.get("assets", [])
-        zip_asset = next(
-            (a for a in assets if a["name"].endswith(".zip")),
-            None,
+    try:
+        latest = await _fetch_available_from_filaman()
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "registry_unavailable",
+                "message": f"Plugin-Verzeichnis nicht erreichbar: {e}",
+            },
         )
-        if not zip_asset:
-            continue
-
-        if key not in latest or (_parse_semver(latest[key]["version"]) or ()) < semver:
-            latest[key] = {
-                "plugin_key": key,
-                "name": rel.get("name", key),
-                "version": ver,
-                "description": rel.get("body", "")[:200] if rel.get("body") else None,
-                "download_url": zip_asset["browser_download_url"],
-            }
 
     # Install-Status ermitteln
     service = PluginInstallService(db)
@@ -353,20 +331,20 @@ async def install_from_registry(
     db: DBSession,
     principal=RequirePermission("admin:plugins_manage"),
 ):
-    """Plugin aus der Registry (GitHub Release) installieren.
+    """Plugin aus dem FilaMan-Plugin-Verzeichnis installieren.
 
     Laedt die ZIP-Datei von der angegebenen URL herunter und
     leitet sie an die bestehende install_from_zip-Pipeline weiter.
     """
     from app.plugins.manager import plugin_manager
 
-    # URL validieren: nur GitHub-Release-Assets erlauben
-    if not body.download_url.startswith("https://github.com/Fire-Devils/filaman-plugins/"):
+    # URL validieren: nur Downloads von filaman.app erlauben
+    if not body.download_url.startswith(FILAMAN_PLUGINS_URL):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "code": "invalid_download_url",
-                "message": "Nur Downloads aus dem offiziellen Plugin-Repository sind erlaubt",
+                "message": "Nur Downloads aus dem offiziellen Plugin-Verzeichnis sind erlaubt",
             },
         )
 

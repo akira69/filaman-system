@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "change", "text": "Plugin-Suche: Plugins werden jetzt von filaman.app statt GitHub abgerufen" }
+        ],
+        "en": [
+          { "type": "change", "text": "Plugin search: Plugins are now fetched from filaman.app instead of GitHub" }
+        ]
+      }
+    },
+    {
       "version": "1.0.7",
       "date": "",
       "changes": {
