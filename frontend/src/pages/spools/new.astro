@@ -15,15 +15,20 @@ const filamentId = Astro.url.searchParams.get('filament_id')
     <form id="spool-form" novalidate style="display: grid; gap: 16px;">
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
         <div>
-          <label for="filament_id" class="fm-label" data-i18n="spools.filament">Filament *</label>
-          <select 
-            id="filament_id" 
-            name="filament_id" 
-            required
-            class="fm-select"
-          >
-            <option value="" data-i18n="spools.selectFilament">Select filament...</option>
-          </select>
+          <label class="fm-label" data-i18n="spools.filament">Filament *</label>
+          <input type="hidden" id="filament_id" name="filament_id" />
+          <div id="filament-dropdown" style="position: relative;">
+            <div id="filament-dropdown-trigger" class="fm-select" tabindex="0"
+                 style="display: flex; align-items: center; gap: 6px; text-align: left; overflow: hidden; white-space: nowrap;">
+              <span id="filament-dropdown-text" style="opacity: 0.6;" data-i18n="spools.selectFilament">Select filament...</span>
+            </div>
+            <div id="filament-dropdown-panel" style="display: none; position: absolute; z-index: 1000; top: calc(100% + 2px); left: 0; right: 0; background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 4px 12px rgba(0,0,0,0.15); overflow: hidden;">
+              <div style="padding: 8px; background: var(--input-bg); border-bottom: 1px solid var(--border);">
+                <input type="text" id="filament-dropdown-search" class="fm-input" style="height: 32px; font-size: 0.85rem; padding: 4px 10px;" placeholder="Search..." />
+              </div>
+              <div id="filament-dropdown-options" style="max-height: 280px; overflow-y: auto; padding: 4px 0;"></div>
+            </div>
+          </div>
         </div>
 
         <div>
@@ -320,6 +325,145 @@ const filamentId = Astro.url.searchParams.get('filament_id')
     let filaments = []
     let systemFields = []
 
+    // ── Custom Filament Dropdown ──
+    const filamentDropdown = document.getElementById('filament-dropdown')!
+    const filamentTrigger = document.getElementById('filament-dropdown-trigger')!
+    const filamentPanel = document.getElementById('filament-dropdown-panel')!
+    const filamentSearchInput = document.getElementById('filament-dropdown-search') as HTMLInputElement
+    const filamentOptionsContainer = document.getElementById('filament-dropdown-options')!
+    const filamentHiddenInput = document.getElementById('filament_id') as HTMLInputElement
+    const filamentDropdownText = document.getElementById('filament-dropdown-text')!
+    let filamentDropdownOpen = false
+
+    function renderFilamentColorDots(f: any): string {
+      if (!f.colors || f.colors.length === 0) return ''
+      return f.colors.map((fc: any) => {
+        const c = fc.color
+        if (!c) return ''
+        return `<span title="${fc.display_name_override || c.name || ''}" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${c.hex_code};outline:0.5px solid #fff;flex-shrink:0;margin-right:8px;vertical-align:-1px;"></span>`
+      }).join('')
+    }
+
+    function openFilamentDropdown() {
+      filamentPanel.style.display = ''
+      filamentDropdownOpen = true
+      filamentSearchInput.value = ''
+      filterFilamentOptions('')
+      setTimeout(() => filamentSearchInput.focus(), 10)
+    }
+
+    function closeFilamentDropdown() {
+      filamentPanel.style.display = 'none'
+      filamentDropdownOpen = false
+    }
+
+    function toggleFilamentDropdown() {
+      if (filamentDropdownOpen) closeFilamentDropdown()
+      else openFilamentDropdown()
+    }
+
+    function filterFilamentOptions(query: string) {
+      const q = query.toLowerCase()
+      const groups = filamentOptionsContainer.querySelectorAll<HTMLElement>('[data-group]')
+      groups.forEach((group) => {
+        const options = group.querySelectorAll<HTMLElement>('[data-filament-id]')
+        let anyVisible = false
+        options.forEach((opt) => {
+          const searchText = opt.dataset.search || ''
+          const match = !q || searchText.toLowerCase().includes(q)
+          opt.style.display = match ? '' : 'none'
+          if (match) anyVisible = true
+        })
+        group.style.display = anyVisible ? '' : 'none'
+      })
+    }
+
+    function setFilamentDropdownVisual(id: number) {
+      filamentHiddenInput.value = String(id)
+      const f = filaments.find((fil: any) => fil.id === id)
+      if (f) {
+        const dots = renderFilamentColorDots(f)
+        filamentDropdownText.innerHTML = `${dots ? dots + ' ' : ''}<span style="overflow:hidden;text-overflow:ellipsis;">${f.designation} (${f.material_type})</span>`
+        filamentDropdownText.style.opacity = '1'
+        filamentDropdownText.removeAttribute('data-i18n')
+      }
+      filamentOptionsContainer.querySelectorAll<HTMLElement>('[data-filament-id]').forEach((opt) => {
+        const isSelected = opt.dataset.filamentId === String(id)
+        opt.style.background = isSelected ? 'var(--bg-soft)' : ''
+        opt.style.fontWeight = isSelected ? '500' : ''
+      })
+    }
+
+    function selectFilament(id: number) {
+      setFilamentDropdownVisual(id)
+      closeFilamentDropdown()
+      applyFilamentDefaults(id)
+    }
+
+    function populateFilamentDropdown(items: any[], preselectedId?: string | null) {
+      filamentOptionsContainer.innerHTML = ''
+      const grouped: Record<string, any[]> = {}
+      items.forEach((f: any) => {
+        const mfgName = f.manufacturer?.name || t('common.unknown')
+        if (!grouped[mfgName]) grouped[mfgName] = []
+        grouped[mfgName].push(f)
+      })
+      const sortedMfgs = Object.keys(grouped).sort()
+      sortedMfgs.forEach((mfgName) => {
+        const groupEl = document.createElement('div')
+        groupEl.dataset.group = mfgName
+        const header = document.createElement('div')
+        header.textContent = mfgName
+        header.style.cssText = 'padding: 6px 12px; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; user-select: none;'
+        groupEl.appendChild(header)
+        const sortedFilaments = grouped[mfgName].sort((a: any, b: any) => a.designation.localeCompare(b.designation))
+        sortedFilaments.forEach((f: any) => {
+          const optEl = document.createElement('div')
+          optEl.dataset.filamentId = String(f.id)
+          optEl.dataset.search = `${f.designation} ${f.material_type} ${mfgName} ${f.manufacturer_color_name || ''}`
+          optEl.style.cssText = 'display: flex; align-items: center; gap: 20px; padding: 8px 12px; cursor: pointer; font-size: 0.9rem;'
+          const dots = renderFilamentColorDots(f)
+          optEl.innerHTML = `${dots}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.designation} (${f.material_type})</span>`
+          optEl.addEventListener('mouseenter', () => {
+            if (optEl.dataset.filamentId !== filamentHiddenInput.value) optEl.style.background = 'var(--bg-soft)'
+          })
+          optEl.addEventListener('mouseleave', () => {
+            if (optEl.dataset.filamentId !== filamentHiddenInput.value) optEl.style.background = ''
+          })
+          optEl.addEventListener('click', () => selectFilament(f.id))
+          groupEl.appendChild(optEl)
+        })
+        filamentOptionsContainer.appendChild(groupEl)
+      })
+      if (preselectedId) {
+        setFilamentDropdownVisual(parseInt(preselectedId))
+      }
+    }
+
+    filamentTrigger.addEventListener('click', toggleFilamentDropdown)
+    filamentTrigger.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        toggleFilamentDropdown()
+      } else if (e.key === 'Escape') {
+        closeFilamentDropdown()
+      }
+    })
+    filamentSearchInput.addEventListener('input', (e) => {
+      filterFilamentOptions((e.target as HTMLInputElement).value)
+    })
+    filamentSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeFilamentDropdown()
+        filamentTrigger.focus()
+      }
+    })
+    document.addEventListener('click', (e) => {
+      if (filamentDropdownOpen && !filamentDropdown.contains(e.target as Node)) {
+        closeFilamentDropdown()
+      }
+    })
+
     function renderSystemFields() {
       const container = document.getElementById('system-fields-container')
       const grid = document.getElementById('system-fields-grid')
@@ -381,45 +525,7 @@ const filamentId = Astro.url.searchParams.get('filament_id')
         if (filamentsRes.ok) {
           const data = await filamentsRes.json()
           filaments = data.items
-          const select = document.getElementById('filament_id')
-          
-          // Group filaments by manufacturer
-          const grouped = {}
-          data.items.forEach((f) => {
-            const manufacturerName = f.manufacturer?.name || t('common.unknown')
-            if (!grouped[manufacturerName]) {
-              grouped[manufacturerName] = []
-            }
-            grouped[manufacturerName].push(f)
-          })
-
-          // Sort manufacturers alphabetically
-          const sortedManufacturers = Object.keys(grouped).sort()
-
-          // Create optgroups for each manufacturer
-          sortedManufacturers.forEach((manufacturerName) => {
-            const optgroup = document.createElement('optgroup')
-            optgroup.label = manufacturerName
-            
-            // Sort filaments within manufacturer by name
-            const sortedFilaments = grouped[manufacturerName].sort((a, b) => 
-              a.designation.localeCompare(b.designation)
-            )
-            
-            sortedFilaments.forEach((f) => {
-              const option = document.createElement('option')
-              option.value = f.id
-              option.textContent = `${f.designation} (${f.material_type})`
-              if (filamentId && f.id === parseInt(filamentId)) {
-                option.selected = true
-              }
-              optgroup.appendChild(option)
-            })
-            
-            select.appendChild(optgroup)
-          })
-          
-          // Apply defaults if filament is pre-selected via URL param
+          populateFilamentDropdown(data.items, filamentId)
           if (filamentId) {
             applyFilamentDefaults(parseInt(filamentId))
           }
@@ -445,8 +551,7 @@ const filamentId = Astro.url.searchParams.get('filament_id')
 
             // Filament
             if (dup.filament_id) {
-              const filSelect = document.getElementById('filament_id') as HTMLSelectElement
-              filSelect.value = String(dup.filament_id)
+              setFilamentDropdownVisual(Number(dup.filament_id))
             }
 
             // Initial Total Weight
@@ -561,19 +666,6 @@ const filamentId = Astro.url.searchParams.get('filament_id')
       }
     }
 
-    document.getElementById('filament_id').addEventListener('change', (e) => {
-      const selectedId = parseInt((e.target as HTMLSelectElement).value)
-      if (selectedId) {
-        applyFilamentDefaults(selectedId)
-      } else {
-        (document.getElementById('initial_total_weight_g') as HTMLInputElement).value = '';
-        (document.getElementById('empty_spool_weight_g') as HTMLInputElement).value = '';
-        (document.getElementById('spool_material') as HTMLSelectElement).value = '';
-        (document.getElementById('spool_outer_diameter_mm') as HTMLInputElement).value = '';
-        (document.getElementById('spool_width_mm') as HTMLInputElement).value = '';
-        (document.getElementById('purchase_price') as HTMLInputElement).value = '';
-      }
-    })
     
     function getCsrfToken() {
       const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
