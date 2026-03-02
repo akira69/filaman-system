@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Filamente & Spulen: Filter-Auswahl (Dropdowns und Gruppierung) wird im Browser gespeichert und beim nächsten Besuch wiederhergestellt" }
+        ],
+        "en": [
+          { "type": "feature", "text": "Filaments & Spools: Filter selections (dropdowns and grouping) are saved in the browser and restored on next visit" }
+        ]
+      }
+    },
+    {
       "version": "1.0.10",
       "date": "",
       "changes": {
