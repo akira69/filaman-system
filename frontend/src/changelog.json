@@ -1,6 +1,17 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Filamentübersicht: Sortierung nach Typ funktioniert wieder" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Filament overview: Sorting by type works again" }
+      }
+    },
+    {
       "version": "1.0.12",
       "date": "",
       "changes": {
