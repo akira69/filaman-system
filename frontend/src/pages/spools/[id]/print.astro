@@ -391,6 +391,42 @@ const { id } = Astro.params
   const labelPreview = document.getElementById('label-preview')
   const qrContainer = document.getElementById('label-qr-container')
 
+  const LABEL_SETTINGS_KEY = 'filaman-label-settings'
+
+  function saveSettings() {
+    const settings = {
+      width: (widthInput as HTMLInputElement).value,
+      height: (heightInput as HTMLInputElement).value,
+      fontSize: (fontSizeInput as HTMLInputElement).value,
+      qrSize: (qrSizeInput as HTMLInputElement).value,
+      showQR: (checkQR as HTMLInputElement).checked,
+      showID: (checkID as HTMLInputElement).checked,
+      showMfr: (checkMfr as HTMLInputElement).checked,
+      showMat: (checkMat as HTMLInputElement).checked,
+      showColor: (checkColor as HTMLInputElement).checked
+    }
+    localStorage.setItem(LABEL_SETTINGS_KEY, JSON.stringify(settings))
+  }
+
+  function loadSettings() {
+    try {
+      const saved = localStorage.getItem(LABEL_SETTINGS_KEY)
+      if (!saved) return
+      const s = JSON.parse(saved)
+      if (s.width) (widthInput as HTMLInputElement).value = s.width
+      if (s.height) (heightInput as HTMLInputElement).value = s.height
+      if (s.fontSize) (fontSizeInput as HTMLInputElement).value = s.fontSize
+      if (s.qrSize) (qrSizeInput as HTMLInputElement).value = s.qrSize
+      if (s.showQR !== undefined) (checkQR as HTMLInputElement).checked = s.showQR
+      if (s.showID !== undefined) (checkID as HTMLInputElement).checked = s.showID
+      if (s.showMfr !== undefined) (checkMfr as HTMLInputElement).checked = s.showMfr
+      if (s.showMat !== undefined) (checkMat as HTMLInputElement).checked = s.showMat
+      if (s.showColor !== undefined) (checkColor as HTMLInputElement).checked = s.showColor
+    } catch (e) { /* ignore corrupt data */ }
+  }
+
+  loadSettings()
+
   document.getElementById('title-settings').textContent = (window as any).__t('spools.printSettings')
   document.getElementById('label-width-text').textContent = (window as any).__t('spools.labelWidth')
   document.getElementById('label-height-text').textContent = (window as any).__t('spools.labelHeight')
@@ -501,6 +537,7 @@ const { id } = Astro.params
     if (oldStyle) oldStyle.remove()
     style.id = 'page-style'
     document.head.appendChild(style)
+    saveSettings()
   }
 
   ;[widthInput, heightInput, fontSizeInput, qrSizeInput, checkQR, checkID, checkMfr, checkMat, checkColor].forEach(el => {
@@ -519,6 +556,7 @@ const { id } = Astro.params
   })
 
   document.getElementById('btn-reset').addEventListener('click', () => {
+    localStorage.removeItem(LABEL_SETTINGS_KEY)
     (widthInput as HTMLInputElement).value = '60';
     (heightInput as HTMLInputElement).value = '25';
     (fontSizeInput as HTMLInputElement).value = '100';

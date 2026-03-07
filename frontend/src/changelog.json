@@ -6,11 +6,13 @@
       "changes": {
         "de": [
           { "type": "feature", "text": "Hersteller-, Filament- und Spulen-Übersicht: Auswahl der Einträge pro Seite (25, 50, 100, 150, 200) mit Speicherung im Browser" },
-          { "type": "fix", "text": "Label-Druck: Druckvorschau zeigt jetzt nur noch das Label in korrekter Größe (Chrome, Safari, Firefox)" }
+          { "type": "fix", "text": "Label-Druck: Druckvorschau zeigt jetzt nur noch das Label in korrekter Größe (Chrome, Safari, Firefox)" },
+          { "type": "feature", "text": "Label-Druck: Einstellungen (Größe, Schriftgröße, QR-Größe, Anzeige-Optionen) werden im Browser gespeichert" }
         ],
         "en": [
           { "type": "feature", "text": "Manufacturers, filaments and spools list: Configurable page size (25, 50, 100, 150, 200) with browser persistence" },
-          { "type": "fix", "text": "Label printing: Print preview now shows only the label in correct size (Chrome, Safari, Firefox)" }
+          { "type": "fix", "text": "Label printing: Print preview now shows only the label in correct size (Chrome, Safari, Firefox)" },
+          { "type": "feature", "text": "Label printing: Settings (size, font size, QR size, display options) are saved in the browser" }
         ]
       }
     },
