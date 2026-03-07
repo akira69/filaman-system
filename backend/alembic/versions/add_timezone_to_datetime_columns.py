@@ -63,8 +63,6 @@ DATETIME_COLUMNS = [
     ('filament_printer_profiles', 'updated_at', False),
     ('filament_ratings', 'created_at', False),
     ('filament_ratings', 'updated_at', False),
-    ('printer_ams_units', 'created_at', False),
-    ('printer_ams_units', 'updated_at', False),
     ('spools', 'created_at', False),
     ('spools', 'updated_at', False),
     ('spools', 'purchase_date', True),
