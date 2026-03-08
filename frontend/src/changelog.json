@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Seitengrößen-Auswahl (Einträge pro Seite) verschwand, wenn alle Einträge auf eine Seite passten" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Page size selector (entries per page) disappeared when all entries fit on one page" }
+        ]
+      }
+    },
+    {
       "version": "1.0.16",
       "date": "",
       "changes": {
