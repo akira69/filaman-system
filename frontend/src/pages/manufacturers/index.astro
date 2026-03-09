@@ -196,6 +196,18 @@ import Layout from '../../layouts/Layout.astro'
     let manufacturers: any[] = []
     let sortKey: string | null = null
     let sortDirection: 'asc' | 'desc' | null = null
+
+    // Restore sort state from localStorage
+    try {
+      const savedSort = localStorage.getItem('filaman-sort-manufacturers')
+      if (savedSort) {
+        const { key, direction } = JSON.parse(savedSort)
+        if (key && (direction === 'asc' || direction === 'desc')) {
+          sortKey = key
+          sortDirection = direction
+        }
+      }
+    } catch { /* ignore invalid data */ }
     let searchTimeout: ReturnType<typeof setTimeout> | null = null
     const allowedPageSizes = [25, 50, 100, 150, 200]
     let pageSize = (() => {
@@ -227,6 +239,12 @@ import Layout from '../../layouts/Layout.astro'
           }
           updateSortIndicators()
           renderManufacturers()
+          // Save sort state to localStorage
+          if (sortKey && sortDirection) {
+            localStorage.setItem('filaman-sort-manufacturers', JSON.stringify({ key: sortKey, direction: sortDirection }))
+          } else {
+            localStorage.removeItem('filaman-sort-manufacturers')
+          }
         })
       })
     }
@@ -714,6 +732,7 @@ import Layout from '../../layouts/Layout.astro'
     })
 
     setupSortableHeaders()
+    if (sortKey && sortDirection) updateSortIndicators()
     loadManufacturers()
   </script>
 </Layout>
