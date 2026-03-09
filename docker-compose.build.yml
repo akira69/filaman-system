@@ -20,6 +20,8 @@ services:
       - ADMIN_SUPERADMIN=${ADMIN_SUPERADMIN}
     env_file:
       - .env
+    volumes:
+      - filaman_data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
