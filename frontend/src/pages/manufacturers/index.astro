@@ -194,8 +194,8 @@ import Layout from '../../layouts/Layout.astro'
     await initI18n()
 
     let manufacturers: any[] = []
-    let sortKey: string | null = null
-    let sortDirection: 'asc' | 'desc' | null = null
+    let sortKey: string | null = 'name'
+    let sortDirection: 'asc' | 'desc' | null = 'asc'
 
     // Restore sort state from localStorage
     try {
