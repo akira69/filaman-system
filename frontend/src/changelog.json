@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Sortierung auf der Herstellerübersicht jetzt persistent" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Sorting on the manufacturers overview is now persistent" }
+        ]
+      }
+    },
+    {
       "version": "1.0.18",
       "date": "",
       "changes": {
