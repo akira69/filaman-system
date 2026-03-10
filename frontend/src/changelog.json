@@ -6,11 +6,13 @@
       "changes": {
         "de": [
           { "type": "feature", "text": "Neue Spule aus leerer Spule erstellen: Über den neuen Button 'Aus leerer Spule' können Leergewicht, NFC-Tag, Maße, Material und Schwellenwert einer vorhandenen leeren Spule als Vorlage für eine neue Spule übernommen werden" },
-          { "type": "improvement", "text": "Filament- und Spulen-Details: Extrafelder werden korrekt auf Deutsch angezeigt, System-Extrafelder heben sich visuell hervor und zeigen den Anzeigenamen statt dem internen Schlüssel" }
+          { "type": "improvement", "text": "Filament- und Spulen-Details: Extrafelder werden korrekt auf Deutsch angezeigt, System-Extrafelder heben sich visuell hervor und zeigen den Anzeigenamen statt dem internen Schlüssel" },
+          { "type": "feature", "text": "Live-Aktualisierung: Spulen, Filamente, Hersteller, Farben und Standorte werden in allen geöffneten Browser-Tabs automatisch neu geladen, sobald sich Daten ändern – kein manuelles Neuladen mehr nötig" }
         ],
         "en": [
           { "type": "feature", "text": "Create new spool from empty spool: Use the new 'From Empty Spool' button to copy the empty weight, NFC tag, dimensions, material and threshold from an existing empty spool as a template for a new spool" },
-          { "type": "improvement", "text": "Filament and spool details: Extra fields are now properly translated, system extra fields are visually highlighted and show the display name instead of the internal key" }
+          { "type": "improvement", "text": "Filament and spool details: Extra fields are now properly translated, system extra fields are visually highlighted and show the display name instead of the internal key" },
+          { "type": "feature", "text": "Live updates: Spools, filaments, manufacturers, colors and locations now automatically reload in all open browser tabs whenever data changes – no manual page refresh needed" }
         ]
       }
     },

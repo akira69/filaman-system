@@ -401,6 +401,36 @@ const { title } = Astro.props
       sidebarBackdrop.addEventListener('click', () => {
         setSidebarCollapsed(true)
       })
+
+      /* ── SSE live-update connection ──────────────────────────── */
+      ;(function setupSSE() {
+        let es: EventSource | null = null
+        let reconnectDelay = 1000
+
+        function connect() {
+          es = new EventSource('/api/v1/events/stream')
+
+          es.onmessage = (e) => {
+            try {
+              const data = JSON.parse(e.data)
+              window.dispatchEvent(new CustomEvent('filaman:data-changed', { detail: data }))
+            } catch {}
+          }
+
+          es.onopen = () => {
+            reconnectDelay = 1000
+          }
+
+          es.onerror = () => {
+            es?.close()
+            es = null
+            setTimeout(connect, reconnectDelay)
+            reconnectDelay = Math.min(reconnectDelay * 2, 30000)
+          }
+        }
+
+        connect()
+      })()
     </script>
   </body>
 </html>

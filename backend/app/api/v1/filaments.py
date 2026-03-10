@@ -24,6 +24,7 @@ from app.api.v1.schemas_filament import (
     ManufacturerResponse,
     ManufacturerUpdate,
 )
+from app.core.event_bus import event_bus
 from app.models import Color, Filament, FilamentColor, Manufacturer, Spool, SpoolStatus
 
 router = APIRouter(prefix="/manufacturers", tags=["manufacturers"])
@@ -129,6 +130,7 @@ async def create_manufacturer(
     db.add(manufacturer)
     await db.commit()
     await db.refresh(manufacturer)
+    await event_bus.publish({"event": "manufacturers_changed"})
     return manufacturer
 
 
@@ -176,6 +178,7 @@ async def update_manufacturer(
 
     await db.commit()
     await db.refresh(manufacturer)
+    await event_bus.publish({"event": "manufacturers_changed"})
     return manufacturer
 
 
@@ -218,6 +221,7 @@ async def delete_manufacturer(
 
     await db.delete(manufacturer)
     await db.commit()
+    await event_bus.publish({"event": "manufacturers_changed"})
 
 
 router_colors = APIRouter(prefix="/colors", tags=["colors"])
@@ -267,6 +271,7 @@ async def create_color(
     db.add(color)
     await db.commit()
     await db.refresh(color)
+    await event_bus.publish({"event": "colors_changed"})
     return color
 
 
@@ -302,6 +307,7 @@ async def update_color(
 
     await db.commit()
     await db.refresh(color)
+    await event_bus.publish({"event": "colors_changed"})
     return color
 
 
@@ -328,6 +334,7 @@ async def delete_color(
 
     await db.delete(color)
     await db.commit()
+    await event_bus.publish({"event": "colors_changed"})
 
 
 router_filaments = APIRouter(prefix="/filaments", tags=["filaments"])
@@ -443,6 +450,7 @@ async def create_filament(
         db.add(fc)
 
     await db.commit()
+    await event_bus.publish({"event": "filaments_changed"})
 
     # Reload with relationships
     result = await db.execute(
@@ -525,6 +533,7 @@ async def update_filaments_bulk(
         count += 1
 
     await db.commit()
+    await event_bus.publish({"event": "filaments_changed"})
     return {"success": True, "count": count}
 
 
@@ -556,6 +565,7 @@ async def delete_filaments_bulk(
         count += 1
 
     await db.commit()
+    await event_bus.publish({"event": "filaments_changed"})
     return {"success": True, "count": count}
 
 
@@ -579,6 +589,7 @@ async def update_filament(
 
     await db.commit()
     await db.refresh(filament)
+    await event_bus.publish({"event": "filaments_changed"})
     return filament
 
 
@@ -631,6 +642,7 @@ async def replace_filament_colors(
             status_code=400,
             detail={"code": "color_update_failed", "message": str(e)},
         )
+    await event_bus.publish({"event": "filaments_changed"})
 
     # Reload with color relationships
     result = await db.execute(
@@ -674,3 +686,4 @@ async def delete_filament(
 
     await db.delete(filament)
     await db.commit()
+    await event_bus.publish({"event": "filaments_changed"})

@@ -734,5 +734,15 @@ import Layout from '../../layouts/Layout.astro'
     setupSortableHeaders()
     if (sortKey && sortDirection) updateSortIndicators()
     loadManufacturers()
+
+    // Live-Update via SSE: Hersteller automatisch neu laden
+    let _mfrReloadTimer: ReturnType<typeof setTimeout> | null = null
+    window.addEventListener('filaman:data-changed', (e: Event) => {
+      const { event } = (e as CustomEvent).detail ?? {}
+      if (event === 'manufacturers_changed') {
+        if (_mfrReloadTimer) clearTimeout(_mfrReloadTimer)
+        _mfrReloadTimer = setTimeout(() => loadManufacturers(), 300)
+      }
+    })
   </script>
 </Layout>

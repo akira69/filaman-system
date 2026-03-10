@@ -27,6 +27,7 @@ from app.api.v1.schemas_spool import (
     SpoolUpdate,
     StatusChangeRequest,
 )
+from app.core.event_bus import event_bus
 from app.models import Filament, FilamentColor, Location, Spool, SpoolEvent, SpoolStatus
 from app.services.spool_service import SpoolService
 
@@ -89,6 +90,7 @@ async def create_location(
     db.add(location)
     await db.commit()
     await db.refresh(location)
+    await event_bus.publish({"event": "locations_changed"})
     return location
 
 
@@ -124,6 +126,7 @@ async def update_location(
 
     await db.commit()
     await db.refresh(location)
+    await event_bus.publish({"event": "locations_changed"})
     return location
 
 
@@ -150,6 +153,7 @@ async def delete_location(
 
     await db.delete(location)
     await db.commit()
+    await event_bus.publish({"event": "locations_changed"})
 
 
 router_spools = APIRouter(prefix="/spools", tags=["spools"])
@@ -286,7 +290,8 @@ async def create_spool(
     spool = Spool(**spool_data)
     db.add(spool)
     await db.commit()
-    
+    await event_bus.publish({"event": "spools_changed"})
+
     # Reload with relationships for schema validation
     result = await db.execute(
         select(Spool)
@@ -365,6 +370,7 @@ async def create_spools_bulk(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "bulk_create_error", "message": str(e)},
         )
+    await event_bus.publish({"event": "spools_changed"})
 
     # Reload all spools with relationships
     result = await db.execute(
@@ -406,6 +412,7 @@ async def update_spools_bulk(
         count += 1
 
     await db.commit()
+    await event_bus.publish({"event": "spools_changed"})
     return {"success": True, "count": count}
 
 
@@ -441,6 +448,7 @@ async def delete_spools_bulk(
             count += 1
 
     await db.commit()
+    await event_bus.publish({"event": "spools_changed"})
     return {"success": True, "count": count}
 
 @router_spools.get("/{spool_id}", response_model=SpoolResponse)
@@ -493,7 +501,8 @@ async def update_spool(
         setattr(spool, key, value)
 
     await db.commit()
-    
+    await event_bus.publish({"event": "spools_changed"})
+
     # Reload with relationships
     result = await db.execute(
         select(Spool)
@@ -527,6 +536,7 @@ async def delete_spool(
     if archived_status:
         spool.status_id = archived_status.id
     await db.commit()
+    await event_bus.publish({"event": "spools_changed"})
 
 
 @router_spools.delete("/{spool_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
@@ -548,6 +558,7 @@ async def permanently_delete_spool(
 
     await db.delete(spool)
     await db.commit()
+    await event_bus.publish({"event": "spools_changed"})
 
 
 @router_spools.post("/bulk/status", status_code=status.HTTP_200_OK)
@@ -567,6 +578,7 @@ async def change_statuses_bulk(
         principal=principal,
         note=data.note,
     )
+    await event_bus.publish({"event": "spools_changed"})
     return {"success": True, "count": count}
 
 
@@ -593,6 +605,7 @@ async def record_measurement(
         principal=principal,
         note=data.note,
     )
+    await event_bus.publish({"event": "spools_changed"})
     return event
 
 
@@ -621,6 +634,7 @@ async def record_adjustment(
         principal=principal,
         note=data.note,
     )
+    await event_bus.publish({"event": "spools_changed"})
     return event
 
 
@@ -647,6 +661,7 @@ async def record_consumption(
         principal=principal,
         note=data.note,
     )
+    await event_bus.publish({"event": "spools_changed"})
     return event
 
 
@@ -674,6 +689,7 @@ async def change_status(
         note=data.note,
         meta=data.meta,
     )
+    await event_bus.publish({"event": "spools_changed"})
     return event
 
 
@@ -700,6 +716,7 @@ async def move_location(
         principal=principal,
         note=data.note,
     )
+    await event_bus.publish({"event": "spools_changed"})
     return event
 
 
@@ -760,4 +777,5 @@ async def device_measurement(
         principal=principal,
         source="device",
     )
+    await event_bus.publish({"event": "spools_changed"})
     return event

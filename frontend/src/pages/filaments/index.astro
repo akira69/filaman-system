@@ -642,6 +642,16 @@ import Layout from '../../layouts/Layout.astro'
     }
     loadFilaments()
 
+    // Live-Update via SSE: Filamente automatisch neu laden
+    let _filamentsReloadTimer: ReturnType<typeof setTimeout> | null = null
+    window.addEventListener('filaman:data-changed', (e: Event) => {
+      const { event } = (e as CustomEvent).detail ?? {}
+      if (event === 'filaments_changed' || event === 'manufacturers_changed') {
+        if (_filamentsReloadTimer) clearTimeout(_filamentsReloadTimer)
+        _filamentsReloadTimer = setTimeout(() => loadFilaments(), 300)
+      }
+    })
+
     // ── Bulk Selection & Actions ──────────────────────────────
     function updateBulkBar() {
       const bar = document.getElementById('bulk-action-bar')!

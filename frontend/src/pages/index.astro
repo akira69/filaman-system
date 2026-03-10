@@ -533,5 +533,15 @@ interface PaginatedResponse<T> {
       overlay.classList.add('open')
     }
     init()
+
+    // Live-Update via SSE: Daten automatisch neu laden
+    let _dashboardReloadTimer: ReturnType<typeof setTimeout> | null = null
+    window.addEventListener('filaman:data-changed', (e: Event) => {
+      const { event } = (e as CustomEvent).detail ?? {}
+      if (event === 'spools_changed' || event === 'filaments_changed') {
+        if (_dashboardReloadTimer) clearTimeout(_dashboardReloadTimer)
+        _dashboardReloadTimer = setTimeout(() => loadDashboardData(), 300)
+      }
+    })
   </script>
 </Layout>

@@ -293,5 +293,15 @@ import Layout from '../../layouts/Layout.astro'
     })
     
     loadColors()
+
+    // Live-Update via SSE: Farben automatisch neu laden
+    let _colorsReloadTimer: ReturnType<typeof setTimeout> | null = null
+    window.addEventListener('filaman:data-changed', (e: Event) => {
+      const { event } = (e as CustomEvent).detail ?? {}
+      if (event === 'colors_changed') {
+        if (_colorsReloadTimer) clearTimeout(_colorsReloadTimer)
+        _colorsReloadTimer = setTimeout(() => loadColors(), 300)
+      }
+    })
   </script>
 </Layout>

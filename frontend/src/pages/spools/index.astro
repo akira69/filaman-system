@@ -825,6 +825,15 @@ import Layout from '../../layouts/Layout.astro'
     Promise.all([loadFilters(), loadActiveDevices()])
       .then(() => loadSpools())
 
+    // Live-Update via SSE: Spulen automatisch neu laden
+    let _spoolsReloadTimer: ReturnType<typeof setTimeout> | null = null
+    window.addEventListener('filaman:data-changed', (e: Event) => {
+      const { event } = (e as CustomEvent).detail ?? {}
+      if (event === 'spools_changed') {
+        if (_spoolsReloadTimer) clearTimeout(_spoolsReloadTimer)
+        _spoolsReloadTimer = setTimeout(() => loadSpools(), 300)
+      }
+    })
 
     // ── Bulk Selection & Actions ──────────────────────────────
     function updateBulkBar() {

@@ -486,5 +486,15 @@ import Layout from '../../layouts/Layout.astro'
     })
     
     loadActiveDevices().then(() => loadLocations())
+
+    // Live-Update via SSE: Standorte automatisch neu laden
+    let _locationsReloadTimer: ReturnType<typeof setTimeout> | null = null
+    window.addEventListener('filaman:data-changed', (e: Event) => {
+      const { event } = (e as CustomEvent).detail ?? {}
+      if (event === 'locations_changed' || event === 'spools_changed') {
+        if (_locationsReloadTimer) clearTimeout(_locationsReloadTimer)
+        _locationsReloadTimer = setTimeout(() => loadLocations(), 300)
+      }
+    })
   </script>
 </Layout>
