@@ -7,12 +7,14 @@
         "de": [
           { "type": "feature", "text": "Neue Spule aus leerer Spule erstellen: Über den neuen Button 'Aus leerer Spule' können Leergewicht, NFC-Tag, Maße, Material und Schwellenwert einer vorhandenen leeren Spule als Vorlage für eine neue Spule übernommen werden" },
           { "type": "improvement", "text": "Filament- und Spulen-Details: Extrafelder werden korrekt auf Deutsch angezeigt, System-Extrafelder heben sich visuell hervor und zeigen den Anzeigenamen statt dem internen Schlüssel" },
-          { "type": "feature", "text": "Live-Aktualisierung: Spulen, Filamente, Hersteller, Farben und Standorte werden in allen geöffneten Browser-Tabs automatisch neu geladen, sobald sich Daten ändern – kein manuelles Neuladen mehr nötig" }
+          { "type": "feature", "text": "Live-Aktualisierung: Spulen, Filamente, Hersteller, Farben und Standorte werden in allen geöffneten Browser-Tabs automatisch neu geladen, sobald sich Daten ändern – kein manuelles Neuladen mehr nötig" },
+          { "type": "feature", "text": "Spaltenauswahl: In den Tabellen für Hersteller, Filamente und Spulen können nun über den 'Spalten'-Button einzelne Spalten ein- und ausgeblendet werden – die Auswahl wird pro Seite gespeichert" }
         ],
         "en": [
           { "type": "feature", "text": "Create new spool from empty spool: Use the new 'From Empty Spool' button to copy the empty weight, NFC tag, dimensions, material and threshold from an existing empty spool as a template for a new spool" },
           { "type": "improvement", "text": "Filament and spool details: Extra fields are now properly translated, system extra fields are visually highlighted and show the display name instead of the internal key" },
-          { "type": "feature", "text": "Live updates: Spools, filaments, manufacturers, colors and locations now automatically reload in all open browser tabs whenever data changes – no manual page refresh needed" }
+          { "type": "feature", "text": "Live updates: Spools, filaments, manufacturers, colors and locations now automatically reload in all open browser tabs whenever data changes – no manual page refresh needed" },
+          { "type": "feature", "text": "Column visibility: The tables for manufacturers, filaments and spools now have a 'Columns' button to show or hide individual columns – the selection is saved per page" }
         ]
       }
     },

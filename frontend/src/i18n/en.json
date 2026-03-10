@@ -69,6 +69,7 @@
     "on": "On",
     "off": "Off",
     "duplicate": "Duplicate",
+    "columns": "Columns",
     "perPage": "per page"
   },
   "rfid": {

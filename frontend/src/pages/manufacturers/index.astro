@@ -23,6 +23,18 @@ import Layout from '../../layouts/Layout.astro'
     }
   </style>
   <style is:global>
+    .col-picker-wrap { position: relative; }
+    .col-picker-dropdown {
+      display: none; position: absolute; right: 0; top: calc(100% + 4px);
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 8px 12px; z-index: 200;
+      min-width: 170px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .col-picker-dropdown label {
+      display: flex; align-items: center; gap: 8px; padding: 4px 0;
+      cursor: pointer; font-size: 0.85rem; white-space: nowrap; user-select: none;
+    }
+    .col-picker-dropdown label:hover { color: var(--accent); }
     .pagination-container { display: flex; justify-content: space-between; align-items: center; }
     .pagination-pages { display: flex; gap: 4px; align-items: center; font-size: 0.8rem; }
     .pagination-pages a { color: var(--accent); cursor: pointer; padding: 2px 6px; text-decoration: none; border-radius: 3px; }
@@ -50,17 +62,26 @@ import Layout from '../../layouts/Layout.astro'
     </select>
   </div>
 
-  <div class="pagination-container" id="pagination-top" style="margin-bottom: 12px;"></div>
+  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+    <div class="pagination-container" id="pagination-top" style="flex: 1;"></div>
+    <div class="col-picker-wrap">
+      <button id="btn-columns" class="fm-btn fm-btn-outline" style="padding: 5px 10px; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+        <span data-i18n="common.columns">Spalten</span>
+      </button>
+      <div id="columns-dropdown" class="col-picker-dropdown"></div>
+    </div>
+  </div>
 
   <div class="fm-card" style="padding: 0;">
     <table class="fm-table">
       <thead>
         <tr>
           <th data-i18n="manufacturers.name" data-sort="name" class="sortable">Name</th>
-          <th data-i18n="manufacturers.url" data-sort="url" class="sortable">URL</th>
-          <th data-i18n="manufacturers.filaments" data-sort="filament_count" class="sortable">Filaments</th>
-          <th data-i18n="manufacturers.spools" data-sort="spool_count" class="sortable">Spools</th>
-          <th data-i18n="manufacturers.materials">Materials</th>
+          <th data-i18n="manufacturers.url" data-sort="url" class="sortable col-url">URL</th>
+          <th data-i18n="manufacturers.filaments" data-sort="filament_count" class="sortable col-filaments">Filaments</th>
+          <th data-i18n="manufacturers.spools" data-sort="spool_count" class="sortable col-spools">Spools</th>
+          <th data-i18n="manufacturers.materials" class="col-materials">Materials</th>
           <th style="text-align: right;" data-i18n="common.actions">Actions</th>
         </tr>
       </thead>
@@ -468,13 +489,14 @@ import Layout from '../../layouts/Layout.astro'
       // Paginate
       const start = (currentPage - 1) * pageSize
       const paged = sorted.slice(start, start + pageSize)
+      // Note: escapeHtml() is used for all user-supplied data; URLs use escapeHtml for both href and text
       tbody.innerHTML = paged.map(mf => `
         <tr style="cursor: pointer;" class="manufacturer-row" data-mf='${escapeHtml(JSON.stringify(mf))}'>
           <td style="font-weight: 500;">${escapeHtml(mf.name)}</td>
-          <td>${mf.url ? `<a href="${escapeHtml(mf.url)}" target="_blank" rel="noopener" class="stop-prop" style="color: var(--accent); text-decoration: none;">${escapeHtml(mf.url)}</a>` : '<span style="color: var(--text-muted);">-</span>'}</td>
-          <td><a href="/filaments?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.filament_count || 0}</a></td>
-          <td><a href="/spools?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.spool_count || 0}</a></td>
-          <td>${mf.materials && mf.materials.length > 0 ? mf.materials.map(m => escapeHtml(m)).join(', ') : '<span style="color: var(--text-muted);">-</span>'}</td>
+          <td class="col-url">${mf.url ? `<a href="${escapeHtml(mf.url)}" target="_blank" rel="noopener" class="stop-prop" style="color: var(--accent); text-decoration: none;">${escapeHtml(mf.url)}</a>` : '<span style="color: var(--text-muted);">-</span>'}</td>
+          <td class="col-filaments"><a href="/filaments?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.filament_count || 0}</a></td>
+          <td class="col-spools"><a href="/spools?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.spool_count || 0}</a></td>
+          <td class="col-materials">${mf.materials && mf.materials.length > 0 ? mf.materials.map(m => escapeHtml(m)).join(', ') : '<span style="color: var(--text-muted);">-</span>'}</td>
           <td style="text-align: right; white-space: nowrap;">
             <button data-mf='${escapeHtml(JSON.stringify(mf))}' class="btn-edit fm-btn fm-btn-outline stop-prop" style="padding: 5px 12px; font-size: 0.8rem;">${t('common.edit')}</button>
             <button data-id="${mf.id}" class="btn-delete fm-btn fm-btn-danger stop-prop" style="padding: 5px 12px; font-size: 0.8rem; margin-left: 6px;">${t('common.delete')}</button>
@@ -730,6 +752,77 @@ import Layout from '../../layouts/Layout.astro'
       localStorage.setItem('filaman-page-manufacturers', '1')
       renderManufacturers()
     })
+
+    // ── Column Visibility ──────────────────────────────────────────────
+    const MFR_OPTIONAL_COLS = [
+      { key: 'url', label: t('manufacturers.url') },
+      { key: 'filaments', label: t('manufacturers.filaments') },
+      { key: 'spools', label: t('manufacturers.spools') },
+      { key: 'materials', label: t('manufacturers.materials') },
+    ]
+    let mfrVisibleCols: Set<string> = (() => {
+      try {
+        const saved = localStorage.getItem('filaman-columns-manufacturers')
+        if (saved) return new Set(JSON.parse(saved) as string[])
+      } catch {}
+      return new Set(MFR_OPTIONAL_COLS.map(c => c.key))
+    })()
+
+    function applyMfrColumnVisibility() {
+      let style = document.getElementById('col-vis-style') as HTMLStyleElement | null
+      if (!style) {
+        style = document.createElement('style')
+        style.id = 'col-vis-style'
+        document.head.appendChild(style)
+      }
+      style.textContent = MFR_OPTIONAL_COLS
+        .filter(c => !mfrVisibleCols.has(c.key))
+        .map(c => `.fm-table .col-${c.key} { display: none; }`)
+        .join('\n')
+    }
+
+    function renderColumnPicker() {
+      const dropdown = document.getElementById('columns-dropdown')!
+      const frag = document.createDocumentFragment()
+      MFR_OPTIONAL_COLS.forEach(c => {
+        const lbl = document.createElement('label')
+        const cb = document.createElement('input')
+        cb.type = 'checkbox'
+        cb.className = 'fm-checkbox'
+        cb.dataset.col = c.key
+        cb.checked = mfrVisibleCols.has(c.key)
+        cb.addEventListener('change', () => {
+          if (cb.checked) mfrVisibleCols.add(c.key)
+          else mfrVisibleCols.delete(c.key)
+          localStorage.setItem('filaman-columns-manufacturers', JSON.stringify([...mfrVisibleCols]))
+          applyMfrColumnVisibility()
+        })
+        lbl.appendChild(cb)
+        lbl.append(' ' + c.label)
+        frag.appendChild(lbl)
+      })
+      dropdown.textContent = ''
+      dropdown.appendChild(frag)
+    }
+
+    document.getElementById('btn-columns')?.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const dropdown = document.getElementById('columns-dropdown')!
+      if (dropdown.style.display === 'block') {
+        dropdown.style.display = 'none'
+      } else {
+        renderColumnPicker()
+        dropdown.style.display = 'block'
+      }
+    })
+    document.addEventListener('click', () => {
+      const dropdown = document.getElementById('columns-dropdown')
+      if (dropdown) dropdown.style.display = 'none'
+    })
+    document.getElementById('columns-dropdown')?.addEventListener('click', e => e.stopPropagation())
+
+    applyMfrColumnVisibility()
+    // ── End Column Visibility ──────────────────────────────────────────
 
     setupSortableHeaders()
     if (sortKey && sortDirection) updateSortIndicators()

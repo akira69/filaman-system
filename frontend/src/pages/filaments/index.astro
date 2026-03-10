@@ -11,6 +11,18 @@ import Layout from '../../layouts/Layout.astro'
     .sortable.sort-desc::after { content: ' \2193'; opacity: 1; }
   </style>
   <style is:global>
+    .col-picker-wrap { position: relative; }
+    .col-picker-dropdown {
+      display: none; position: absolute; right: 0; top: calc(100% + 4px);
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 8px 12px; z-index: 200;
+      min-width: 170px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .col-picker-dropdown label {
+      display: flex; align-items: center; gap: 8px; padding: 4px 0;
+      cursor: pointer; font-size: 0.85rem; white-space: nowrap; user-select: none;
+    }
+    .col-picker-dropdown label:hover { color: var(--accent); }
     .pagination-container { display: flex; justify-content: space-between; align-items: center; }
     .pagination-pages { display: flex; gap: 4px; align-items: center; font-size: 0.8rem; }
     .pagination-pages a { color: var(--accent); cursor: pointer; padding: 2px 6px; text-decoration: none; border-radius: 3px; }
@@ -77,20 +89,29 @@ import Layout from '../../layouts/Layout.astro'
       <span data-i18n="filaments.groupByManufacturer">Group by Manufacturer</span>
     </label>
   </div>
-  
-  <div class="pagination-container" id="pagination-top" style="margin-bottom: 12px;"></div>
+
+  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+    <div class="pagination-container" id="pagination-top" style="flex: 1;"></div>
+    <div class="col-picker-wrap">
+      <button id="btn-columns" class="fm-btn fm-btn-outline" style="padding: 5px 10px; font-size: 0.8rem; display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>
+        <span data-i18n="common.columns">Spalten</span>
+      </button>
+      <div id="columns-dropdown" class="col-picker-dropdown"></div>
+    </div>
+  </div>
 
   <div class="fm-card" style="padding: 0;">
     <table class="fm-table">
       <thead>
         <tr style="background: var(--bg-soft);">
           <th style="width: 40px; text-align: center;"><input type="checkbox" id="bulk-select-all" class="fm-checkbox bulk-checkbox" /></th>
-          <th data-i18n="filaments.manufacturer" data-sort="manufacturer" class="sortable">Manufacturer</th>
-          <th data-i18n="filaments.type" data-sort="type" class="sortable">Type</th>
+          <th data-i18n="filaments.manufacturer" data-sort="manufacturer" class="sortable col-manufacturer">Manufacturer</th>
+          <th data-i18n="filaments.type" data-sort="type" class="sortable col-type">Type</th>
           <th data-i18n="filaments.designation" data-sort="designation" class="sortable">Designation</th>
-          <th data-i18n="filaments.colors" data-sort="colors" class="sortable">Colors</th>
-          <th data-i18n="filaments.diameter" data-sort="diameter_mm" class="sortable">Diameter</th>
-          <th style="text-align: right;" data-i18n="filaments.spools" data-sort="spool_count" class="sortable">Spools</th>
+          <th data-i18n="filaments.colors" data-sort="colors" class="sortable col-colors">Colors</th>
+          <th data-i18n="filaments.diameter" data-sort="diameter_mm" class="sortable col-diameter">Diameter</th>
+          <th style="text-align: right;" data-i18n="filaments.spools" data-sort="spool_count" class="sortable col-spools">Spools</th>
         </tr>
       </thead>
       <tbody id="filaments-table">
@@ -447,15 +468,15 @@ import Layout from '../../layouts/Layout.astro'
       return `
         <tr class="${selectedFilamentIds.has(f.id) ? 'bulk-selected' : ''}" style="cursor: pointer;" onclick="window.location='/filaments/${f.id}'">
           <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-filament-id="${f.id}" ${selectedFilamentIds.has(f.id) ? 'checked' : ''} onchange="window.__toggleFilamentSelection(${f.id}, this.checked)" /></td>
-          <td style="padding: 12px; color: var(--text-muted);">${f.manufacturer?.name || '-'}</td>
-          <td style="padding: 12px; color: var(--text-muted);">${f.material_type}</td>
+          <td class="col-manufacturer" style="padding: 12px; color: var(--text-muted);">${f.manufacturer?.name || '-'}</td>
+          <td class="col-type" style="padding: 12px; color: var(--text-muted);">${f.material_type}</td>
           <td style="padding: 12px;">
             <div style="font-weight: 500;">${f.designation}</div>
             ${f.manufacturer_color_name ? `<div style="font-size: 0.85rem; color: var(--text-muted);">${f.manufacturer_color_name}</div>` : ''}
           </td>
-          <td style="padding: 12px;">${renderColorDots(f.colors)}</td>
-          <td style="padding: 12px; color: var(--text-muted);">${f.diameter_mm}mm</td>
-          <td style="padding: 12px; text-align: right; color: var(--text-muted);">${f.spool_count ?? 0}</td>
+          <td class="col-colors" style="padding: 12px;">${renderColorDots(f.colors)}</td>
+          <td class="col-diameter" style="padding: 12px; color: var(--text-muted);">${f.diameter_mm}mm</td>
+          <td class="col-spools" style="padding: 12px; text-align: right; color: var(--text-muted);">${f.spool_count ?? 0}</td>
         </tr>
       `
     }
@@ -634,6 +655,79 @@ import Layout from '../../layouts/Layout.astro'
     document.getElementById('filter-color')?.addEventListener('change', () => applyFiltersAndRender())
     document.getElementById('filter-group')?.addEventListener('change', () => applyFiltersAndRender())
     
+    // ── Column Visibility ──────────────────────────────────────────────
+    const FIL_OPTIONAL_COLS = [
+      { key: 'manufacturer', label: t('filaments.manufacturer') },
+      { key: 'type', label: t('filaments.type') },
+      { key: 'colors', label: t('filaments.colors') },
+      { key: 'diameter', label: t('filaments.diameter') },
+      { key: 'spools', label: t('filaments.spools') },
+    ]
+    let filVisibleCols: Set<string> = (() => {
+      try {
+        const saved = localStorage.getItem('filaman-columns-filaments')
+        if (saved) return new Set(JSON.parse(saved) as string[])
+      } catch {}
+      return new Set(FIL_OPTIONAL_COLS.map(c => c.key))
+    })()
+
+    function applyFilColumnVisibility() {
+      let style = document.getElementById('col-vis-style') as HTMLStyleElement | null
+      if (!style) {
+        style = document.createElement('style')
+        style.id = 'col-vis-style'
+        document.head.appendChild(style)
+      }
+      // Only static col keys (no user data) are interpolated here
+      style.textContent = FIL_OPTIONAL_COLS
+        .filter(c => !filVisibleCols.has(c.key))
+        .map(c => `.fm-table .col-${c.key} { display: none; }`)
+        .join('\n')
+    }
+
+    function renderFilColumnPicker() {
+      const dropdown = document.getElementById('columns-dropdown')!
+      const frag = document.createDocumentFragment()
+      FIL_OPTIONAL_COLS.forEach(c => {
+        const lbl = document.createElement('label')
+        const cb = document.createElement('input')
+        cb.type = 'checkbox'
+        cb.className = 'fm-checkbox'
+        cb.dataset.col = c.key
+        cb.checked = filVisibleCols.has(c.key)
+        cb.addEventListener('change', () => {
+          if (cb.checked) filVisibleCols.add(c.key)
+          else filVisibleCols.delete(c.key)
+          localStorage.setItem('filaman-columns-filaments', JSON.stringify([...filVisibleCols]))
+          applyFilColumnVisibility()
+        })
+        lbl.appendChild(cb)
+        lbl.append(' ' + c.label)
+        frag.appendChild(lbl)
+      })
+      dropdown.textContent = ''
+      dropdown.appendChild(frag)
+    }
+
+    document.getElementById('btn-columns')?.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const dropdown = document.getElementById('columns-dropdown')!
+      if (dropdown.style.display === 'block') {
+        dropdown.style.display = 'none'
+      } else {
+        renderFilColumnPicker()
+        dropdown.style.display = 'block'
+      }
+    })
+    document.addEventListener('click', () => {
+      const dropdown = document.getElementById('columns-dropdown')
+      if (dropdown) dropdown.style.display = 'none'
+    })
+    document.getElementById('columns-dropdown')?.addEventListener('click', e => e.stopPropagation())
+
+    applyFilColumnVisibility()
+    // ── End Column Visibility ──────────────────────────────────────────
+
     setupSortableHeaders()
     if (sortKey && sortDirection) updateSortIndicators()
     // Restore group checkbox from saved state
