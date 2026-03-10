@@ -60,9 +60,14 @@ import Layout from '../../layouts/Layout.astro'
   </style>
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
     <h1 style="font-size: 1.8rem; font-weight: 700; margin: 0; font-family: var(--font-serif);" data-i18n="spools.title">Spools</h1>
-    <a href="/spools/new" class="fm-btn fm-btn-primary" data-i18n="spools.addSpool">
-      Add Spool
-    </a>
+    <div style="display: flex; gap: 8px;">
+      <button id="btn-add-from-empty" class="fm-btn fm-btn-outline" data-i18n="spools.addSpoolFromEmpty">
+        From Empty Spool
+      </button>
+      <a href="/spools/new" class="fm-btn fm-btn-primary" data-i18n="spools.addSpool">
+        Add Spool
+      </a>
+    </div>
   </div>
   
   <div class="filter-bar">
@@ -142,6 +147,32 @@ import Layout from '../../layouts/Layout.astro'
     </div>
   </div>
   
+  <!-- Add From Empty Spool Modal -->
+  <div id="from-empty-modal" class="fm-modal-overlay">
+    <div class="fm-card" style="width: 100%; max-width: 26rem; margin: 0 1rem; padding: 24px;">
+      <h3 style="font-size: 1.15rem; font-weight: 600; margin-bottom: 8px;" data-i18n="spools.selectEmptySpoolTitle">Select Empty Spool</h3>
+      <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 16px;" data-i18n="spools.selectEmptySpoolLabel">Select an empty spool as a template. Spool properties will be transferred.</p>
+      <div id="from-empty-dropdown" style="position: relative; margin-bottom: 16px;">
+        <div id="from-empty-trigger" class="fm-select" tabindex="0"
+             style="display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; cursor: pointer;">
+          <span id="from-empty-trigger-text" style="opacity: 0.6;" data-i18n="common.select">Select...</span>
+          <span style="opacity: 0.5; font-size: 0.75rem;">▼</span>
+        </div>
+        <div id="from-empty-panel" style="display: none; position: absolute; z-index: 1000; top: calc(100% + 2px); left: 0; right: 0; background: var(--input-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 4px 12px rgba(0,0,0,0.15); overflow: hidden;">
+          <div style="padding: 8px; background: var(--input-bg); border-bottom: 1px solid var(--border);">
+            <input type="text" id="from-empty-search" class="fm-input" style="height: 32px; font-size: 0.85rem; padding: 4px 10px;" data-i18n-placeholder="spools.searchPlaceholder" placeholder="Search..." />
+          </div>
+          <div id="from-empty-options" style="max-height: 260px; overflow-y: auto; padding: 4px 0;"></div>
+        </div>
+      </div>
+      <div id="from-empty-none" class="fm-alert" style="display: none; margin-bottom: 16px; font-size: 0.875rem;" data-i18n="spools.noEmptySpools">No empty spools available</div>
+      <div style="display: flex; gap: 12px;">
+        <button id="from-empty-confirm" class="fm-btn fm-btn-primary" disabled data-i18n="common.confirm">Confirm</button>
+        <button id="from-empty-cancel" class="fm-btn fm-btn-outline" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- RFID Modal -->
   <div id="rfid-modal" class="fm-modal-overlay">
     <div class="fm-card" style="width: 100%; max-width: 28rem; margin: 0 1rem; padding: 24px;">
@@ -1185,5 +1216,173 @@ import Layout from '../../layouts/Layout.astro'
         confirmBtn.disabled = false
       }
     })
+
+  // ─── From Empty Spool Modal ───
+  let selectedEmptySpoolId: number | null = null
+  let emptySpoolDropdownOpen = false
+
+  const fromEmptyModal = document.getElementById('from-empty-modal')!
+  const fromEmptyDropdownEl = document.getElementById('from-empty-dropdown')!
+  const fromEmptyTrigger = document.getElementById('from-empty-trigger')!
+  const fromEmptyTriggerText = document.getElementById('from-empty-trigger-text')!
+  const fromEmptyPanel = document.getElementById('from-empty-panel')!
+  const fromEmptySearch = document.getElementById('from-empty-search') as HTMLInputElement
+  const fromEmptyOptions = document.getElementById('from-empty-options')!
+  const fromEmptyNone = document.getElementById('from-empty-none')!
+  const fromEmptyConfirmBtn = document.getElementById('from-empty-confirm') as HTMLButtonElement
+  const fromEmptyCancelBtn = document.getElementById('from-empty-cancel')!
+
+  function openEmptyDropdown() {
+    fromEmptyPanel.style.display = ''
+    emptySpoolDropdownOpen = true
+    fromEmptySearch.value = ''
+    filterEmptyOptions('')
+    setTimeout(() => fromEmptySearch.focus(), 10)
+  }
+
+  function closeEmptyDropdown() {
+    fromEmptyPanel.style.display = 'none'
+    emptySpoolDropdownOpen = false
+  }
+
+  function filterEmptyOptions(query: string) {
+    const q = query.toLowerCase()
+    fromEmptyOptions.querySelectorAll<HTMLElement>('[data-empty-spool-id]').forEach(opt => {
+      const match = !q || (opt.dataset.search || '').toLowerCase().includes(q)
+      opt.style.display = match ? '' : 'none'
+    })
+  }
+
+  function selectEmptySpool(id: number, idText: string, labelText: string) {
+    selectedEmptySpoolId = id
+    fromEmptyTriggerText.textContent = `#${idText} \u2013 ${labelText}`
+    fromEmptyTriggerText.style.opacity = '1'
+    fromEmptyTriggerText.removeAttribute('data-i18n')
+    fromEmptyConfirmBtn.disabled = false
+    fromEmptyOptions.querySelectorAll<HTMLElement>('[data-empty-spool-id]').forEach(opt => {
+      opt.style.background = opt.dataset.emptySpoolId === String(id) ? 'var(--bg-soft)' : ''
+      opt.style.fontWeight = opt.dataset.emptySpoolId === String(id) ? '500' : ''
+    })
+    closeEmptyDropdown()
+  }
+
+  async function openFromEmptyModal() {
+    selectedEmptySpoolId = null
+    fromEmptyTriggerText.textContent = t('common.select') || 'Select...'
+    fromEmptyTriggerText.style.opacity = '0.6'
+    fromEmptyConfirmBtn.disabled = true
+    fromEmptyOptions.textContent = ''
+    fromEmptyPanel.style.display = 'none'
+    emptySpoolDropdownOpen = false
+    fromEmptyNone.style.display = 'none'
+    fromEmptyDropdownEl.style.display = ''
+    fromEmptyModal.classList.add('open')
+
+    try {
+      const statusesRes = await fetch('/api/v1/spools/statuses', { credentials: 'include' })
+      const allStatuses = statusesRes.ok ? await statusesRes.json() : []
+      const emptyStatus = allStatuses.find((s: any) => s.key === 'empty')
+      if (!emptyStatus) {
+        fromEmptyNone.style.display = ''
+        fromEmptyDropdownEl.style.display = 'none'
+        return
+      }
+
+      const res = await fetch(`/api/v1/spools?page=1&page_size=500&status_id=${emptyStatus.id}`, { credentials: 'include' })
+      if (!res.ok) throw new Error()
+      const data = await res.json()
+      const emptySpools: any[] = data.items || []
+
+      if (emptySpools.length === 0) {
+        fromEmptyNone.style.display = ''
+        fromEmptyDropdownEl.style.display = 'none'
+        return
+      }
+
+      emptySpools.forEach((s: any) => {
+        const filament = s.filament
+        const mfg = filament?.manufacturer?.name || ''
+        const designation = filament?.designation || ''
+        const material = filament?.material_type || ''
+        const label = [mfg, designation, material].filter(Boolean).join(' \u00b7 ')
+
+        const opt = document.createElement('div')
+        opt.dataset.emptySpoolId = String(s.id)
+        opt.dataset.search = `${s.id} ${label}`
+        opt.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-size: 0.9rem;'
+
+        const idSpan = document.createElement('span')
+        idSpan.style.cssText = 'color: var(--text-muted); font-size: 0.8rem; flex-shrink: 0;'
+        idSpan.textContent = `#${s.id}`
+
+        const labelSpan = document.createElement('span')
+        labelSpan.style.cssText = 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap;'
+        labelSpan.textContent = label || '\u2014'
+
+        opt.appendChild(idSpan)
+        opt.appendChild(labelSpan)
+
+        opt.addEventListener('mouseenter', () => {
+          if (opt.dataset.emptySpoolId !== String(selectedEmptySpoolId)) opt.style.background = 'var(--bg-soft)'
+        })
+        opt.addEventListener('mouseleave', () => {
+          if (opt.dataset.emptySpoolId !== String(selectedEmptySpoolId)) opt.style.background = ''
+        })
+        opt.addEventListener('click', () => selectEmptySpool(s.id, String(s.id), label || '\u2014'))
+        fromEmptyOptions.appendChild(opt)
+      })
+    } catch {
+      fromEmptyNone.style.display = ''
+      fromEmptyDropdownEl.style.display = 'none'
+    }
+  }
+
+  fromEmptyTrigger.addEventListener('click', () => {
+    if (emptySpoolDropdownOpen) closeEmptyDropdown()
+    else openEmptyDropdown()
+  })
+  fromEmptyTrigger.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      if (emptySpoolDropdownOpen) closeEmptyDropdown()
+      else openEmptyDropdown()
+    } else if (e.key === 'Escape') {
+      closeEmptyDropdown()
+    }
+  })
+  fromEmptySearch.addEventListener('input', (e) => filterEmptyOptions((e.target as HTMLInputElement).value))
+  fromEmptySearch.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeEmptyDropdown(); fromEmptyTrigger.focus() }
+  })
+  document.addEventListener('click', (e) => {
+    if (emptySpoolDropdownOpen && !fromEmptyDropdownEl.contains(e.target as Node)) closeEmptyDropdown()
+  })
+
+  fromEmptyCancelBtn.addEventListener('click', () => fromEmptyModal.classList.remove('open'))
+  fromEmptyModal.addEventListener('click', (e) => {
+    if (e.target === fromEmptyModal) fromEmptyModal.classList.remove('open')
+  })
+
+  fromEmptyConfirmBtn.addEventListener('click', async () => {
+    if (!selectedEmptySpoolId) return
+    try {
+      const res = await fetch(`/api/v1/spools/${selectedEmptySpoolId}`, { credentials: 'include' })
+      if (!res.ok) return
+      const spool = await res.json()
+      const payload: Record<string, any> = {}
+      if (spool.empty_spool_weight_g != null) payload.empty_spool_weight_g = spool.empty_spool_weight_g
+      if (spool.rfid_uid) payload.rfid_uid = spool.rfid_uid
+      if (spool.spool_width_mm != null) payload.spool_width_mm = spool.spool_width_mm
+      if (spool.spool_outer_diameter_mm != null) payload.spool_outer_diameter_mm = spool.spool_outer_diameter_mm
+      if (spool.spool_material) payload.spool_material = spool.spool_material
+      if (spool.low_weight_threshold_g != null) payload.low_weight_threshold_g = spool.low_weight_threshold_g
+      sessionStorage.setItem('filaman_duplicate_spool', JSON.stringify(payload))
+      window.location.href = '/spools/new'
+    } catch {
+      // ignore
+    }
+  })
+
+  document.getElementById('btn-add-from-empty')?.addEventListener('click', openFromEmptyModal)
   </script>
 </Layout>

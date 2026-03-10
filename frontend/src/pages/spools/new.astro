@@ -608,7 +608,12 @@ const filamentId = Astro.url.searchParams.get('filament_id')
               (document.getElementById('low_weight_threshold_g') as HTMLInputElement).value = String(dup.low_weight_threshold_g)
             }
 
-            // Custom Fields (NOT rfid_uid — already excluded at source)
+            // RFID UID (only when explicitly included, e.g. from empty spool template)
+            if (dup.rfid_uid) {
+              (document.getElementById('rfid_uid') as HTMLInputElement).value = dup.rfid_uid
+            }
+
+            // Custom Fields
             if (dup.custom_fields && typeof dup.custom_fields === 'object') {
               const entries = Object.entries(dup.custom_fields)
               if (entries.length > 0) {

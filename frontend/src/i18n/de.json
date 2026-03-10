@@ -24,6 +24,7 @@
   },
   "common": {
     "save": "Speichern",
+    "select": "Auswählen...",
     "cancel": "Abbrechen",
     "yes": "Ja",
     "no": "Nein",
@@ -264,6 +265,10 @@
   "spools": {
     "title": "Spulen",
     "addSpool": "Spule hinzufügen",
+    "addSpoolFromEmpty": "Aus leerer Spule",
+    "selectEmptySpoolTitle": "Leere Spule auswählen",
+    "selectEmptySpoolLabel": "Wähle eine leere Spule als Vorlage. Die Spuleneigenschaften werden übernommen.",
+    "noEmptySpools": "Keine leeren Spulen vorhanden",
     "newSpool": "Neue Spule",
     "createSpool": "Spule erstellen",
     "quantity": "Anzahl",
