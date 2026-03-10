@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "improvement", "text": "Filament-Details: Extrafelder werden korrekt auf Deutsch angezeigt, System-Extrafelder heben sich visuell hervor und zeigen den Anzeigenamen statt dem internen Schlüssel" }
+        ],
+        "en": [
+          { "type": "improvement", "text": "Filament details: Extra fields are now properly translated, system extra fields are visually highlighted and show the display name instead of the internal key" }
+        ]
+      }
+    },
+    {
       "version": "1.0.21",
       "date": "",
       "changes": {

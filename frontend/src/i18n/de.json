@@ -63,6 +63,7 @@
     "customFields": "Eigene Felder",
     "systemFields": "Systemfelder",
     "extraFields": "Extrafelder",
+    "systemField": "System",
     "spoolDefaultSettings": "Spool-Standardwerte",
     "on": "An",
     "off": "Aus",

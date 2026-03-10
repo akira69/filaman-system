@@ -64,6 +64,7 @@
     "spoolDefaultSettings": "Spool Default Settings",
     "systemFields": "System Fields",
     "extraFields": "Extra Fields",
+    "systemField": "System",
     "on": "On",
     "off": "Off",
     "duplicate": "Duplicate",
