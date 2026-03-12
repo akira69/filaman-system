@@ -364,14 +364,14 @@ const filamentId = Astro.url.searchParams.get('filament_id')
     }
 
     function filterFilamentOptions(query: string) {
-      const q = query.toLowerCase()
+      const words = query.toLowerCase().trim().split(/\s+/).filter((w) => w.length > 0)
       const groups = filamentOptionsContainer.querySelectorAll<HTMLElement>('[data-group]')
       groups.forEach((group) => {
         const options = group.querySelectorAll<HTMLElement>('[data-filament-id]')
         let anyVisible = false
         options.forEach((opt) => {
-          const searchText = opt.dataset.search || ''
-          const match = !q || searchText.toLowerCase().includes(q)
+          const searchText = opt.dataset.search?.toLowerCase() || ''
+          const match = words.length === 0 || words.every((w) => searchText.includes(w))
           opt.style.display = match ? '' : 'none'
           if (match) anyVisible = true
         })
