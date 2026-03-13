@@ -985,6 +985,42 @@ async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
     return data
 
 
+async def _export_inventory_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
+    """Export only inventory/domain data (no users, auth, devices, plugins)."""
+    data = {}
+    
+    # Only domain tables - no users, auth, devices, plugins
+    tables_order = [
+        # Independent domain data
+        ("manufacturers", Manufacturer),
+        ("colors", Color),
+        ("locations", Location),
+        
+        # Dependent domain data
+        ("filaments", Filament),
+        ("filament_colors", FilamentColor),
+        ("filament_ratings", FilamentRating),
+        ("system_extra_fields", SystemExtraField),
+        ("printers", Printer),
+        ("filament_printer_profiles", FilamentPrinterProfile),
+        ("filament_printer_params", FilamentPrinterParam),
+        ("spools", Spool),
+        ("spool_printer_params", SpoolPrinterParam),
+        ("spool_events", SpoolEvent),
+        ("printer_slots", PrinterSlot),
+        ("printer_slot_assignments", PrinterSlotAssignment),
+        ("printer_slot_events", PrinterSlotEvent),
+    ]
+    
+    for table_name, model in tables_order:
+        result = await db.execute(select(model))
+        rows = result.scalars().all()
+        data[table_name] = [_serialize_row(row) for row in rows]
+        logger.info(f"Exported {len(rows)} inventory rows from {table_name}")
+    
+    return data
+
+
 async def _get_schema_version(db: DBSession) -> str | None:
     """Get current Alembic schema version from alembic_version table."""
     try:
@@ -1043,6 +1079,47 @@ async def export_backup(
         },
         headers={
             "Content-Disposition": f'attachment; filename="filaman_backup_{datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")}.json"'
+        },
+    )
+
+
+@router.get("/backup/export-inventory")
+async def export_inventory_backup(
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Export inventory data only (no users, auth, devices, plugins).
+    
+    Exports: manufacturers, colors, locations, filaments, spools, printers,
+    ratings, events, and all related domain data.
+    
+    Does NOT export: users, passwords, API keys, sessions, roles, permissions,
+    devices, plugins, OIDC settings.
+    
+    Safe to share between instances.
+    """
+    logger.info(f"Starting inventory backup export by user {principal.user_id}")
+    
+    schema_version = await _get_schema_version(db)
+    app_version = _read_installed_version()
+    
+    data = await _export_inventory_data(db)
+    
+    metadata = BackupMetadata(
+        export_date=datetime.now(timezone.utc).isoformat(),
+        app_version=app_version,
+        schema_version=schema_version,
+    )
+    
+    logger.info(f"Inventory backup export completed by user {principal.user_id}")
+    
+    return JSONResponse(
+        content={
+            "metadata": metadata.model_dump(),
+            "data": data,
+        },
+        headers={
+            "Content-Disposition": f'attachment; filename="filaman_inventory_{datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")}.json"'
         },
     )
 
@@ -1133,6 +1210,91 @@ async def _delete_all_data(db: DBSession) -> dict[str, int]:
         logger.info(f"Deleted {deleted[table_name]} rows from {table_name}")
     
     return deleted
+
+
+async def _delete_inventory_data(db: DBSession) -> dict[str, int]:
+    """Delete only inventory/domain data (preserve users, auth, devices, plugins)."""
+    deleted = {}
+    
+    # Reverse order: dependent tables first
+    tables_order = [
+        ("printer_slot_events", PrinterSlotEvent),
+        ("printer_slot_assignments", PrinterSlotAssignment),
+        ("printer_slots", PrinterSlot),
+        ("spool_events", SpoolEvent),
+        ("spool_printer_params", SpoolPrinterParam),
+        ("spools", Spool),
+        ("filament_printer_params", FilamentPrinterParam),
+        ("filament_printer_profiles", FilamentPrinterProfile),
+        ("printers", Printer),
+        ("system_extra_fields", SystemExtraField),
+        ("filament_ratings", FilamentRating),
+        ("filament_colors", FilamentColor),
+        ("filaments", Filament),
+        ("locations", Location),
+        ("colors", Color),
+        ("manufacturers", Manufacturer),
+    ]
+    
+    for table_name, model in tables_order:
+        result = await db.execute(delete(model))
+        deleted[table_name] = result.rowcount or 0
+        logger.info(f"Deleted {deleted[table_name]} inventory rows from {table_name}")
+    
+    return deleted
+
+
+async def _import_inventory_data(db: DBSession, data: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+    """Import only inventory/domain data."""
+    imported = {}
+    
+    # Same order as export
+    tables_order = [
+        ("manufacturers", Manufacturer),
+        ("colors", Color),
+        ("locations", Location),
+        ("filaments", Filament),
+        ("filament_colors", FilamentColor),
+        ("filament_ratings", FilamentRating),
+        ("system_extra_fields", SystemExtraField),
+        ("printers", Printer),
+        ("filament_printer_profiles", FilamentPrinterProfile),
+        ("filament_printer_params", FilamentPrinterParam),
+        ("spools", Spool),
+        ("spool_printer_params", SpoolPrinterParam),
+        ("spool_events", SpoolEvent),
+        ("printer_slots", PrinterSlot),
+        ("printer_slot_assignments", PrinterSlotAssignment),
+        ("printer_slot_events", PrinterSlotEvent),
+    ]
+    
+    for table_name, model in tables_order:
+        rows = data.get(table_name, [])
+        if rows:
+            mapper = sa_inspect(model)
+            col_to_attr = {attr.columns[0].name: attr.key for attr in mapper.column_attrs}
+            
+            for row_data in rows:
+                attr_data = {}
+                for col_name, value in row_data.items():
+                    attr_name = col_to_attr.get(col_name, col_name)
+                    
+                    if isinstance(value, str) and "T" in value:
+                        try:
+                            attr_data[attr_name] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                        except (ValueError, AttributeError):
+                            attr_data[attr_name] = value
+                    else:
+                        attr_data[attr_name] = value
+                
+                db.add(model(**attr_data))
+            
+            imported[table_name] = len(rows)
+            logger.info(f"Imported {len(rows)} inventory rows into {table_name}")
+        else:
+            imported[table_name] = 0
+    
+    return imported
 
 
 async def _import_all_data(db: DBSession, data: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
@@ -1288,6 +1450,87 @@ async def import_backup(
     except Exception as exc:
         await db.rollback()
         logger.exception(f"Backup import failed: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "import_failed",
+                "message": f"Import failed: {str(exc)}",
+            },
+        )
+
+
+@router.post("/backup/import-inventory", response_model=BackupImportResponse)
+async def import_inventory_backup(
+    db: DBSession,
+    file: UploadFile = File(...),
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Import inventory data only (preserves users, auth, devices, plugins).
+    
+    Imports: manufacturers, colors, locations, filaments, spools, printers,
+    and all related domain data.
+    
+    Does NOT import/affect: users, passwords, sessions, roles, permissions,
+    devices, plugins, OIDC settings.
+    
+    An automatic backup will be created before import.
+    """
+    if "application/json" not in file.content_type and "text/plain" not in file.content_type:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_content_type",
+                "message": f"Expected JSON file, received: {file.content_type}",
+            },
+        )
+    
+    import json
+    try:
+        content = await file.read()
+        backup_data = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_json",
+                "message": f"Invalid JSON file: {str(e)}",
+            },
+        )
+    
+    if "metadata" not in backup_data or "data" not in backup_data:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_backup_structure",
+                "message": "Backup file must contain 'metadata' and 'data' fields",
+            },
+        )
+    
+    logger.info(f"Starting inventory backup import by user {principal.user_id}")
+    logger.info(f"Backup metadata: {backup_data['metadata']}")
+    
+    try:
+        auto_backup_path = await _create_auto_backup(db)
+        logger.info(f"Auto-backup created at: {auto_backup_path}")
+        
+        deleted = await _delete_inventory_data(db)
+        logger.info(f"Deleted inventory data: {deleted}")
+        
+        imported = await _import_inventory_data(db, backup_data["data"])
+        logger.info(f"Imported inventory data: {imported}")
+        
+        await db.commit()
+        
+        logger.info(f"Inventory backup import completed successfully by user {principal.user_id}")
+        
+        return BackupImportResponse(
+            message=f"Inventory backup imported successfully. Auto-backup created at: {auto_backup_path.name}",
+            imported=imported,
+        )
+    
+    except Exception as exc:
+        await db.rollback()
+        logger.exception(f"Inventory backup import failed: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={

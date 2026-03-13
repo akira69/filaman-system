@@ -64,6 +64,64 @@ import Layout from '../../layouts/Layout.astro'
     </div>
   </div>
 
+  <!-- Inventory Backup Section -->
+  <h2 style="font-size: 1.5rem; font-weight: 700; margin: 48px 0 16px; font-family: var(--font-serif);" data-i18n="admin.inventoryBackup">Inventory Data Only</h2>
+  
+  <!-- Inventory Export Section -->
+  <div class="fm-card" style="padding: 24px; margin-bottom: 24px;">
+    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px;" data-i18n="admin.inventoryExport">Export Inventory</h3>
+    <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.875rem;" data-i18n="admin.inventoryExportDesc">
+      Export only inventory data (manufacturers, filaments, spools, printers). No users, passwords, or API keys.
+    </p>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--success-bg); border: 1px solid var(--success-border); border-radius: 8px; margin-bottom: 16px;">
+      <span style="font-size: 1.25rem;">✓</span>
+      <div style="font-size: 0.875rem; color: var(--success-text);">
+        <strong data-i18n="admin.inventorySafeTitle">Safe to share:</strong>
+        <span data-i18n="admin.inventorySafeText">Contains no sensitive authentication data.</span>
+      </div>
+    </div>
+    <button id="btn-export-inventory" class="fm-btn fm-btn-primary" data-i18n="admin.inventoryExportBtn">
+      Export Inventory
+    </button>
+  </div>
+
+  <!-- Inventory Import Section -->
+  <div class="fm-card" style="padding: 24px;">
+    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px;" data-i18n="admin.inventoryImport">Import Inventory</h3>
+    <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.875rem;" data-i18n="admin.inventoryImportDesc">
+      Import inventory data from another FilaMan instance. Users and settings are preserved.
+    </p>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 8px; margin-bottom: 16px;">
+      <span style="font-size: 1.25rem;">⚠️</span>
+      <div style="font-size: 0.875rem; color: var(--warning-text);">
+        <strong data-i18n="admin.inventoryWarningTitle">Warning:</strong>
+        <span data-i18n="admin.inventoryWarningText">This will DELETE existing inventory data! Users and settings remain unchanged.</span>
+      </div>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: end; margin-bottom: 16px;">
+      <div style="flex: 1;">
+        <label style="display: block; margin-bottom: 4px; font-weight: 500; font-size: 0.875rem;">
+          <span data-i18n="admin.backupImportFile">Select Backup File</span>
+        </label>
+        <input 
+          type="file" 
+          id="inventory-file-input" 
+          accept=".json"
+          style="display: block; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text);"
+        />
+      </div>
+      <button id="btn-import-inventory" class="fm-btn fm-btn-warning" disabled data-i18n="admin.inventoryImportBtn">
+        Import Inventory
+      </button>
+    </div>
+    <div id="inventory-import-progress" style="display: none;">
+      <div style="background: var(--bg-soft); height: 6px; border-radius: 999px; overflow: hidden;">
+        <div id="inventory-import-progress-bar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s;"></div>
+      </div>
+      <p id="inventory-import-status" style="margin-top: 8px; font-size: 0.875rem; color: var(--text-muted);"></p>
+    </div>
+  </div>
+
   <!-- SQLite Backup Files Section -->
   <div id="sqlite-backups-section" class="fm-card" style="padding: 24px; margin-top: 24px; display: none;">
     <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 8px;" data-i18n="admin.sqliteBackups">SQLite Backups</h2>
@@ -220,6 +278,135 @@ import Layout from '../../layouts/Layout.astro'
           importStatus.textContent = ''
           btnImportBackup.disabled = !backupFileInput.files || backupFileInput.files.length === 0
           btnImportBackup.textContent = originalText
+        }, 3000)
+      }
+    })
+
+    // --- Inventory Backup Export/Import ---
+    const btnExportInventory = document.getElementById('btn-export-inventory') as HTMLButtonElement
+    const btnImportInventory = document.getElementById('btn-import-inventory') as HTMLButtonElement
+    const inventoryFileInput = document.getElementById('inventory-file-input') as HTMLInputElement
+    const inventoryImportProgress = document.getElementById('inventory-import-progress')!
+    const inventoryImportProgressBar = document.getElementById('inventory-import-progress-bar') as HTMLElement
+    const inventoryImportStatus = document.getElementById('inventory-import-status')!
+
+    inventoryFileInput.addEventListener('change', () => {
+      btnImportInventory.disabled = !inventoryFileInput.files || inventoryFileInput.files.length === 0
+    })
+
+    btnExportInventory.addEventListener('click', async () => {
+      btnExportInventory.disabled = true
+      const originalText = btnExportInventory.textContent
+      btnExportInventory.textContent = t('admin.inventoryExporting') || 'Exporting...'
+
+      try {
+        const response = await fetch('/api/v1/admin/system/backup/export-inventory', {
+          credentials: 'include',
+          headers: { 'X-CSRF-Token': getCsrfToken() }
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: { message: 'Export failed' } }))
+          throw new Error(errorData.detail?.message || 'Export failed')
+        }
+
+        const blob = await response.blob()
+        const contentDisposition = response.headers.get('Content-Disposition')
+        let filename = 'filaman_inventory.json'
+        if (contentDisposition) {
+          const match = contentDisposition.match(/filename="(.+)"/)
+          if (match) filename = match[1]
+        }
+
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+
+        await (window as any).__fmSuccess(t('admin.inventoryExportSuccess') || 'Inventory exported successfully')
+      } catch (err: any) {
+        console.error('Inventory export failed:', err)
+        await (window as any).__fmAlert(t('admin.inventoryExportFailed') || `Export failed: ${err.message}`)
+      } finally {
+        btnExportInventory.disabled = false
+        btnExportInventory.textContent = originalText
+      }
+    })
+
+    btnImportInventory.addEventListener('click', async () => {
+      const file = inventoryFileInput.files?.[0]
+      if (!file) return
+
+      const confirmMsg = t('admin.inventoryImportConfirm') || 
+        'Are you sure you want to import this inventory?\n\nThis will DELETE ALL existing inventory data!\n\nUsers and settings will be preserved.\n\nAn automatic backup will be created first.'
+      
+      const confirmed = await (window as any).__fmConfirm(confirmMsg)
+      if (!confirmed) return
+
+      btnImportInventory.disabled = true
+      const originalText = btnImportInventory.textContent
+      btnImportInventory.textContent = t('admin.inventoryImporting') || 'Importing...'
+      
+      inventoryImportProgress.style.display = 'block'
+      inventoryImportProgressBar.style.width = '10%'
+      inventoryImportStatus.textContent = t('admin.inventoryImportPreparing') || 'Preparing import...'
+
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        inventoryImportProgressBar.style.width = '30%'
+        inventoryImportStatus.textContent = t('admin.inventoryImportUploading') || 'Uploading inventory file...'
+
+        const response = await fetch('/api/v1/admin/system/backup/import-inventory', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'X-CSRF-Token': getCsrfToken() },
+          body: formData
+        })
+
+        inventoryImportProgressBar.style.width = '90%'
+        inventoryImportStatus.textContent = t('admin.inventoryImportProcessing') || 'Processing import...'
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: { message: 'Import failed' } }))
+          throw new Error(errorData.detail?.message || 'Import failed')
+        }
+
+        const result = await response.json()
+
+        inventoryImportProgressBar.style.width = '100%'
+        inventoryImportStatus.textContent = t('admin.inventoryImportComplete') || 'Import complete!'
+
+        await (window as any).__fmSuccess(
+          (t('admin.inventoryImportSuccess') || 'Inventory imported successfully!') + '\n\n' + result.message
+        )
+
+        inventoryFileInput.value = ''
+        btnImportInventory.disabled = true
+
+        setTimeout(() => {
+          window.location.reload()
+        }, 2000)
+
+      } catch (err: any) {
+        console.error('Inventory import failed:', err)
+        inventoryImportProgressBar.style.width = '0%'
+        inventoryImportStatus.textContent = ''
+        await (window as any).__fmAlert(
+          (t('admin.inventoryImportFailed') || 'Import failed:') + '\n\n' + err.message
+        )
+      } finally {
+        setTimeout(() => {
+          inventoryImportProgress.style.display = 'none'
+          inventoryImportProgressBar.style.width = '0%'
+          inventoryImportStatus.textContent = ''
+          btnImportInventory.disabled = !inventoryFileInput.files || inventoryFileInput.files.length === 0
+          btnImportInventory.textContent = originalText
         }, 3000)
       }
     })
