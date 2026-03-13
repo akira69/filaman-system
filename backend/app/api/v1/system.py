@@ -1120,9 +1120,9 @@ async def _delete_all_data(db: DBSession) -> dict[str, int]:
         ("roles", Role),
         ("permissions", Permission),
         
-        # Config (keep spool_statuses and app_settings as they might be seed data)
+        # Config and seed data
         ("app_settings", AppSettings),
-        # Note: NOT deleting spool_statuses as they are seed data
+        ("spool_statuses", SpoolStatus),
     ]
     
     for table_name, model in tables_order:
