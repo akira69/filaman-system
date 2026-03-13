@@ -1175,17 +1175,23 @@ async def _import_all_data(db: DBSession, data: dict[str, list[dict[str, Any]]])
     for table_name, model in tables_order:
         rows = data.get(table_name, [])
         if rows:
-            # Bulk insert
+            mapper = sa_inspect(model)
+            col_to_attr = {attr.columns[0].name: attr.key for attr in mapper.column_attrs}
+            
             for row_data in rows:
-                # Convert ISO datetime strings back to datetime objects
-                for key, value in row_data.items():
+                attr_data = {}
+                for col_name, value in row_data.items():
+                    attr_name = col_to_attr.get(col_name, col_name)
+                    
                     if isinstance(value, str) and "T" in value:
                         try:
-                            row_data[key] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            attr_data[attr_name] = datetime.fromisoformat(value.replace("Z", "+00:00"))
                         except (ValueError, AttributeError):
-                            pass
+                            attr_data[attr_name] = value
+                    else:
+                        attr_data[attr_name] = value
                 
-                db.add(model(**row_data))
+                db.add(model(**attr_data))
             
             imported[table_name] = len(rows)
             logger.info(f"Imported {len(rows)} rows into {table_name}")
