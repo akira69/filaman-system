@@ -140,7 +140,7 @@ import Layout from '../../layouts/Layout.astro'
         window.URL.revokeObjectURL(url)
         document.body.removeChild(a)
 
-        await (window as any).__fmAlert(t('admin.backupExportSuccess') || 'Backup exported successfully')
+        await (window as any).__fmSuccess(t('admin.backupExportSuccess') || 'Backup exported successfully')
       } catch (err: any) {
         console.error('Export failed:', err)
         await (window as any).__fmAlert(t('admin.backupExportFailed') || `Export failed: ${err.message}`)
@@ -195,7 +195,7 @@ import Layout from '../../layouts/Layout.astro'
         importProgressBar.style.width = '100%'
         importStatus.textContent = t('admin.backupImportComplete') || 'Import complete!'
 
-        await (window as any).__fmAlert(
+        await (window as any).__fmSuccess(
           (t('admin.backupImportSuccess') || 'Backup imported successfully!') + '\n\n' + result.message
         )
 
@@ -320,7 +320,7 @@ import Layout from '../../layouts/Layout.astro'
         }
 
         const result = await resp.json()
-        await (window as any).__fmAlert(
+        await (window as any).__fmSuccess(
           (t('admin.sqliteRestoreSuccess') || 'Database restored successfully!') +
           '\n\n' + result.message
         )
