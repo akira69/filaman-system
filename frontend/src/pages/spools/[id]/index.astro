@@ -160,6 +160,7 @@ const { id } = Astro.params
     let fieldDefinitions = []
     let filamentPrinterParams = []
     let spoolSystemFieldMap: Record<string, any> = {}
+    let filamentSystemFieldMap: Record<string, any> = {}
     
     function flattenObject(obj, prefix = '', res = {}) {
       for (const key in obj) {
@@ -213,7 +214,7 @@ const { id } = Astro.params
           fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' }),
         ])
 
-        let filamentSystemFieldMap: Record<string, any> = {}
+        filamentSystemFieldMap = {}
         if (sysFieldsRes.ok) {
           const defs = await sysFieldsRes.json()
           spoolSystemFieldMap = {}

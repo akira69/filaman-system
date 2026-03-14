@@ -65,9 +65,9 @@ const { id } = Astro.params
           </label>
         </div>
 
-        <div id="extra-fields-section" class="extra-fields-section" style="display: none;">
+        <div id="extra-fields-section" style="display: none;">
           <h3 id="title-extra-fields">Extra-Felder</h3>
-          <div id="extra-fields-checkboxes"></div>
+          <div id="extra-fields-checkboxes" class="checkbox-grid"></div>
         </div>
       </div>
 
@@ -281,25 +281,10 @@ const { id } = Astro.params
     gap: 4px;
   }
 
-  .extra-fields-section {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  #extra-fields-checkboxes {
+  #extra-fields-section {
     display: flex;
     flex-direction: column;
     gap: 8px;
-  }
-
-  .ef-group-label {
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-muted);
-    opacity: 0.7;
-    margin: 0;
   }
 </style>
 
@@ -441,48 +426,23 @@ const { id } = Astro.params
   } catch(e) { /* ignore */ }
 
   if (extraFields.length > 0) {
-    extraFieldsSection.style.display = 'flex'
-    const spoolFields = extraFields.filter(ef => ef.source === 'spool')
-    const filamentFields = extraFields.filter(ef => ef.source === 'filament')
+    extraFieldsSection.style.display = ''
+    const hasBothSources = extraFields.some(ef => ef.source === 'spool') && extraFields.some(ef => ef.source === 'filament')
 
-    function buildCheckboxGroup(fields: typeof extraFields, container: HTMLElement) {
-      for (const ef of fields) {
-        const lbl = document.createElement('label')
-        lbl.className = 'fm-checkbox-group'
-        const cb = document.createElement('input')
-        cb.type = 'checkbox'
-        cb.id = `check-ef-${ef.key}`
-        cb.checked = savedExtraFieldSettings[ef.key] || false
-        const span = document.createElement('span')
-        span.textContent = ef.label
-        lbl.appendChild(cb)
-        lbl.appendChild(span)
-        container.appendChild(lbl)
-        extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
-        cb.addEventListener('change', updatePreview)
-      }
-    }
-
-    if (spoolFields.length > 0) {
-      const heading = document.createElement('div')
-      heading.className = 'ef-group-label'
-      heading.textContent = (window as any).__t('dashboard.spool') || 'Spool'
-      extraFieldsCheckboxes.appendChild(heading)
-      const grid = document.createElement('div')
-      grid.className = 'checkbox-grid'
-      buildCheckboxGroup(spoolFields, grid)
-      extraFieldsCheckboxes.appendChild(grid)
-    }
-
-    if (filamentFields.length > 0) {
-      const heading = document.createElement('div')
-      heading.className = 'ef-group-label'
-      heading.textContent = (window as any).__t('spools.filament') || 'Filament'
-      extraFieldsCheckboxes.appendChild(heading)
-      const grid = document.createElement('div')
-      grid.className = 'checkbox-grid'
-      buildCheckboxGroup(filamentFields, grid)
-      extraFieldsCheckboxes.appendChild(grid)
+    for (const ef of extraFields) {
+      const lbl = document.createElement('label')
+      lbl.className = 'fm-checkbox-group'
+      const cb = document.createElement('input')
+      cb.type = 'checkbox'
+      cb.id = `check-ef-${ef.key}`
+      cb.checked = savedExtraFieldSettings[ef.key] || false
+      const span = document.createElement('span')
+      span.textContent = hasBothSources ? `${ef.label} (${ef.source === 'spool' ? ((window as any).__t('dashboard.spool') || 'Spool') : ((window as any).__t('spools.filament') || 'Filament')})` : ef.label
+      lbl.appendChild(cb)
+      lbl.appendChild(span)
+      extraFieldsCheckboxes.appendChild(lbl)
+      extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
+      cb.addEventListener('change', updatePreview)
     }
   }
 
