@@ -205,18 +205,26 @@ const { id } = Astro.params
     
     async function loadData() {
       try {
-        const [spoolRes, statusesRes, locationsRes, sysFieldsRes] = await Promise.all([
+        const [spoolRes, statusesRes, locationsRes, sysFieldsRes, filamentSysFieldsRes] = await Promise.all([
           fetch(`/api/v1/spools/${id}`, { credentials: 'include' }),
           fetch('/api/v1/spools/statuses', { credentials: 'include' }),
           fetchAllPages('/api/v1/locations').then(d => d.items).catch(() => []),
           fetch('/api/v1/system-extra-fields?target_type=spool', { credentials: 'include' }),
+          fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' }),
         ])
 
+        let filamentSystemFieldMap: Record<string, any> = {}
         if (sysFieldsRes.ok) {
           const defs = await sysFieldsRes.json()
           spoolSystemFieldMap = {}
           for (const def of defs) {
             spoolSystemFieldMap[def.key] = def
+          }
+        }
+        if (filamentSysFieldsRes.ok) {
+          const defs = await filamentSysFieldsRes.json()
+          for (const def of defs) {
+            filamentSystemFieldMap[def.key] = def
           }
         }
         
@@ -380,13 +388,20 @@ const { id } = Astro.params
       
       const printUrl = `/spools/${spool.id}/print?designation=${encodeURIComponent(spool.filament?.designation || '')}&mfr=${encodeURIComponent(spool.filament?.manufacturer?.name || '')}&type=${encodeURIComponent(spool.filament?.material_type || '')}&color=${encodeURIComponent(spool.filament?.manufacturer_color_name || '')}`
 
-      // Store extra fields for label printing
-      const efForPrint: {key: string, label: string, value: string}[] = []
+      // Store extra fields for label printing (spool + filament)
+      const efForPrint: {key: string, label: string, value: string, source: string}[] = []
       if (spool.custom_fields) {
         const flat = flattenObject(spool.custom_fields)
         for (const [key, value] of Object.entries(flat)) {
           const sysDef = spoolSystemFieldMap[key]
-          efForPrint.push({ key, label: sysDef ? sysDef.label : key, value: String(value) })
+          efForPrint.push({ key: `spool.${key}`, label: sysDef ? sysDef.label : key, value: String(value), source: 'spool' })
+        }
+      }
+      if (spool.filament?.custom_fields) {
+        const flat = flattenObject(spool.filament.custom_fields)
+        for (const [key, value] of Object.entries(flat)) {
+          const sysDef = filamentSystemFieldMap[key]
+          efForPrint.push({ key: `filament.${key}`, label: sysDef ? sysDef.label : key, value: String(value), source: 'filament' })
         }
       }
       sessionStorage.setItem('filaman-label-extra-fields', JSON.stringify(efForPrint))
