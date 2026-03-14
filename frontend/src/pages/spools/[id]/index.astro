@@ -35,7 +35,7 @@ const { id } = Astro.params
       <button id="btn-move" class="fm-btn fm-btn-outline" data-i18n="spools.move">
         Move
       </button>
-      <a href={`/spools/${id}/print`} target="_blank" id="btn-print-label" class="fm-btn fm-btn-outline" style="border-color: #10b981; color: #10b981; text-decoration: none; display: flex; align-items: center; justify-content: center;">
+      <a href={`/spools/${id}/print`} id="btn-print-label" class="fm-btn fm-btn-outline" style="border-color: #10b981; color: #10b981; text-decoration: none; display: flex; align-items: center; justify-content: center;">
         <span data-i18n="spools.printLabel">Print Label</span>
       </a>
     </div>
