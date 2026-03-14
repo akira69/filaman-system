@@ -65,10 +65,8 @@ const { id } = Astro.params
           </label>
         </div>
 
-        <div id="extra-fields-section" style="display: none;">
-          <h3 id="title-extra-fields">Extra-Felder</h3>
-          <div id="extra-fields-checkboxes" class="checkbox-grid"></div>
-        </div>
+        <h3 id="title-extra-fields" style="display: none;">Extra-Felder</h3>
+        <div id="extra-fields-checkboxes" class="checkbox-grid checkbox-grid-single" style="display: none;"></div>
       </div>
 
       <div class="action-buttons">
@@ -281,10 +279,8 @@ const { id } = Astro.params
     gap: 4px;
   }
 
-  #extra-fields-section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .checkbox-grid-single {
+    grid-template-columns: 1fr;
   }
 </style>
 
@@ -411,8 +407,8 @@ const { id } = Astro.params
 
   const LABEL_SETTINGS_KEY = 'filaman-label-settings'
 
-  // Build extra field checkboxes dynamically, grouped by source
-  const extraFieldsSection = document.getElementById('extra-fields-section')
+  // Build extra field checkboxes dynamically
+  const extraFieldsTitle = document.getElementById('title-extra-fields')
   const extraFieldsCheckboxes = document.getElementById('extra-fields-checkboxes')
   const extraFieldChecks: {key: string, label: string, value: string, checkbox: HTMLInputElement}[] = []
 
@@ -426,7 +422,8 @@ const { id } = Astro.params
   } catch(e) { /* ignore */ }
 
   if (extraFields.length > 0) {
-    extraFieldsSection.style.display = ''
+    extraFieldsTitle.style.display = ''
+    extraFieldsCheckboxes.style.display = ''
     const hasBothSources = extraFields.some(ef => ef.source === 'spool') && extraFields.some(ef => ef.source === 'filament')
 
     for (const ef of extraFields) {
