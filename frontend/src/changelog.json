@@ -1,16 +1,26 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Beim Label-Druck können jetzt die Extra-Felder einer Spule optional mit auf das Label gedruckt werden" }
+        ],
+        "en": [
+          { "type": "feature", "text": "Extra fields of a spool can now optionally be included when printing labels" }
+        ]
+      }
+    },
+    {
       "version": "1.1.6",
       "date": "",
       "changes": {
         "de": [
-          { "type": "feature", "text": "Plugins mit eigenen Seiten werden jetzt automatisch als Links in der Sidebar-Navigation angezeigt" },
-          { "type": "feature", "text": "Beim Label-Druck können jetzt die Extra-Felder einer Spule optional mit auf das Label gedruckt werden" }
+          { "type": "feature", "text": "Plugins mit eigenen Seiten werden jetzt automatisch als Links in der Sidebar-Navigation angezeigt" }
         ],
         "en": [
-          { "type": "feature", "text": "Plugins with their own pages now automatically appear as links in the sidebar navigation" },
-          { "type": "feature", "text": "Extra fields of a spool can now optionally be included when printing labels" }
+          { "type": "feature", "text": "Plugins with their own pages now automatically appear as links in the sidebar navigation" }
         ]
       }
     },
