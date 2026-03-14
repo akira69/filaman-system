@@ -277,6 +277,7 @@
     "quantity": "Anzahl",
     "creatingMultiple": "Erstelle Spule {current} von {total}...",
     "backToSpools": "Zurück zu Spulen",
+    "backToSpool": "Zurück zur Spule",
     "id": "ID",
     "filament": "Filament",
     "status": "Status",

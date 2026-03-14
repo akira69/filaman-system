@@ -275,6 +275,7 @@
     "quantity": "Quantity",
     "creatingMultiple": "Creating spool {current} of {total}...",
     "backToSpools": "Back to Spools",
+    "backToSpool": "Back to Spool",
     "id": "ID",
     "filament": "Filament",
     "status": "Status",

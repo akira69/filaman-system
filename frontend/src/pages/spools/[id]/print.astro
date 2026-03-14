@@ -13,10 +13,10 @@ const { id } = Astro.params
 <Layout title="FilaMan - Print Label">
   <div class="print-page">
     <aside class="print-sidebar">
-      <div class="sidebar-header">
-        <img src="/logo.png" alt="FilaMan">
-        <h1>FilaMan</h1>
-      </div>
+      <a id="btn-back" class="sidebar-header back-link">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+        <span id="label-back">Zurück zur Spule</span>
+      </a>
 
       <div class="settings-section">
         <h3 id="title-settings">Print Settings</h3>
@@ -72,7 +72,6 @@ const { id } = Astro.params
       <div class="action-buttons">
         <button id="btn-print" class="fm-btn fm-btn-primary">Drucken</button>
         <button id="btn-reset" class="fm-btn fm-btn-outline">Zurücksetzen</button>
-        <button id="btn-close" class="fm-btn fm-btn-outline">Schließen</button>
       </div>
     </aside>
 
@@ -113,23 +112,22 @@ const { id } = Astro.params
   .sidebar-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     padding-bottom: 16px;
     border-bottom: 1px solid var(--border);
   }
 
-  .sidebar-header img {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+  .back-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity var(--transition);
   }
 
-  .sidebar-header h1 {
-    font-family: var(--font-serif);
-    font-size: 1.25rem;
-    font-weight: 700;
-    margin: 0;
-    letter-spacing: 0.5px;
+  .back-link:hover {
+    opacity: 0.8;
   }
 
   .settings-section {
@@ -506,9 +504,11 @@ const { id } = Astro.params
   if (extraFields.length > 0) {
     document.getElementById('title-extra-fields').textContent = (window as any).__t('spools.extraFieldsLabel')
   }
+  const backBtn = document.getElementById('btn-back') as HTMLAnchorElement
+  backBtn.href = `/spools/${id}`
+  document.getElementById('label-back').textContent = (window as any).__t('spools.backToSpool')
   document.getElementById('btn-print').textContent = (window as any).__t('common.print')
   document.getElementById('btn-reset').textContent = (window as any).__t('spools.resetDefaults')
-  document.getElementById('btn-close').textContent = (window as any).__t('common.close')
 
   async function updatePreview() {
     if (typeof (window as any).QRCode === 'undefined') {
@@ -677,10 +677,6 @@ const { id } = Astro.params
       ef.checkbox.checked = false
     }
     updatePreview()
-  })
-
-  document.getElementById('btn-close').addEventListener('click', () => {
-    window.close()
   })
 
   updatePreview()
