@@ -654,16 +654,14 @@ const { id } = Astro.params
     }
   })
 
-  document.getElementById('btn-print').addEventListener('click', () => {
-    if (/Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)) {
-      setTimeout(() => window.print(), 100)
-    } else {
-      window.print()
-    }
+  document.getElementById('btn-print').addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    window.print()
   })
 
   document.getElementById('btn-reset').addEventListener('click', () => {
-    localStorage.removeItem(LABEL_SETTINGS_KEY)
+    localStorage.removeItem(LABEL_SETTINGS_KEY);
     (widthInput as HTMLInputElement).value = '60';
     (heightInput as HTMLInputElement).value = '25';
     (fontSizeInput as HTMLInputElement).value = '100';
