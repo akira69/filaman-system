@@ -1,6 +1,6 @@
 {
   "versions": [
-    {
+        {
       "version": "UNRELEASED",
       "date": "",
       "changes": {
@@ -11,6 +11,18 @@
         "en": [
           { "type": "feature", "text": "Extra fields of a spool can now optionally be included when printing labels" },
           { "type": "fix", "text": "The print button on the label print page is now working correctly again" }
+        ]
+      }
+    },
+    {
+      "version": "1.1.7",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Beim Label-Druck können jetzt die Extra-Felder einer Spule optional mit auf das Label gedruckt werden" }
+        ],
+        "en": [
+          { "type": "feature", "text": "Extra fields of a spool can now optionally be included when printing labels" }
         ]
       }
     },
