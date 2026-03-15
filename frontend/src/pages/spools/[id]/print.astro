@@ -70,7 +70,7 @@ const { id } = Astro.params
       </div>
 
       <div class="action-buttons">
-        <button id="btn-print" class="fm-btn fm-btn-primary">Drucken</button>
+        <button id="btn-print" class="fm-btn fm-btn-primary" onclick="filamanPrint()">Drucken</button>
         <button id="btn-reset" class="fm-btn fm-btn-outline">Zurücksetzen</button>
       </div>
     </aside>
@@ -294,17 +294,20 @@ const { id } = Astro.params
 
     /* Hide Layout elements */
     .fm-sidebar,
-    #fm-confirm-overlay {
+    #fm-confirm-overlay,
+    .fm-sidebar-backdrop {
       display: none !important;
     }
 
-    /* Reset Layout grid to block */
+    /* Reset Layout grid to block - ensure visibility */
     .fm-page {
       display: block !important;
       visibility: visible !important;
+      opacity: 1 !important;
       background: white !important;
       min-height: 0 !important;
       height: auto !important;
+      position: static !important;
     }
 
     .fm-page > main {
@@ -374,6 +377,17 @@ const { id } = Astro.params
 </style>
 
 <script>
+  // Global print function for Safari compatibility
+  ;(window as any).filamanPrint = function() {
+    try {
+      // Try execCommand first (better Safari support)
+      document.execCommand('print', false, null)
+    } catch (e) {
+      // Fallback to window.print
+      window.print()
+    }
+  }
+
   const id = window.location.pathname.split('/').filter(Boolean).slice(-2, -1)[0]
 
   const params = new URLSearchParams(window.location.search)
@@ -654,13 +668,7 @@ const { id } = Astro.params
     }
   })
 
-  document.getElementById('btn-print').addEventListener('click', (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    window.print()
-  })
-
-  document.getElementById('btn-reset').addEventListener('click', () => {
+  document.getElementById('btn-reset')?.addEventListener('click', () => {
     localStorage.removeItem(LABEL_SETTINGS_KEY);
     (widthInput as HTMLInputElement).value = '60';
     (heightInput as HTMLInputElement).value = '25';
