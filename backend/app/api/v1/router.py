@@ -5,6 +5,7 @@ from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.devices import router as devices_router
 from app.api.v1.filaments import router, router_colors, router_filaments
 from app.api.v1.me import router as me_router
+from app.api.v1.me_api_keys import router as me_api_keys_router
 from app.api.v1.printers import router as printers_router
 from app.api.v1.spools import (
     router_locations,
@@ -31,6 +32,7 @@ api_router.include_router(router_locations)
 api_router.include_router(router_spools)
 api_router.include_router(router_spool_measurements)
 api_router.include_router(me_router)
+api_router.include_router(me_api_keys_router)
 api_router.include_router(printers_router)
 api_router.include_router(admin_router)
 api_router.include_router(devices_router)
@@ -113,14 +115,16 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
         if plugin_router.prefix:
             full_prefix = f"{router_mount_prefix}{plugin_router.prefix}"
             app.router.routes = [
-                route for route in app.router.routes
-                if not (hasattr(route, 'path') and route.path.startswith(full_prefix))
+                route
+                for route in app.router.routes
+                if not (hasattr(route, "path") and route.path.startswith(full_prefix))
             ]
         elif mount_prefix:
             # Plugin hat eigenen mount_prefix — alte Routen unter diesem Prefix entfernen
             app.router.routes = [
-                route for route in app.router.routes
-                if not (hasattr(route, 'path') and route.path.startswith(mount_prefix))
+                route
+                for route in app.router.routes
+                if not (hasattr(route, "path") and route.path.startswith(mount_prefix))
             ]
 
         app.include_router(plugin_router, prefix=router_mount_prefix)
@@ -132,8 +136,9 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
             if plugin_admin_router.prefix:
                 admin_full_prefix = f"/api/v1{plugin_admin_router.prefix}"
                 app.router.routes = [
-                    route for route in app.router.routes
-                    if not (hasattr(route, 'path') and route.path.startswith(admin_full_prefix))
+                    route
+                    for route in app.router.routes
+                    if not (hasattr(route, "path") and route.path.startswith(admin_full_prefix))
                 ]
             app.include_router(plugin_admin_router, prefix="/api/v1")
             _logger.info("Plugin-Admin-Router '%s' dynamisch auf App gemountet", plugin_key)
@@ -148,7 +153,8 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
 
         _logger.info(
             "Plugin-Router '%s' dynamisch auf App gemountet (prefix=%s)",
-            plugin_key, router_mount_prefix,
+            plugin_key,
+            router_mount_prefix,
         )
         return True
 
@@ -228,12 +234,11 @@ def _mount_plugin_routers() -> None:
 
             if mount_prefix:
                 # Plugin definiert eigenen Mount-Punkt — deferred mount auf app
-                _deferred_plugin_routers.append(
-                    (plugin_key, plugin_router, mount_prefix, plugin_admin_router)
-                )
+                _deferred_plugin_routers.append((plugin_key, plugin_router, mount_prefix, plugin_admin_router))
                 _logger.info(
                     "Plugin-Router '%s' fuer deferred mount unter '%s' vorgemerkt",
-                    plugin_key, mount_prefix,
+                    plugin_key,
+                    mount_prefix,
                 )
             else:
                 api_router.include_router(plugin_router)
