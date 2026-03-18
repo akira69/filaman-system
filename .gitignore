@@ -68,6 +68,10 @@ _*
 local_cache
 .sisyphus/
 .opencode
+.claude
+.agents
+.agent
+skills-lock.json
 Agents.md
 Claude.md
 
