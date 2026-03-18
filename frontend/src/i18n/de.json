@@ -37,6 +37,8 @@
     "close": "Schließen",
     "submit": "Absenden",
     "saving": "Speichern...",
+    "saved": "✓ Gespeichert",
+    "saveFailed": "✗ Speichern fehlgeschlagen",
     "creating": "Erstellen...",
     "submitting": "Absenden...",
     "loading": "Laden...",

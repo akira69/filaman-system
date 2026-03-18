@@ -113,8 +113,9 @@ const { id } = Astro.params
       <div id="printer-params-list">
         <p style="color: var(--text-muted); font-size: 0.85rem;" data-i18n="printers.selectPrinterHint">Select a printer to view parameters</p>
       </div>
-      <div id="printer-params-actions" class="hidden" style="margin-top: 12px;">
+      <div id="printer-params-actions" class="hidden" style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
         <button id="btn-save-params" class="fm-btn fm-btn-primary" style="font-size: 0.85rem;" data-i18n="common.save">Save</button>
+        <span id="params-save-feedback" style="font-size: 0.85rem; opacity: 0; transition: opacity 0.3s;"></span>
       </div>
     </div>
   </div>
@@ -1096,6 +1097,15 @@ const { id } = Astro.params
       }).join('')
     }
 
+    function showParamsFeedback(success: boolean) {
+      const fb = document.getElementById('params-save-feedback')
+      if (!fb) return
+      fb.textContent = success ? (t('common.saved') || '✓ Saved') : (t('common.saveFailed') || '✗ Failed')
+      fb.style.color = success ? 'var(--success-text)' : 'var(--error-text)'
+      fb.style.opacity = '1'
+      setTimeout(() => { fb.style.opacity = '0' }, 3000)
+    }
+
     document.getElementById('btn-save-params')?.addEventListener('click', async () => {
       const printerId = document.getElementById('printer-select').value
       if (!printerId) return
@@ -1125,7 +1135,11 @@ const { id } = Astro.params
           currentPrinterParams = []
           filamentPrinterParams = []
           renderPrinterParams()
-        } catch (e) { console.error('Failed to delete params:', e) }
+          showParamsFeedback(true)
+        } catch (e) {
+          console.error('Failed to delete params:', e)
+          showParamsFeedback(false)
+        }
         return
       }
 
@@ -1139,9 +1153,13 @@ const { id } = Astro.params
         if (res.ok) {
           currentPrinterParams = await res.json()
           renderPrinterParams()
+          showParamsFeedback(true)
+        } else {
+          showParamsFeedback(false)
         }
       } catch (e) {
         console.error('Failed to save printer params:', e)
+        showParamsFeedback(false)
       }
     })
 

@@ -3,22 +3,23 @@ import Layout from '../layouts/Layout.astro'
 ---
 
 <Layout title="FilaMan - Spool Log">
+  <style is:global>
+    .pagination-container { display: flex; justify-content: space-between; align-items: center; }
+    .pagination-pages { display: flex; gap: 4px; align-items: center; font-size: 0.8rem; }
+    .pagination-pages a { color: var(--accent); cursor: pointer; padding: 2px 6px; text-decoration: none; border-radius: 3px; }
+    .pagination-pages a:hover { text-decoration: underline; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+    .pagination-pages .page-current { font-weight: 700; color: var(--accent); padding: 2px 8px; background: color-mix(in srgb, var(--accent) 15%, transparent); border-radius: 3px; }
+    .pagination-pages .page-ellipsis { color: var(--text-muted); padding: 0 2px; }
+  </style>
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
     <h1 style="font-size: 1.8rem; font-weight: 700; margin: 0; font-family: var(--font-serif);" data-i18n="spoolLog.title">Spool Log</h1>
   </div>
 
+  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+    <div class="pagination-container" id="pagination-top" style="flex: 1;"></div>
+  </div>
+
   <div class="fm-card" style="padding: 0;">
-    <style>
-      .pagination-container { display: flex; justify-content: space-between; align-items: center; }
-      .pagination-pages { display: flex; gap: 4px; align-items: center; font-size: 0.8rem; }
-      .pagination-pages a { color: var(--accent); cursor: pointer; padding: 2px 6px; text-decoration: none; border-radius: 3px; }
-      .pagination-pages a:hover { text-decoration: underline; background: color-mix(in srgb, var(--accent) 10%, transparent); }
-      .pagination-pages .page-current { font-weight: 700; color: var(--accent); padding: 2px 8px; background: color-mix(in srgb, var(--accent) 15%, transparent); border-radius: 3px; }
-      .pagination-pages .page-ellipsis { color: var(--text-muted); padding: 0 2px; }
-    </style>
-
-    <div class="pagination-container" id="pagination-top" style="padding: 12px 16px;"></div>
-
     <table class="fm-table">
       <thead>
         <tr style="background: var(--bg-soft);">
@@ -35,9 +36,9 @@ import Layout from '../layouts/Layout.astro'
         </tr>
       </tbody>
     </table>
-
-    <div class="pagination-container" id="pagination-bottom" style="padding: 12px 16px;"></div>
   </div>
+
+  <div class="pagination-container" id="pagination" style="margin-top: 16px;"></div>
 
   <script>
     import { t, initI18n, translatePage } from '../lib/i18n'
@@ -167,7 +168,7 @@ import Layout from '../layouts/Layout.astro'
       const totalPages = Math.ceil(total / pageSize)
       const html = buildPaginationHtml(total, page)
       document.getElementById('pagination-top')!.innerHTML = html
-      document.getElementById('pagination-bottom')!.innerHTML = html
+      document.getElementById('pagination')!.innerHTML = html
 
       document.querySelectorAll('.pagination-container').forEach(container => {
         container.querySelectorAll('.page-link[data-page]').forEach(link => {

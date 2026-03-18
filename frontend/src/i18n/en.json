@@ -37,6 +37,8 @@
     "close": "Close",
     "submit": "Submit",
     "saving": "Saving...",
+    "saved": "✓ Saved",
+    "saveFailed": "✗ Save failed",
     "creating": "Creating...",
     "submitting": "Submitting...",
     "loading": "Loading...",
