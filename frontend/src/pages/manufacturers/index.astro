@@ -212,7 +212,9 @@ import Layout from '../../layouts/Layout.astro'
   <script>
     import { t, initI18n } from '../../lib/i18n'
     import { fetchAllPages } from '../../lib/api'
+    import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     await initI18n()
+    await initCurrency()
 
     let manufacturers: any[] = []
     let sortKey: string | null = 'name'
@@ -646,11 +648,11 @@ import Layout from '../../layouts/Layout.astro'
         <div style="display: grid; gap: 12px; margin-top: 8px;">
           <div class="fm-card" style="border-left: 4px solid var(--accent); padding: 12px;">
             <div style="font-size: 0.75rem; color: var(--text-muted);">${t('manufacturers.totalValueAvailable')}</div>
-            <div style="font-size: 1.4rem; font-weight: 700; color: var(--accent);">${(mf.total_price_available || 0).toFixed(2)}</div>
+            <div style="font-size: 1.4rem; font-weight: 700; color: var(--accent);">${formatPrice(mf.total_price_available, getCurrency())}</div>
           </div>
           <div class="fm-card" style="border-left: 4px solid var(--text-muted); padding: 12px;">
             <div style="font-size: 0.75rem; color: var(--text-muted);">${t('manufacturers.totalSpentAllTime')}</div>
-            <div style="font-size: 1.4rem; font-weight: 700;">${(mf.total_price_all || 0).toFixed(2)}</div>
+            <div style="font-size: 1.4rem; font-weight: 700;">${formatPrice(mf.total_price_all, getCurrency())}</div>
           </div>
         </div>
       `
