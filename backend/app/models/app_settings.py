@@ -1,6 +1,6 @@
 """AppSettings model for global application configuration."""
 
-from sqlalchemy import Boolean
+from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -17,3 +17,4 @@ class AppSettings(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(autoincrement=True, primary_key=True)
     login_disabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="EUR", nullable=False)
