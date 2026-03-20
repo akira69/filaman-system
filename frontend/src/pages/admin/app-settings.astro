@@ -47,6 +47,15 @@ import Layout from '../../layouts/Layout.astro'
     }
   </style>
 
+  <!-- Responsive: stack cards on mobile -->
+  <style>
+    @media (max-width: 768px) {
+      div[style*="grid-template-columns: repeat(2, 1fr)"] {
+        grid-template-columns: 1fr !important;
+      }
+    }
+  </style>
+
   <div style="margin-bottom: 24px;">
     <a href="/admin" style="color: var(--accent); text-decoration: none;">&larr; <span data-i18n="admin.backToAdmin">Back to Admin</span></a>
   </div>
@@ -54,29 +63,31 @@ import Layout from '../../layouts/Layout.astro'
   <h1 style="font-size: 1.8rem; font-weight: 700; margin: 0 0 8px; font-family: var(--font-serif);" data-i18n="admin.appSettingsTitle">App Settings</h1>
   <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0 0 24px;" data-i18n="admin.appSettingsSubtitle">Configure application settings</p>
 
-  <div class="fm-card" style="padding: 24px;">
-    <form id="app-settings-form" style="display: grid; gap: 20px;">
-      <!-- Login Disabled toggle -->
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <div style="flex: 1;">
-          <label data-i18n="admin.loginDisabled" style="font-weight: 500; display: block; margin-bottom: 4px;">Disable Login</label>
-          <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0;" data-i18n="admin.loginDisabledHint">When enabled, all endpoints are accessible without authentication</p>
+  <form id="app-settings-form" style="display: grid; gap: 20px;">
+    <!-- Grid container for the two cards -->
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; align-items: start;">
+      <!-- Card 1: Login Disabled -->
+      <div class="fm-card" style="padding: 20px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div style="flex: 1;">
+            <label data-i18n="admin.loginDisabled" style="font-weight: 500; display: block; margin-bottom: 4px;">Disable Login</label>
+            <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0;" data-i18n="admin.loginDisabledHint">When enabled, all endpoints are accessible without authentication</p>
+          </div>
+          <label class="fm-toggle">
+            <input type="checkbox" id="login-disabled" />
+            <span class="fm-toggle-slider"></span>
+          </label>
         </div>
-        <label class="fm-toggle">
-          <input type="checkbox" id="login-disabled" />
-          <span class="fm-toggle-slider"></span>
-        </label>
+        <!-- Warning (moved inside card 1) -->
+        <div id="login-warning" class="hidden" style="margin-top: 12px; padding: 12px 16px; border-radius: 8px; background: var(--error-bg); color: var(--error-text); font-size: 0.85rem; border: 1px solid var(--error-border);" data-i18n="admin.loginDisabledWarning">
+          Warning: Disabling login removes all authentication. Only use in trusted environments!
+        </div>
       </div>
 
-      <!-- Warning -->
-      <div id="login-warning" class="hidden" style="padding: 12px 16px; border-radius: 8px; background: var(--error-bg); color: var(--error-text); font-size: 0.85rem; border: 1px solid var(--error-border);" data-i18n="admin.loginDisabledWarning">
-        Warning: Disabling login removes all authentication. Only use in trusted environments!
-      </div>
-
-      <!-- Currency Selection -->
-      <div>
-        <label data-i18n="appSettingsCurrencyLabel" style="font-weight: 500; display: block; margin-bottom: 4px;">Display Currency</label>
-        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 8px;" data-i18n="appSettingsCurrencyDescription">Select the currency for displaying prices throughout the application</p>
+      <!-- Card 2: Currency Selection -->
+      <div class="fm-card" style="padding: 20px;">
+        <label data-i18n="admin.appSettingsCurrencyLabel" style="font-weight: 500; display: block; margin-bottom: 4px;">Display Currency</label>
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 8px;" data-i18n="admin.appSettingsCurrencyDescription">Select the currency for displaying prices throughout the application</p>
         <select id="currency" class="fm-select">
           <option value="EUR">EUR — Euro</option>
           <option value="USD">USD — US Dollar</option>
@@ -92,12 +103,12 @@ import Layout from '../../layouts/Layout.astro'
           <option value="CZK">CZK — Czech Koruna</option>
         </select>
       </div>
+    </div>
 
-      <div id="form-message" class="hidden" style="padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;"></div>
-
-      <button type="submit" id="save-btn" class="fm-btn fm-btn-primary" style="justify-self: start; padding: 10px 28px;" data-i18n="admin.appSettingsSave">Save</button>
-    </form>
-  </div>
+    <!-- Form message AND Save button OUTSIDE the cards, below the grid -->
+    <div id="form-message" class="hidden" style="padding: 10px 14px; border-radius: 8px; font-size: 0.85rem;"></div>
+    <button type="submit" id="save-btn" class="fm-btn fm-btn-primary" style="justify-self: start; padding: 10px 28px;" data-i18n="admin.appSettingsSave">Save</button>
+  </form>
 
   <script>
     import { t, initI18n } from '../../lib/i18n'

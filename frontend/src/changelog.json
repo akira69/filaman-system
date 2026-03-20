@@ -5,10 +5,12 @@
       "date": "",
       "changes": {
         "de": [
-          { "type": "feature", "text": "Neue Währungsauswahl in den App-Einstellungen — die gewählte Währung wird auf allen Seiten mit Preisanzeige verwendet" }
+          { "type": "feature", "text": "Neue Währungsauswahl in den App-Einstellungen — die gewählte Währung wird auf allen Seiten mit Preisanzeige verwendet" },
+          { "type": "fix", "text": "Währungsauswahl in den App-Einstellungen zeigt jetzt korrekte übersetzte Texte an" }
         ],
         "en": [
-          { "type": "feature", "text": "New currency selection in app settings — the selected currency is displayed on all pages showing prices" }
+          { "type": "feature", "text": "New currency selection in app settings — the selected currency is displayed on all pages showing prices" },
+          { "type": "fix", "text": "Currency selection in app settings now displays correctly translated labels and descriptions" }
         ]
       }
     },
