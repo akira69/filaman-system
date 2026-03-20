@@ -1,5 +1,17 @@
 {
   "versions": [
+        {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Neue Währungsauswahl in den App-Einstellungen — die gewählte Währung wird auf allen Seiten mit Preisanzeige verwendet" }
+        ],
+        "en": [
+          { "type": "feature", "text": "New currency selection in app settings — the selected currency is displayed on all pages showing prices" }
+        ]
+      }
+    },
     {
       "version": "1.1.13",
       "date": "",
