@@ -175,6 +175,7 @@ interface PaginatedResponse<T> {
 
   <script>
     import { t, initI18n, getLang } from '../lib/i18n'
+    import { formatPrice, getCurrency, initCurrency } from '../lib/format'
     import { VERSION } from '../version.js'
     import changelogData from '../changelog.json'
     import { fetchAllPages } from '../lib/api'
@@ -367,7 +368,7 @@ interface PaginatedResponse<T> {
           const dist = dashboardData.spool_distribution || { full: 0, normal: 0, low: 0, critical: 0, empty: 0 }
           document.getElementById('stat-low-spools')!.textContent = (dist.low + dist.critical).toString()
           document.getElementById('stat-empty-spools')!.textContent = dist.empty.toString()
-          document.getElementById('stat-total-value')!.textContent = (dashboardData.total_value_available || 0).toFixed(2)
+          document.getElementById('stat-total-value')!.textContent = formatPrice(dashboardData.total_value_available, getCurrency())
           
           const statusContainer = document.getElementById('spool-status')!
           const statusItems = [
@@ -479,6 +480,7 @@ interface PaginatedResponse<T> {
 
     async function init() {
       await initI18n()
+      await initCurrency()
       await loadDashboardData()
       showChangelogIfNeeded()
     }
