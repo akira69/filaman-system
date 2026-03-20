@@ -83,7 +83,9 @@ const { id } = Astro.params
   <script>
     import { t, initI18n } from '../../../lib/i18n'
     import { fetchAllPages } from '../../../lib/api'
+    import { formatPrice, getCurrency, initCurrency } from '../../../lib/format'
     await initI18n()
+    await initCurrency()
 
     const id = window.location.pathname.split('/').filter(Boolean).pop()!
     if (id === 'detail') {
@@ -192,7 +194,7 @@ const { id } = Astro.params
       cards.push(renderDetailCard(t('filaments.rawMaterial'), f.raw_material_weight_g ? f.raw_material_weight_g + 'g' : '-'))
       cards.push(renderDetailCard(t('filaments.spoolWeight'), f.default_spool_weight_g ? f.default_spool_weight_g + 'g' : '-'))
       if (f.price != null) {
-        cards.push(renderDetailCard(t('filaments.price'), f.price.toFixed(2)))
+        cards.push(renderDetailCard(t('filaments.price'), formatPrice(f.price, getCurrency())))
       }
       if (f.density_g_cm3 != null) {
         cards.push(renderDetailCard(t('filaments.density'), f.density_g_cm3.toString()))
@@ -426,8 +428,8 @@ const { id } = Astro.params
 
       if (hasPrices) {
         document.getElementById('price-summary')!.classList.remove('hidden')
-        document.getElementById('total-available-price')!.textContent = totalAvailable.toFixed(2)
-        document.getElementById('total-spent-price')!.textContent = totalSpent.toFixed(2)
+        document.getElementById('total-available-price')!.textContent = formatPrice(totalAvailable, getCurrency())
+        document.getElementById('total-spent-price')!.textContent = formatPrice(totalSpent, getCurrency())
       }
     }
     
@@ -514,7 +516,7 @@ const { id } = Astro.params
             tooltip: {
               callbacks: {
                 label: (context: any) => {
-                  return `${context.parsed.y.toFixed(2)}`
+                  return `${formatPrice(context.parsed.y, getCurrency())}`
                 }
               }
             }
@@ -526,7 +528,7 @@ const { id } = Astro.params
                 color: 'rgba(156, 163, 175, 0.1)'
               },
               ticks: {
-                callback: (value: any) => value.toFixed(2)
+                callback: (value: any) => formatPrice(value, getCurrency())
               }
             },
             x: {
