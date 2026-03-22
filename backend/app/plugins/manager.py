@@ -34,8 +34,10 @@ if USER_PLUGINS_DIR != BUILTIN_PLUGINS_DIR:
     if str(USER_PLUGINS_DIR) not in sys.path:
         sys.path.insert(0, str(USER_PLUGINS_DIR))
     import app.plugins as _plugins_pkg
+
     if str(USER_PLUGINS_DIR) not in _plugins_pkg.__path__:
         _plugins_pkg.__path__.insert(0, str(USER_PLUGINS_DIR))
+
 
 class EventEmitter:
     def __init__(self, printer_id: int, handler: Callable[[dict], None]):
@@ -49,6 +51,7 @@ class EventEmitter:
         except Exception as e:
             logger.error(f"Error handling event for printer {self.printer_id}: {e}")
 
+
 class PluginManager:
     def __init__(self):
         self.drivers: dict[int, BaseDriver] = {}
@@ -57,7 +60,10 @@ class PluginManager:
     def _create_event_handler(self, printer_id: int) -> Callable[[dict], None]:
         def handler(event: dict) -> None:
             import asyncio
-            logger.debug(f"Event handler called for printer {printer_id}: {event.get('event_type')}")
+
+            logger.debug(
+                f"Event handler called for printer {printer_id}: {event.get('event_type')}"
+            )
             try:
                 asyncio.create_task(self._handle_event(printer_id, event))
             except Exception as e:
@@ -68,10 +74,14 @@ class PluginManager:
     async def _handle_event(self, printer_id: int, event: dict) -> None:
         event_type = event.get("event_type")
         slots_count = len(event.get("slots", []))
-        logger.info(f"Received event {event_type} for printer {printer_id} (slots: {slots_count})")
+        logger.info(
+            f"Received event {event_type} for printer {printer_id} (slots: {slots_count})"
+        )
 
         if event_type == "slots_update":
-            await self._handle_slots_update(printer_id, event.get("slots", []), event.get("ams_info"))
+            await self._handle_slots_update(
+                printer_id, event.get("slots", []), event.get("ams_info")
+            )
 
     @staticmethod
     def _slot_index_to_no(slot_index: str) -> int:
@@ -87,7 +97,9 @@ class PluginManager:
                 pass
         return hash(slot_index) % 10000
 
-    async def _handle_slots_update(self, printer_id: int, slots_data: list[dict], ams_info: dict | None = None) -> None:
+    async def _handle_slots_update(
+        self, printer_id: int, slots_data: list[dict], ams_info: dict | None = None
+    ) -> None:
         """Upsert PrinterSlot and PrinterSlotAssignment from driver slot events."""
         try:
             async with async_session_maker() as db:
@@ -131,9 +143,15 @@ class PluginManager:
 
                         # Build meta dict from driver-specific fields
                         meta = {}
-                        for key in ("tray_type", "tray_color", "tray_info_idx",
-                                    "nozzle_temp_min", "nozzle_temp_max",
-                                    "setting_id", "cali_idx"):
+                        for key in (
+                            "tray_type",
+                            "tray_color",
+                            "tray_info_idx",
+                            "nozzle_temp_min",
+                            "nozzle_temp_max",
+                            "setting_id",
+                            "cali_idx",
+                        ):
                             if key in slot_data:
                                 meta[key] = slot_data[key]
 
@@ -158,21 +176,33 @@ class PluginManager:
                             )
                             db.add(assignment)
                     await db.commit()
-                    logger.info(f"Updated {len(slots_data)} slots for printer {printer_id}")
+                    logger.info(
+                        f"Updated {len(slots_data)} slots for printer {printer_id}"
+                    )
                     # Broadcast to SSE clients
-                    await event_bus.publish({"event": "slots_update", "printer_id": printer_id})
+                    await event_bus.publish(
+                        {"event": "slots_update", "printer_id": printer_id}
+                    )
 
                 # Persist AMS/slot summary to Printer.custom_fields
                 if ams_info:
                     printer = await db.get(Printer, printer_id)
                     if printer:
-                        printer.custom_fields = {**(printer.custom_fields or {}), "slot_summary": ams_info}
+                        printer.custom_fields = {
+                            **(printer.custom_fields or {}),
+                            "slot_summary": ams_info,
+                        }
                         flag_modified(printer, "custom_fields")
                         await db.commit()
                         logger.info(f"Persisted slot_summary for printer {printer_id}")
-                        await event_bus.publish({"event": "printer_update", "printer_id": printer_id})
+                        await event_bus.publish(
+                            {"event": "printer_update", "printer_id": printer_id}
+                        )
         except Exception as e:
-            logger.error(f"Error in _handle_slots_update for printer {printer_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error in _handle_slots_update for printer {printer_id}: {e}",
+                exc_info=True,
+            )
 
     def load_driver(self, driver_key: str) -> type[BaseDriver] | None:
         # app.plugins.__path__ includes both USER_PLUGINS_DIR and BUILTIN_PLUGINS_DIR,
@@ -236,7 +266,6 @@ class PluginManager:
             except Exception as e:
                 logger.error(f"Error stopping driver for printer {printer_id}: {e}")
 
-
     async def _ensure_all_plugin_dependencies(self) -> None:
         """Install missing Python dependencies for all user-installed plugins.
 
@@ -257,9 +286,13 @@ class PluginManager:
                 dependencies = manifest.get("dependencies", [])
                 if not dependencies:
                     continue
-                await self._install_pip_packages(dependencies, manifest.get("plugin_key", plugin_dir.name))
+                await self._install_pip_packages(
+                    dependencies, manifest.get("plugin_key", plugin_dir.name)
+                )
             except Exception as e:
-                logger.warning(f"Could not ensure dependencies for {plugin_dir.name}: {e}")
+                logger.warning(
+                    f"Could not ensure dependencies for {plugin_dir.name}: {e}"
+                )
 
     @staticmethod
     async def _install_pip_packages(packages: list[str], plugin_key: str) -> None:
@@ -267,7 +300,17 @@ class PluginManager:
         commands: list[list[str]] = []
         uv_path = shutil.which("uv")
         if uv_path:
-            commands.append([uv_path, "pip", "install", "--python", sys.executable, "--quiet", *packages])
+            commands.append(
+                [
+                    uv_path,
+                    "pip",
+                    "install",
+                    "--python",
+                    sys.executable,
+                    "--quiet",
+                    *packages,
+                ]
+            )
         commands.append([sys.executable, "-m", "pip", "install", "--quiet", *packages])
 
         for cmd in commands:
@@ -277,7 +320,9 @@ class PluginManager:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=120
+                )
                 if process.returncode == 0:
                     logger.info(f"Dependencies for '{plugin_key}' ensured successfully")
                     return
@@ -290,7 +335,9 @@ class PluginManager:
             except asyncio.TimeoutError:
                 logger.error(f"Timeout installing dependencies for '{plugin_key}'")
                 return
-        logger.error(f"Could not install dependencies for '{plugin_key}': all methods failed")
+        logger.error(
+            f"Could not install dependencies for '{plugin_key}': all methods failed"
+        )
 
     async def start_all(self) -> None:
         await self._ensure_all_plugin_dependencies()
@@ -364,7 +411,9 @@ class PluginManager:
         logger.warning(f"Could not load plugin.json for {driver_key}")
         return None
 
-    def _resolve_options(self, driver_key: str, field_def: dict[str, Any]) -> list[str] | None:
+    def _resolve_options(
+        self, driver_key: str, field_def: dict[str, Any]
+    ) -> list[str] | None:
         """Resolve dropdown options for a field definition.
 
         If field_def has 'options_file', loads the JSON file from the plugin directory
@@ -381,13 +430,19 @@ class PluginManager:
                     for idx, info in raw.items():
                         if idx.startswith("_"):  # skip comments
                             continue
-                        name = info.get("name", idx) if isinstance(info, dict) else str(info)
+                        name = (
+                            info.get("name", idx)
+                            if isinstance(info, dict)
+                            else str(info)
+                        )
                         options.append(name)
                     options.sort()
                     return options
                 except (OSError, json.JSONDecodeError):
                     continue
-            logger.warning(f"{options_file} not found for {driver_key}; dropdown will have no options")
+            logger.warning(
+                f"{options_file} not found for {driver_key}; dropdown will have no options"
+            )
             return []
         return field_def.get("options")
 
@@ -419,12 +474,14 @@ class PluginManager:
         resolved_fields: list[dict[str, Any]] = []
         for fdef in field_defs:
             options = self._resolve_options(driver_key, fdef)
-            resolved_fields.append({
-                "key": fdef["key"],
-                "label": fdef["label"],
-                "field_type": fdef.get("field_type", "text"),
-                "options": options,
-            })
+            resolved_fields.append(
+                {
+                    "key": fdef["key"],
+                    "label": fdef["label"],
+                    "field_type": fdef.get("field_type", "text"),
+                    "options": options,
+                }
+            )
 
         async with async_session_maker() as db:
             # Create or update field definitions
@@ -444,10 +501,16 @@ class PluginManager:
                         if fdef["options"] is not None:
                             # JSON-safe comparison: always force-update options from options_file
                             # to avoid subtle SQLAlchemy JSON deserialization mismatches
-                            db_options_json = json.dumps(field.options or [], ensure_ascii=False, sort_keys=True)
-                            new_options_json = json.dumps(fdef["options"], ensure_ascii=False, sort_keys=True)
+                            db_options_json = json.dumps(
+                                field.options or [], ensure_ascii=False, sort_keys=True
+                            )
+                            new_options_json = json.dumps(
+                                fdef["options"], ensure_ascii=False, sort_keys=True
+                            )
                             if db_options_json != new_options_json:
-                                logger.info(f"Updating options for {target_type}/{fdef['key']} ({len(fdef['options'])} entries)")
+                                logger.info(
+                                    f"Updating options for {target_type}/{fdef['key']} ({len(fdef['options'])} entries)"
+                                )
                                 field.options = fdef["options"]
                                 flag_modified(field, "options")
                                 changed = True
@@ -458,17 +521,23 @@ class PluginManager:
                             field.field_type = fdef["field_type"]
                             changed = True
                         if changed:
-                            logger.info(f"Updated {target_type}/{fdef['key']} field definition")
+                            logger.info(
+                                f"Updated {target_type}/{fdef['key']} field definition"
+                            )
                     else:
-                        db.add(SystemExtraField(
-                            target_type=target_type,
-                            key=fdef["key"],
-                            label=fdef["label"],
-                            field_type=fdef["field_type"],
-                            options=fdef["options"],
-                            source=driver_key,
-                        ))
-                        logger.info(f"Created {target_type}/{fdef['key']} SystemExtraField")
+                        db.add(
+                            SystemExtraField(
+                                target_type=target_type,
+                                key=fdef["key"],
+                                label=fdef["label"],
+                                field_type=fdef["field_type"],
+                                options=fdef["options"],
+                                source=driver_key,
+                            )
+                        )
+                        logger.info(
+                            f"Created {target_type}/{fdef['key']} SystemExtraField"
+                        )
 
             # Clean up legacy fields: renamed keys that now have new names
             current_keys = {f["key"] for f in resolved_fields}
@@ -486,7 +555,9 @@ class PluginManager:
                     legacy_field = legacy.scalar_one_or_none()
                     if legacy_field:
                         await db.delete(legacy_field)
-                        logger.info(f"Removed legacy {target_type}/{old_key} SystemExtraField")
+                        logger.info(
+                            f"Removed legacy {target_type}/{old_key} SystemExtraField"
+                        )
 
             # Clean up legacy fields with old target_type (e.g. 'filament' instead of 'filament_printer_param')
             legacy_target_cleanup = await db.execute(
@@ -497,7 +568,9 @@ class PluginManager:
             )
             for legacy_field in legacy_target_cleanup.scalars().all():
                 await db.delete(legacy_field)
-                logger.info(f"Removed legacy {legacy_field.target_type}/{legacy_field.key} SystemExtraField (wrong target_type)")
+                logger.info(
+                    f"Removed legacy {legacy_field.target_type}/{legacy_field.key} SystemExtraField (wrong target_type)"
+                )
 
             await db.commit()
 
@@ -556,21 +629,27 @@ class PluginManager:
             printer_ids = [p.id for p in printers]
 
             # --- Filaments ---
-            result = await db.execute(select(Filament).where(Filament.custom_fields.isnot(None)))
+            result = await db.execute(
+                select(Filament).where(Filament.custom_fields.isnot(None))
+            )
             filaments = result.scalars().all()
             migrated_filaments = 0
 
             for filament in filaments:
-                bambu_params = self._extract_bambu_params(filament.custom_fields, KEEP_IN_CUSTOM_FIELDS, RENAME_KEYS)
+                bambu_params = self._extract_bambu_params(
+                    filament.custom_fields, KEEP_IN_CUSTOM_FIELDS, RENAME_KEYS
+                )
                 if not bambu_params:
                     continue
 
                 # Skip if printer_params already exist for this filament + any Bambu printer
                 existing = await db.execute(
-                    select(FilamentPrinterParam.id).where(
+                    select(FilamentPrinterParam.id)
+                    .where(
                         FilamentPrinterParam.filament_id == filament.id,
                         FilamentPrinterParam.printer_id.in_(printer_ids),
-                    ).limit(1)
+                    )
+                    .limit(1)
                 )
                 if existing.scalar_one_or_none() is not None:
                     # Already migrated — still clean up custom_fields if needed
@@ -580,31 +659,39 @@ class PluginManager:
                 # Create printer_params for each printer of this driver
                 for pid in printer_ids:
                     for param_key, param_value in bambu_params.items():
-                        db.add(FilamentPrinterParam(
-                            filament_id=filament.id,
-                            printer_id=pid,
-                            param_key=param_key,
-                            param_value=param_value,
-                        ))
+                        db.add(
+                            FilamentPrinterParam(
+                                filament_id=filament.id,
+                                printer_id=pid,
+                                param_key=param_key,
+                                param_value=param_value,
+                            )
+                        )
 
                 self._clean_bambu_keys_from_cf(filament, KEEP_IN_CUSTOM_FIELDS)
                 migrated_filaments += 1
 
             # --- Spools ---
-            result = await db.execute(select(Spool).where(Spool.custom_fields.isnot(None)))
+            result = await db.execute(
+                select(Spool).where(Spool.custom_fields.isnot(None))
+            )
             spools = result.scalars().all()
             migrated_spools = 0
 
             for spool in spools:
-                bambu_params = self._extract_bambu_params(spool.custom_fields, KEEP_IN_CUSTOM_FIELDS, RENAME_KEYS)
+                bambu_params = self._extract_bambu_params(
+                    spool.custom_fields, KEEP_IN_CUSTOM_FIELDS, RENAME_KEYS
+                )
                 if not bambu_params:
                     continue
 
                 existing = await db.execute(
-                    select(SpoolPrinterParam.id).where(
+                    select(SpoolPrinterParam.id)
+                    .where(
                         SpoolPrinterParam.spool_id == spool.id,
                         SpoolPrinterParam.printer_id.in_(printer_ids),
-                    ).limit(1)
+                    )
+                    .limit(1)
                 )
                 if existing.scalar_one_or_none() is not None:
                     self._clean_bambu_keys_from_cf(spool, KEEP_IN_CUSTOM_FIELDS)
@@ -612,12 +699,14 @@ class PluginManager:
 
                 for pid in printer_ids:
                     for param_key, param_value in bambu_params.items():
-                        db.add(SpoolPrinterParam(
-                            spool_id=spool.id,
-                            printer_id=pid,
-                            param_key=param_key,
-                            param_value=param_value,
-                        ))
+                        db.add(
+                            SpoolPrinterParam(
+                                spool_id=spool.id,
+                                printer_id=pid,
+                                param_key=param_key,
+                                param_value=param_value,
+                            )
+                        )
 
                 self._clean_bambu_keys_from_cf(spool, KEEP_IN_CUSTOM_FIELDS)
                 migrated_spools += 1
@@ -632,7 +721,8 @@ class PluginManager:
 
     @staticmethod
     def _extract_bambu_params(
-        custom_fields: dict[str, Any] | None, keep_keys: set[str],
+        custom_fields: dict[str, Any] | None,
+        keep_keys: set[str],
         rename_keys: dict[str, str] | None = None,
     ) -> dict[str, str]:
         """Extract bambu_* calibration params from custom_fields.
@@ -652,7 +742,12 @@ class PluginManager:
                 params[mapped_key] = str(v)
         # From top-level (higher priority, overwrites spoolman_extra)
         for k, v in cf.items():
-            if k.startswith("bambu_") and k not in keep_keys and k != "spoolman_extra" and v:
+            if (
+                k.startswith("bambu_")
+                and k not in keep_keys
+                and k != "spoolman_extra"
+                and v
+            ):
                 mapped_key = rename_keys.get(k, k)
                 params[mapped_key] = str(v)
 
@@ -694,7 +789,8 @@ class PluginManager:
 
     @staticmethod
     def _clean_bambu_keys_from_cf(
-        entity: Filament | Spool, keep_keys: set[str],
+        entity: Filament | Spool,
+        keep_keys: set[str],
     ) -> None:
         """Remove migrated bambu_* keys from entity custom_fields."""
         cf = entity.custom_fields or {}
@@ -702,15 +798,24 @@ class PluginManager:
         # Remove top-level bambu_* keys (except keep_keys)
         # Keys to remove after migration (bambu_* except keep_keys + settings_* temps)
         SETTINGS_MIGRATE_KEYS = {"settings_bed_temp", "settings_extruder_temp"}
-        new_cf = {k: v for k, v in cf.items()
-                  if not ((k.startswith("bambu_") and k not in keep_keys) or k in SETTINGS_MIGRATE_KEYS)}
+        new_cf = {
+            k: v
+            for k, v in cf.items()
+            if not (
+                (k.startswith("bambu_") and k not in keep_keys)
+                or k in SETTINGS_MIGRATE_KEYS
+            )
+        }
 
         # Clean bambu_* and nozzle_temperature from spoolman_extra
         spoolman_extra = new_cf.get("spoolman_extra")
         if isinstance(spoolman_extra, dict):
             SPOOLMAN_MIGRATE_KEYS = {"nozzle_temperature"}
-            cleaned = {k: v for k, v in spoolman_extra.items()
-                       if not k.startswith("bambu_") and k not in SPOOLMAN_MIGRATE_KEYS}
+            cleaned = {
+                k: v
+                for k, v in spoolman_extra.items()
+                if not k.startswith("bambu_") and k not in SPOOLMAN_MIGRATE_KEYS
+            }
             if cleaned:
                 new_cf["spoolman_extra"] = cleaned
             else:
@@ -720,7 +825,9 @@ class PluginManager:
         flag_modified(entity, "custom_fields")
 
     async def _copy_params_to_new_printer(
-        self, driver_key: str, printer_id: int,
+        self,
+        driver_key: str,
+        printer_id: int,
     ) -> None:
         """Copy printer_params from an existing printer of the same driver to a new one.
 
@@ -732,16 +839,20 @@ class PluginManager:
         async with async_session_maker() as db:
             # Check if this printer already has any params
             existing = await db.execute(
-                select(FilamentPrinterParam.id).where(
+                select(FilamentPrinterParam.id)
+                .where(
                     FilamentPrinterParam.printer_id == printer_id,
-                ).limit(1)
+                )
+                .limit(1)
             )
             has_filament_params = existing.scalar_one_or_none() is not None
 
             existing = await db.execute(
-                select(SpoolPrinterParam.id).where(
+                select(SpoolPrinterParam.id)
+                .where(
                     SpoolPrinterParam.printer_id == printer_id,
-                ).limit(1)
+                )
+                .limit(1)
             )
             has_spool_params = existing.scalar_one_or_none() is not None
 
@@ -762,9 +873,11 @@ class PluginManager:
 
                 for cid in candidate_ids:
                     check = await db.execute(
-                        select(FilamentPrinterParam.id).where(
+                        select(FilamentPrinterParam.id)
+                        .where(
                             FilamentPrinterParam.printer_id == cid,
-                        ).limit(1)
+                        )
+                        .limit(1)
                     )
                     if check.scalar_one_or_none() is not None:
                         source_id = cid
@@ -786,12 +899,14 @@ class PluginManager:
                     )
                 )
                 for param in result.scalars().all():
-                    db.add(FilamentPrinterParam(
-                        filament_id=param.filament_id,
-                        printer_id=printer_id,
-                        param_key=param.param_key,
-                        param_value=param.param_value,
-                    ))
+                    db.add(
+                        FilamentPrinterParam(
+                            filament_id=param.filament_id,
+                            printer_id=printer_id,
+                            param_key=param.param_key,
+                            param_value=param.param_value,
+                        )
+                    )
                     copied_filament += 1
 
             # Copy spool params
@@ -802,12 +917,14 @@ class PluginManager:
                     )
                 )
                 for param in result.scalars().all():
-                    db.add(SpoolPrinterParam(
-                        spool_id=param.spool_id,
-                        printer_id=printer_id,
-                        param_key=param.param_key,
-                        param_value=param.param_value,
-                    ))
+                    db.add(
+                        SpoolPrinterParam(
+                            spool_id=param.spool_id,
+                            printer_id=printer_id,
+                            param_key=param.param_key,
+                            param_value=param.param_value,
+                        )
+                    )
                     copied_spool += 1
 
             if copied_filament or copied_spool:
@@ -816,10 +933,14 @@ class PluginManager:
                     f"Copied printer_params from printer {source_id} to {printer_id}: "
                     f"{copied_filament} filament params, {copied_spool} spool params"
                 )
+
     # -- Filament Data Enrichment (Fallback Logic) ----------------------------
 
     async def enrich_filament_data(
-        self, spool_id: int, printer_id: int, filament_data: dict[str, Any],
+        self,
+        spool_id: int,
+        printer_id: int,
+        filament_data: dict[str, Any],
     ) -> dict[str, Any]:
         """Enrich filament_data dict with printer-specific params.
 
@@ -843,7 +964,9 @@ class PluginManager:
                     FilamentPrinterParam.printer_id == printer_id,
                 )
             )
-            filament_params = {p.param_key: p.param_value for p in result.scalars().all()}
+            filament_params = {
+                p.param_key: p.param_value for p in result.scalars().all()
+            }
 
             # 3. Load spool-level params for this printer (overrides filament-level)
             result = await db.execute(
@@ -863,6 +986,10 @@ class PluginManager:
             if value is not None and value != "":
                 enriched[key] = value
 
+        # 6. Inject the FilaMan spool ID so plugin drivers can use it
+        enriched["id"] = spool_id
+
         return enriched
+
 
 plugin_manager = PluginManager()
