@@ -1,6 +1,22 @@
 {
   "versions": [
-        {
+    {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Spulen werden nun korrekt mit Bambuddy-Trays verknüpft" },
+          { "type": "fix", "text": "Spoolman-Verknüpfung funktioniert jetzt zuverlässig beim Setzen von Spulen in AMS-Trays" },
+          { "type": "fix", "text": "Korrekte Farbdarstellung in Bambuddy nach Spulen-Zuweisung" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Spools are now correctly linked with Bambuddy trays" },
+          { "type": "fix", "text": "Spoolman linking now works reliably when placing spools in AMS trays" },
+          { "type": "fix", "text": "Correct color display in Bambuddy after spool assignment" }
+        ]
+      }
+    },
+    {
       "version": "1.1.14",
       "date": "",
       "changes": {
