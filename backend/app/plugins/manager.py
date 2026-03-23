@@ -82,6 +82,16 @@ class PluginManager:
             await self._handle_slots_update(
                 printer_id, event.get("slots", []), event.get("ams_info")
             )
+        elif event_type == "printer_status":
+            # Forward printer status to frontend (heartbeat)
+            await event_bus.publish(
+                {
+                    "event": "printer_status",
+                    "printer_id": printer_id,
+                    "connected": event.get("connected", False),
+                    "timestamp": event.get("timestamp"),
+                }
+            )
 
     @staticmethod
     def _slot_index_to_no(slot_index: str) -> int:
