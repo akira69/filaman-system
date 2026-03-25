@@ -7,7 +7,15 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.schemas import PaginatedResponse
-from app.models import Location, Printer, PrinterSlot, PrinterSlotAssignment, Spool, Filament, FilamentColor
+from app.models import (
+    Location,
+    Printer,
+    PrinterSlot,
+    PrinterSlotAssignment,
+    Spool,
+    Filament,
+    FilamentColor,
+)
 from app.plugins.manager import plugin_manager
 
 logger = logging.getLogger(__name__)
@@ -27,7 +35,6 @@ class PrinterUpdate(BaseModel):
     is_active: bool | None = None
     driver_key: str | None = None
     driver_config: dict | None = None
-
 
 
 class SlotAssignmentResponse(BaseModel):
@@ -62,6 +69,7 @@ class SlotResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class PrinterResponse(BaseModel):
     id: int
     name: str
@@ -92,7 +100,9 @@ async def list_printers(
     result = await db.execute(query)
     items = result.scalars().all()
 
-    count_query = select(func.count()).select_from(Printer).where(Printer.deleted_at.is_(None))
+    count_query = (
+        select(func.count()).select_from(Printer).where(Printer.deleted_at.is_(None))
+    )
     count_result = await db.execute(count_query)
     total = count_result.scalar() or 0
 
@@ -103,10 +113,12 @@ async def list_printers(
 async def create_printer(
     data: PrinterCreate,
     db: DBSession,
-    principal = RequirePermission("printers:create"),
+    principal=RequirePermission("printers:create"),
 ):
     if data.location_id:
-        result = await db.execute(select(Location).where(Location.id == data.location_id))
+        result = await db.execute(
+            select(Location).where(Location.id == data.location_id)
+        )
         if not result.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -122,7 +134,9 @@ async def create_printer(
     if printer.is_active and printer.driver_key:
         started = await plugin_manager.start_printer(printer)
         if not started:
-            logger.warning(f"Driver {printer.driver_key} could not be started for new printer {printer.id}")
+            logger.warning(
+                f"Driver {printer.driver_key} could not be started for new printer {printer.id}"
+            )
 
     return printer
 
@@ -143,7 +157,9 @@ async def get_printer(
             .selectinload(Spool.filament)
             .options(
                 selectinload(Filament.manufacturer),
-                selectinload(Filament.filament_colors).selectinload(FilamentColor.color),
+                selectinload(Filament.filament_colors).selectinload(
+                    FilamentColor.color
+                ),
             )
         )
     )
@@ -176,7 +192,9 @@ async def get_printer(
                     material_type = filament.material_type
                     if filament.manufacturer:
                         manufacturer_name = filament.manufacturer.name
-                        spool_name = f"{filament.manufacturer.name} {filament.designation}"
+                        spool_name = (
+                            f"{filament.manufacturer.name} {filament.designation}"
+                        )
                     else:
                         spool_name = filament.designation
                     if filament.filament_colors:
@@ -208,14 +226,16 @@ async def get_printer(
                 setting_id=setting_id,
                 cali_idx=cali_idx,
             )
-        slot_responses.append(SlotResponse(
-            id=slot.id,
-            printer_id=slot.printer_id,
-            slot_no=slot.slot_no,
-            name=slot.name,
-            is_active=slot.is_active,
-            assignment=assignment_data,
-        ))
+        slot_responses.append(
+            SlotResponse(
+                id=slot.id,
+                printer_id=slot.printer_id,
+                slot_no=slot.slot_no,
+                name=slot.name,
+                is_active=slot.is_active,
+                assignment=assignment_data,
+            )
+        )
 
     return PrinterDetailResponse(
         id=printer.id,
@@ -234,7 +254,7 @@ async def update_printer(
     printer_id: int,
     data: PrinterUpdate,
     db: DBSession,
-    principal = RequirePermission("printers:update"),
+    principal=RequirePermission("printers:update"),
 ):
     result = await db.execute(
         select(Printer).where(Printer.id == printer_id, Printer.deleted_at.is_(None))
@@ -249,7 +269,9 @@ async def update_printer(
 
     updates = data.model_dump(exclude_unset=True)
     driver_changed = "driver_key" in updates or "driver_config" in updates
-    active_changed = "is_active" in updates and updates["is_active"] != printer.is_active
+    active_changed = (
+        "is_active" in updates and updates["is_active"] != printer.is_active
+    )
 
     for key, value in updates.items():
         setattr(printer, key, value)
@@ -276,8 +298,10 @@ async def update_printer(
 async def delete_printer(
     printer_id: int,
     db: DBSession,
-    principal = RequirePermission("printers:delete"),
-    delete_params: bool = Query(False, description="Also hard-delete printer_params for this printer"),
+    principal=RequirePermission("printers:delete"),
+    delete_params: bool = Query(
+        False, description="Also hard-delete printer_params for this printer"
+    ),
 ):
     from datetime import datetime, timezone
 
@@ -299,13 +323,20 @@ async def delete_printer(
 
     # Optionally hard-delete calibration data
     if delete_params:
-        await db.execute(sa_delete(FilamentPrinterParam).where(FilamentPrinterParam.printer_id == printer_id))
-        await db.execute(sa_delete(SpoolPrinterParam).where(SpoolPrinterParam.printer_id == printer_id))
+        await db.execute(
+            sa_delete(FilamentPrinterParam).where(
+                FilamentPrinterParam.printer_id == printer_id
+            )
+        )
+        await db.execute(
+            sa_delete(SpoolPrinterParam).where(
+                SpoolPrinterParam.printer_id == printer_id
+            )
+        )
         logger.info(f"Deleted printer_params for printer {printer_id}")
 
     printer.deleted_at = datetime.now(timezone.utc)
     await db.commit()
-
 
 
 @router.get("/{printer_id}/slots", response_model=list[SlotResponse])
@@ -315,10 +346,12 @@ async def list_slots(
     principal: PrincipalDep,
 ):
     result = await db.execute(
-        select(PrinterSlot).where(PrinterSlot.printer_id == printer_id).order_by(PrinterSlot.slot_no)
+        select(PrinterSlot)
+        .where(PrinterSlot.printer_id == printer_id)
+        .options(selectinload(PrinterSlot.assignment))
+        .order_by(PrinterSlot.slot_no)
     )
     return result.scalars().all()
-
 
 
 class DriverActionRequest(BaseModel):
@@ -354,14 +387,20 @@ async def driver_action(
     if not driver:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "driver_not_running", "message": "Driver is not running for this printer"},
+            detail={
+                "code": "driver_not_running",
+                "message": "Driver is not running for this printer",
+            },
         )
 
     method = getattr(driver, data.action, None)
     if not method or data.action.startswith("_"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "invalid_action", "message": f"Action '{data.action}' not available"},
+            detail={
+                "code": "invalid_action",
+                "message": f"Action '{data.action}' not available",
+            },
         )
 
     # If the caller supplies a spool_id alongside filament_data, enrich filament_data
@@ -379,11 +418,14 @@ async def driver_action(
     try:
         if callable(method):
             import asyncio
+
             if asyncio.iscoroutinefunction(method):
                 await method(**params)
             else:
                 method(**params)
-        return DriverActionResponse(success=True, message=f"Action '{data.action}' executed")
+        return DriverActionResponse(
+            success=True, message=f"Action '{data.action}' executed"
+        )
     except TypeError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -429,7 +471,10 @@ async def driver_debug_log(
     if not driver:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "driver_not_running", "message": "Driver is not running for this printer"},
+            detail={
+                "code": "driver_not_running",
+                "message": "Driver is not running for this printer",
+            },
         )
     return driver.get_debug_log(since_ts=since)
 
@@ -530,7 +575,9 @@ async def export_printer_params(
 
     # Filament params grouped by filament_id
     result = await db.execute(
-        select(FilamentPrinterParam).where(FilamentPrinterParam.printer_id == printer_id)
+        select(FilamentPrinterParam).where(
+            FilamentPrinterParam.printer_id == printer_id
+        )
     )
     filament_params: dict[int, list[dict]] = {}
     for p in result.scalars().all():
@@ -594,12 +641,14 @@ async def import_printer_params(
             if existing:
                 existing.param_value = item.param_value
             else:
-                db.add(FilamentPrinterParam(
-                    filament_id=filament_id,
-                    printer_id=printer_id,
-                    param_key=item.param_key,
-                    param_value=item.param_value,
-                ))
+                db.add(
+                    FilamentPrinterParam(
+                        filament_id=filament_id,
+                        printer_id=printer_id,
+                        param_key=item.param_key,
+                        param_value=item.param_value,
+                    )
+                )
             imported_count += 1
 
     # Import spool params
@@ -617,13 +666,18 @@ async def import_printer_params(
             if existing:
                 existing.param_value = item.param_value
             else:
-                db.add(SpoolPrinterParam(
-                    spool_id=spool_id,
-                    printer_id=printer_id,
-                    param_key=item.param_key,
-                    param_value=item.param_value,
-                ))
+                db.add(
+                    SpoolPrinterParam(
+                        spool_id=spool_id,
+                        printer_id=printer_id,
+                        param_key=item.param_key,
+                        param_value=item.param_value,
+                    )
+                )
             imported_count += 1
 
     await db.commit()
-    return {"imported": imported_count, "message": f"Imported {imported_count} params for printer {printer.name}"}
+    return {
+        "imported": imported_count,
+        "message": f"Imported {imported_count} params for printer {printer.name}",
+    }
