@@ -1,5 +1,6 @@
 """Admin-Endpoints fuer System, Plugin-Management, Spoolman-Import und Killswitch."""
 
+import importlib
 import logging
 import os
 import shutil
@@ -53,7 +54,10 @@ from app.models import (
     UserSession,
 )
 from app.services.plugin_service import PluginInstallError, PluginInstallService
-from app.services.spoolman_import_service import SpoolmanImportError, SpoolmanImportService
+from app.services.spoolman_import_service import (
+    SpoolmanImportError,
+    SpoolmanImportService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +71,10 @@ public_router = APIRouter(tags=["plugins"])
 #  Response-Schemas
 # ------------------------------------------------------------------ #
 
+
 class PluginNavItem(BaseModel):
     """Navigations-Eintrag fuer ein Plugin mit eigener Seite."""
+
     plugin_key: str
     name: str
     page_url: str
@@ -118,6 +124,7 @@ class AvailablePluginResponse(BaseModel):
 class RegistryInstallRequest(BaseModel):
     download_url: str
 
+
 class PluginToggleRequest(BaseModel):
     is_active: bool
 
@@ -125,6 +132,7 @@ class PluginToggleRequest(BaseModel):
 # ------------------------------------------------------------------ #
 #  Public Endpoints (kein Admin-Prefix)
 # ------------------------------------------------------------------ #
+
 
 @public_router.get("/plugin-nav", response_model=list[PluginNavItem])
 async def plugin_nav(
@@ -146,6 +154,7 @@ async def plugin_nav(
 #  Admin Endpoints
 # ------------------------------------------------------------------ #
 
+
 @router.get("/plugins", response_model=list[PluginResponse])
 async def list_plugins(
     db: DBSession,
@@ -158,7 +167,9 @@ async def list_plugins(
 
 
 FILAMAN_PLUGINS_URL = "https://www.filaman.app/plugins/"
-GITHUB_SYSTEM_RELEASES_URL = "https://api.github.com/repos/Fire-Devils/filaman-system/releases/latest"
+GITHUB_SYSTEM_RELEASES_URL = (
+    "https://api.github.com/repos/Fire-Devils/filaman-system/releases/latest"
+)
 
 _SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
 
@@ -170,7 +181,7 @@ def _parse_semver(ver: str) -> tuple[int, ...] | None:
 
 
 _ZIP_LINK_RE = re.compile(r'href="([^"]+\.zip)"', re.IGNORECASE)
-_ZIP_NAME_RE = re.compile(r'^(.+?)-([\d]+\.[\d]+\.[\d]+)\.zip$')
+_ZIP_NAME_RE = re.compile(r"^(.+?)-([\d]+\.[\d]+\.[\d]+)\.zip$")
 
 
 async def _fetch_available_from_filaman() -> dict[str, dict]:
@@ -262,14 +273,21 @@ async def version_check(
     installed = _read_installed_version()
 
     # Return cached data if still fresh
-    if _VERSION_CACHE["data"] is not None and (now - _VERSION_CACHE["ts"]) < _VERSION_CACHE_TTL:
+    if (
+        _VERSION_CACHE["data"] is not None
+        and (now - _VERSION_CACHE["ts"]) < _VERSION_CACHE_TTL
+    ):
         cached = _VERSION_CACHE["data"]
         # Always use current installed version (may change after update)
         cached["installed_version"] = installed
         cached["update_available"] = (
-            (_parse_semver(cached["latest_version"]) or ())
-            > (_parse_semver(installed) or ())
-        ) if cached["latest_version"] else False
+            (
+                (_parse_semver(cached["latest_version"]) or ())
+                > (_parse_semver(installed) or ())
+            )
+            if cached["latest_version"]
+            else False
+        )
         return VersionCheckResponse(**cached)
 
     # Fetch latest system version from GitHub
@@ -299,25 +317,30 @@ async def version_check(
 
         for info in latest.values():
             existing = installed_map.get(info["plugin_key"])
-            plugin_updates.append(AvailablePluginResponse(
-                plugin_key=info["plugin_key"],
-                name=info["name"],
-                version=info["version"],
-                description=info["description"],
-                download_url=info["download_url"],
-                is_installed=existing is not None,
-                installed_version=existing.version if existing else None,
-                update_available=(
-                    existing is not None
-                    and (_parse_semver(info["version"]) or ()) > (_parse_semver(existing.version) or ())
-                ),
-            ))
+            plugin_updates.append(
+                AvailablePluginResponse(
+                    plugin_key=info["plugin_key"],
+                    name=info["name"],
+                    version=info["version"],
+                    description=info["description"],
+                    download_url=info["download_url"],
+                    is_installed=existing is not None,
+                    installed_version=existing.version if existing else None,
+                    update_available=(
+                        existing is not None
+                        and (_parse_semver(info["version"]) or ())
+                        > (_parse_semver(existing.version) or ())
+                    ),
+                )
+            )
     except httpx.HTTPError:
         logger.warning("Failed to fetch plugin updates from filaman.app")
 
     update_available = (
-        (_parse_semver(latest_version) or ()) > (_parse_semver(installed) or ())
-    ) if latest_version else False
+        ((_parse_semver(latest_version) or ()) > (_parse_semver(installed) or ()))
+        if latest_version
+        else False
+    )
 
     result_data = {
         "installed_version": installed,
@@ -330,6 +353,7 @@ async def version_check(
     _VERSION_CACHE["ts"] = now
 
     return VersionCheckResponse(**result_data)
+
 
 @router.get("/plugins/available", response_model=list[AvailablePluginResponse])
 async def list_available_plugins(
@@ -361,19 +385,22 @@ async def list_available_plugins(
     result: list[AvailablePluginResponse] = []
     for info in latest.values():
         existing = installed_map.get(info["plugin_key"])
-        result.append(AvailablePluginResponse(
-            plugin_key=info["plugin_key"],
-            name=info["name"],
-            version=info["version"],
-            description=info["description"],
-            download_url=info["download_url"],
-            is_installed=existing is not None,
-            installed_version=existing.version if existing else None,
-            update_available=(
-                existing is not None
-                and (_parse_semver(info["version"]) or ()) > (_parse_semver(existing.version) or ())
-            ),
-        ))
+        result.append(
+            AvailablePluginResponse(
+                plugin_key=info["plugin_key"],
+                name=info["name"],
+                version=info["version"],
+                description=info["description"],
+                download_url=info["download_url"],
+                is_installed=existing is not None,
+                installed_version=existing.version if existing else None,
+                update_available=(
+                    existing is not None
+                    and (_parse_semver(info["version"]) or ())
+                    > (_parse_semver(existing.version) or ())
+                ),
+            )
+        )
 
     return result
 
@@ -440,6 +467,7 @@ async def install_from_registry(
         for mod_name in list(sys.modules.keys()):
             if mod_name.startswith(prefix):
                 del sys.modules[mod_name]
+        importlib.invalidate_caches()
 
     service = PluginInstallService(db)
     try:
@@ -472,6 +500,7 @@ async def install_from_registry(
     # Import-/Integration-Plugin Router dynamisch mounten
     if plugin.plugin_type in ("import", "integration"):
         from app.api.v1.router import mount_plugin_router_on_app
+
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
 
     # Version-Cache invalidieren (Plugin-Status hat sich geaendert)
@@ -482,6 +511,8 @@ async def install_from_registry(
         message=f"Plugin '{plugin.name}' v{plugin.version} erfolgreich {action}",
         plugin=PluginResponse.model_validate(plugin),
     )
+
+
 @router.post(
     "/plugins/install",
     response_model=PluginInstallResponse,
@@ -541,6 +572,7 @@ async def install_plugin(
         for mod_name in list(sys.modules.keys()):
             if mod_name.startswith(prefix):
                 del sys.modules[mod_name]
+        importlib.invalidate_caches()
 
     # Installation durchfuehren
     service = PluginInstallService(db)
@@ -574,6 +606,7 @@ async def install_plugin(
     # Import-/Integration-Plugin Router dynamisch mounten
     if plugin.plugin_type in ("import", "integration"):
         from app.api.v1.router import mount_plugin_router_on_app
+
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
 
     # Version-Cache invalidieren (Plugin-Status hat sich geaendert)
@@ -591,7 +624,10 @@ async def uninstall_plugin(
     plugin_key: str,
     db: DBSession,
     principal=RequirePermission("admin:plugins_manage"),
-    delete_data: bool = Query(False, description="Also delete SystemExtraFields and printer_params created by this plugin"),
+    delete_data: bool = Query(
+        False,
+        description="Also delete SystemExtraFields and printer_params created by this plugin",
+    ),
 ):
     """Plugin deinstallieren."""
     from app.plugins.manager import plugin_manager
@@ -643,7 +679,9 @@ async def uninstall_plugin(
             )
 
         await db.commit()
-        logger.info(f"Deleted plugin data (SystemExtraFields + printer_params) for driver '{driver_key}'")
+        logger.info(
+            f"Deleted plugin data (SystemExtraFields + printer_params) for driver '{driver_key}'"
+        )
 
     try:
         await service.uninstall(plugin_key)
@@ -658,6 +696,7 @@ async def uninstall_plugin(
 
     # Version-Cache invalidieren (Plugin entfernt)
     _invalidate_version_cache()
+
 
 @router.patch("/plugins/{plugin_key}/active", response_model=PluginResponse)
 async def toggle_plugin_active(
@@ -706,6 +745,7 @@ async def get_plugin(
 # ------------------------------------------------------------------ #
 #  Spoolman Import Endpoints
 # ------------------------------------------------------------------ #
+
 
 class SpoolmanUrlRequest(BaseModel):
     url: str
@@ -774,14 +814,16 @@ async def spoolman_preview(
     service = SpoolmanImportService(db)
     try:
         preview = await service.preview(body.url)
-        return JSONResponse({
-            "summary": preview.summary,
-            "vendors": preview.vendors,
-            "filaments": preview.filaments,
-            "spools": preview.spools,
-            "locations": preview.locations,
-            "colors": preview.colors,
-        })
+        return JSONResponse(
+            {
+                "summary": preview.summary,
+                "vendors": preview.vendors,
+                "filaments": preview.filaments,
+                "spools": preview.spools,
+                "locations": preview.locations,
+                "colors": preview.colors,
+            }
+        )
     except SpoolmanImportError as e:
         logger.warning(f"Spoolman Import Error: {e}", exc_info=True)
         return JSONResponse(
@@ -790,6 +832,7 @@ async def spoolman_preview(
         )
     except Exception as e:
         import traceback
+
         tb = traceback.format_exc()
         logger.exception(f"Unexpected error in Spoolman preview: {tb}")
         return JSONResponse(
@@ -802,7 +845,6 @@ async def spoolman_preview(
                 }
             },
         )
-
 
 
 @router.post(
@@ -827,6 +869,7 @@ async def spoolman_execute(
         )
     except Exception as e:
         import traceback
+
         tb = traceback.format_exc()
         logger.exception(f"Unexpected error in Spoolman import execution: {tb}")
         # Return JSONResponse for 500 errors to give more details
@@ -845,6 +888,7 @@ async def spoolman_execute(
 # ------------------------------------------------------------------ #
 #  Killswitch – Alle Daten ausser Users/Auth/RBAC loeschen
 # ------------------------------------------------------------------ #
+
 
 class KillswitchResponse(BaseModel):
     message: str
@@ -926,6 +970,7 @@ async def killswitch(
 #  Backup / Restore Endpoints
 # ------------------------------------------------------------------ #
 
+
 class BackupMetadata(BaseModel):
     export_date: str
     app_version: str
@@ -946,23 +991,23 @@ def _serialize_row(row: Any) -> dict[str, Any]:
     """Serialize SQLAlchemy model instance to dict with JSON-compatible values."""
     result = {}
     mapper = sa_inspect(type(row))
-    
+
     for attr in mapper.column_attrs:
         col = attr.columns[0]
         value = getattr(row, attr.key)
-        
+
         if isinstance(value, datetime):
             result[col.name] = value.isoformat()
         else:
             result[col.name] = value
-    
+
     return result
 
 
 async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
     """Export all tables in dependency order."""
     data = {}
-    
+
     # Order: independent tables first, then dependent tables
     tables_order = [
         # Seed/Config data
@@ -970,7 +1015,6 @@ async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
         ("permissions", Permission),
         ("roles", Role),
         ("app_settings", AppSettings),
-        
         # Users and auth
         ("users", User),
         ("user_roles", UserRole),
@@ -981,18 +1025,14 @@ async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
         ("user_sessions", UserSession),
         ("oidc_settings", OIDCSettings),
         ("oidc_auth_states", OIDCAuthState),
-        
         # Devices
         ("devices", Device),
-        
         # Plugins
         ("installed_plugins", InstalledPlugin),
-        
         # Domain data - independent
         ("manufacturers", Manufacturer),
         ("colors", Color),
         ("locations", Location),
-        
         # Domain data - dependent
         ("filaments", Filament),
         ("filament_colors", FilamentColor),
@@ -1008,27 +1048,26 @@ async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
         ("printer_slot_assignments", PrinterSlotAssignment),
         ("printer_slot_events", PrinterSlotEvent),
     ]
-    
+
     for table_name, model in tables_order:
         result = await db.execute(select(model))
         rows = result.scalars().all()
         data[table_name] = [_serialize_row(row) for row in rows]
         logger.info(f"Exported {len(rows)} rows from {table_name}")
-    
+
     return data
 
 
 async def _export_inventory_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
     """Export only inventory/domain data (no users, auth, devices, plugins)."""
     data = {}
-    
+
     # Only domain tables - no users, auth, devices, plugins
     tables_order = [
         # Independent domain data
         ("manufacturers", Manufacturer),
         ("colors", Color),
         ("locations", Location),
-        
         # Dependent domain data
         ("filaments", Filament),
         ("filament_colors", FilamentColor),
@@ -1044,13 +1083,13 @@ async def _export_inventory_data(db: DBSession) -> dict[str, list[dict[str, Any]
         ("printer_slot_assignments", PrinterSlotAssignment),
         ("printer_slot_events", PrinterSlotEvent),
     ]
-    
+
     for table_name, model in tables_order:
         result = await db.execute(select(model))
         rows = result.scalars().all()
         data[table_name] = [_serialize_row(row) for row in rows]
         logger.info(f"Exported {len(rows)} inventory rows from {table_name}")
-    
+
     return data
 
 
@@ -1070,10 +1109,10 @@ async def export_backup(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Export complete database backup as JSON.
-    
+
     Exports all tables including users, passwords, sessions, API keys,
     roles, devices, plugins, and all domain data.
-    
+
     WARNING: Contains sensitive data (password hashes, API keys, secrets).
     Store securely!
     """
@@ -1085,26 +1124,26 @@ async def export_backup(
                 "message": "Only superadmins can export backups",
             },
         )
-    
+
     logger.info(f"Starting backup export by user {principal.user_id}")
-    
+
     # Get schema version
     schema_version = await _get_schema_version(db)
-    
+
     # Get app version
     app_version = _read_installed_version()
-    
+
     # Export all data
     data = await _export_all_data(db)
-    
+
     metadata = BackupMetadata(
         export_date=datetime.now(timezone.utc).isoformat(),
         app_version=app_version,
         schema_version=schema_version,
     )
-    
+
     logger.info(f"Backup export completed by user {principal.user_id}")
-    
+
     return JSONResponse(
         content={
             "metadata": metadata.model_dump(),
@@ -1122,30 +1161,30 @@ async def export_inventory_backup(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Export inventory data only (no users, auth, devices, plugins).
-    
+
     Exports: manufacturers, colors, locations, filaments, spools, printers,
     ratings, events, and all related domain data.
-    
+
     Does NOT export: users, passwords, API keys, sessions, roles, permissions,
     devices, plugins, OIDC settings.
-    
+
     Safe to share between instances.
     """
     logger.info(f"Starting inventory backup export by user {principal.user_id}")
-    
+
     schema_version = await _get_schema_version(db)
     app_version = _read_installed_version()
-    
+
     data = await _export_inventory_data(db)
-    
+
     metadata = BackupMetadata(
         export_date=datetime.now(timezone.utc).isoformat(),
         app_version=app_version,
         schema_version=schema_version,
     )
-    
+
     logger.info(f"Inventory backup export completed by user {principal.user_id}")
-    
+
     return JSONResponse(
         content={
             "metadata": metadata.model_dump(),
@@ -1161,31 +1200,32 @@ async def _create_auto_backup(db: DBSession) -> Path:
     """Create automatic backup before import/restore operations."""
     backup_dir = Path("/app/data/backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
-    
+
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     backup_path = backup_dir / f"auto_backup_before_import_{timestamp}.json"
-    
+
     # Export data
     data = await _export_all_data(db)
     schema_version = await _get_schema_version(db)
     app_version = _read_installed_version()
-    
+
     metadata = {
         "export_date": datetime.now(timezone.utc).isoformat(),
         "app_version": app_version,
         "schema_version": schema_version,
         "auto_backup": True,
     }
-    
+
     backup_content = {
         "metadata": metadata,
         "data": data,
     }
-    
+
     # Write to file
     import json
+
     backup_path.write_text(json.dumps(backup_content, indent=2))
-    
+
     logger.info(f"Auto-backup created: {backup_path}")
     return backup_path
 
@@ -1193,7 +1233,7 @@ async def _create_auto_backup(db: DBSession) -> Path:
 async def _delete_all_data(db: DBSession) -> dict[str, int]:
     """Delete all data from all tables in reverse dependency order."""
     deleted = {}
-    
+
     # Reverse order: dependent tables first, then independent tables
     tables_order = [
         ("printer_slot_events", PrinterSlotEvent),
@@ -1212,13 +1252,10 @@ async def _delete_all_data(db: DBSession) -> dict[str, int]:
         ("locations", Location),
         ("colors", Color),
         ("manufacturers", Manufacturer),
-        
         # Plugins
         ("installed_plugins", InstalledPlugin),
-        
         # Devices
         ("devices", Device),
-        
         # Users and auth
         ("oidc_auth_states", OIDCAuthState),
         ("oidc_settings", OIDCSettings),
@@ -1231,24 +1268,23 @@ async def _delete_all_data(db: DBSession) -> dict[str, int]:
         ("users", User),
         ("roles", Role),
         ("permissions", Permission),
-        
         # Config and seed data
         ("app_settings", AppSettings),
         ("spool_statuses", SpoolStatus),
     ]
-    
+
     for table_name, model in tables_order:
         result = await db.execute(delete(model))
         deleted[table_name] = result.rowcount or 0
         logger.info(f"Deleted {deleted[table_name]} rows from {table_name}")
-    
+
     return deleted
 
 
 async def _delete_inventory_data(db: DBSession) -> dict[str, int]:
     """Delete only inventory/domain data (preserve users, auth, devices, plugins)."""
     deleted = {}
-    
+
     # Reverse order: dependent tables first
     tables_order = [
         ("printer_slot_events", PrinterSlotEvent),
@@ -1268,19 +1304,21 @@ async def _delete_inventory_data(db: DBSession) -> dict[str, int]:
         ("colors", Color),
         ("manufacturers", Manufacturer),
     ]
-    
+
     for table_name, model in tables_order:
         result = await db.execute(delete(model))
         deleted[table_name] = result.rowcount or 0
         logger.info(f"Deleted {deleted[table_name]} inventory rows from {table_name}")
-    
+
     return deleted
 
 
-async def _import_inventory_data(db: DBSession, data: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+async def _import_inventory_data(
+    db: DBSession, data: dict[str, list[dict[str, Any]]]
+) -> dict[str, int]:
     """Import only inventory/domain data."""
     imported = {}
-    
+
     # Same order as export
     tables_order = [
         ("manufacturers", Manufacturer),
@@ -1300,40 +1338,46 @@ async def _import_inventory_data(db: DBSession, data: dict[str, list[dict[str, A
         ("printer_slot_assignments", PrinterSlotAssignment),
         ("printer_slot_events", PrinterSlotEvent),
     ]
-    
+
     for table_name, model in tables_order:
         rows = data.get(table_name, [])
         if rows:
             mapper = sa_inspect(model)
-            col_to_attr = {attr.columns[0].name: attr.key for attr in mapper.column_attrs}
-            
+            col_to_attr = {
+                attr.columns[0].name: attr.key for attr in mapper.column_attrs
+            }
+
             for row_data in rows:
                 attr_data = {}
                 for col_name, value in row_data.items():
                     attr_name = col_to_attr.get(col_name, col_name)
-                    
+
                     if isinstance(value, str) and "T" in value:
                         try:
-                            attr_data[attr_name] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            attr_data[attr_name] = datetime.fromisoformat(
+                                value.replace("Z", "+00:00")
+                            )
                         except (ValueError, AttributeError):
                             attr_data[attr_name] = value
                     else:
                         attr_data[attr_name] = value
-                
+
                 db.add(model(**attr_data))
-            
+
             imported[table_name] = len(rows)
             logger.info(f"Imported {len(rows)} inventory rows into {table_name}")
         else:
             imported[table_name] = 0
-    
+
     return imported
 
 
-async def _import_all_data(db: DBSession, data: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+async def _import_all_data(
+    db: DBSession, data: dict[str, list[dict[str, Any]]]
+) -> dict[str, int]:
     """Import all data in dependency order."""
     imported = {}
-    
+
     # Same order as export
     tables_order = [
         ("spool_statuses", SpoolStatus),
@@ -1368,33 +1412,37 @@ async def _import_all_data(db: DBSession, data: dict[str, list[dict[str, Any]]])
         ("printer_slot_assignments", PrinterSlotAssignment),
         ("printer_slot_events", PrinterSlotEvent),
     ]
-    
+
     for table_name, model in tables_order:
         rows = data.get(table_name, [])
         if rows:
             mapper = sa_inspect(model)
-            col_to_attr = {attr.columns[0].name: attr.key for attr in mapper.column_attrs}
-            
+            col_to_attr = {
+                attr.columns[0].name: attr.key for attr in mapper.column_attrs
+            }
+
             for row_data in rows:
                 attr_data = {}
                 for col_name, value in row_data.items():
                     attr_name = col_to_attr.get(col_name, col_name)
-                    
+
                     if isinstance(value, str) and "T" in value:
                         try:
-                            attr_data[attr_name] = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            attr_data[attr_name] = datetime.fromisoformat(
+                                value.replace("Z", "+00:00")
+                            )
                         except (ValueError, AttributeError):
                             attr_data[attr_name] = value
                     else:
                         attr_data[attr_name] = value
-                
+
                 db.add(model(**attr_data))
-            
+
             imported[table_name] = len(rows)
             logger.info(f"Imported {len(rows)} rows into {table_name}")
         else:
             imported[table_name] = 0
-    
+
     return imported
 
 
@@ -1405,10 +1453,10 @@ async def import_backup(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Import complete database backup from JSON.
-    
+
     WARNING: This will DELETE ALL EXISTING DATA and replace it with the backup.
     An automatic backup of current data will be created before import.
-    
+
     Only superadmins can perform this operation.
     """
     if not principal.is_superadmin:
@@ -1419,9 +1467,13 @@ async def import_backup(
                 "message": "Only superadmins can import backups",
             },
         )
-    
+
     # Validate content type
-    if file.content_type not in ("application/json", "text/plain", "application/octet-stream"):
+    if file.content_type not in (
+        "application/json",
+        "text/plain",
+        "application/octet-stream",
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -1429,9 +1481,10 @@ async def import_backup(
                 "message": f"Expected JSON file, received: {file.content_type}",
             },
         )
-    
+
     # Read and parse JSON
     import json
+
     try:
         content = await file.read()
         backup_data = json.loads(content)
@@ -1443,7 +1496,7 @@ async def import_backup(
                 "message": f"Invalid JSON file: {str(e)}",
             },
         )
-    
+
     # Validate structure
     if "metadata" not in backup_data or "data" not in backup_data:
         raise HTTPException(
@@ -1453,33 +1506,33 @@ async def import_backup(
                 "message": "Backup file must contain 'metadata' and 'data' fields",
             },
         )
-    
+
     logger.info(f"Starting backup import by user {principal.user_id}")
     logger.info(f"Backup metadata: {backup_data['metadata']}")
-    
+
     try:
         # Step 1: Create automatic backup of current data
         auto_backup_path = await _create_auto_backup(db)
         logger.info(f"Auto-backup created at: {auto_backup_path}")
-        
+
         # Step 2: Delete all existing data
         deleted = await _delete_all_data(db)
         logger.info(f"Deleted data: {deleted}")
-        
+
         # Step 3: Import new data
         imported = await _import_all_data(db, backup_data["data"])
         logger.info(f"Imported data: {imported}")
-        
+
         # Commit transaction
         await db.commit()
-        
+
         logger.info(f"Backup import completed successfully by user {principal.user_id}")
-        
+
         return BackupImportResponse(
             message=f"Backup imported successfully. Auto-backup created at: {auto_backup_path.name}",
             imported=imported,
         )
-    
+
     except Exception as exc:
         await db.rollback()
         logger.exception(f"Backup import failed: {exc}")
@@ -1499,16 +1552,19 @@ async def import_inventory_backup(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Import inventory data only (preserves users, auth, devices, plugins).
-    
+
     Imports: manufacturers, colors, locations, filaments, spools, printers,
     and all related domain data.
-    
+
     Does NOT import/affect: users, passwords, sessions, roles, permissions,
     devices, plugins, OIDC settings.
-    
+
     An automatic backup will be created before import.
     """
-    if "application/json" not in file.content_type and "text/plain" not in file.content_type:
+    if (
+        "application/json" not in file.content_type
+        and "text/plain" not in file.content_type
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -1516,8 +1572,9 @@ async def import_inventory_backup(
                 "message": f"Expected JSON file, received: {file.content_type}",
             },
         )
-    
+
     import json
+
     try:
         content = await file.read()
         backup_data = json.loads(content)
@@ -1529,7 +1586,7 @@ async def import_inventory_backup(
                 "message": f"Invalid JSON file: {str(e)}",
             },
         )
-    
+
     if "metadata" not in backup_data or "data" not in backup_data:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1538,29 +1595,31 @@ async def import_inventory_backup(
                 "message": "Backup file must contain 'metadata' and 'data' fields",
             },
         )
-    
+
     logger.info(f"Starting inventory backup import by user {principal.user_id}")
     logger.info(f"Backup metadata: {backup_data['metadata']}")
-    
+
     try:
         auto_backup_path = await _create_auto_backup(db)
         logger.info(f"Auto-backup created at: {auto_backup_path}")
-        
+
         deleted = await _delete_inventory_data(db)
         logger.info(f"Deleted inventory data: {deleted}")
-        
+
         imported = await _import_inventory_data(db, backup_data["data"])
         logger.info(f"Imported inventory data: {imported}")
-        
+
         await db.commit()
-        
-        logger.info(f"Inventory backup import completed successfully by user {principal.user_id}")
-        
+
+        logger.info(
+            f"Inventory backup import completed successfully by user {principal.user_id}"
+        )
+
         return BackupImportResponse(
             message=f"Inventory backup imported successfully. Auto-backup created at: {auto_backup_path.name}",
             imported=imported,
         )
-    
+
     except Exception as exc:
         await db.rollback()
         logger.exception(f"Inventory backup import failed: {exc}")
@@ -1576,6 +1635,7 @@ async def import_inventory_backup(
 # ------------------------------------------------------------------ #
 #  SQLite Backup List & Restore
 # ------------------------------------------------------------------ #
+
 
 def _get_backup_dir() -> Path:
     """Backup-Verzeichnis ermitteln (env BACKUP_DIR oder Standard)."""
@@ -1624,7 +1684,10 @@ async def list_sqlite_backups(
     if not principal.is_superadmin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "forbidden", "message": "Only superadmins can list backups"},
+            detail={
+                "code": "forbidden",
+                "message": "Only superadmins can list backups",
+            },
         )
 
     db_path = _get_db_path()
@@ -1669,7 +1732,10 @@ async def restore_sqlite_backup(
     if not principal.is_superadmin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "forbidden", "message": "Only superadmins can restore backups"},
+            detail={
+                "code": "forbidden",
+                "message": "Only superadmins can restore backups",
+            },
         )
 
     db_path = _get_db_path()
@@ -1714,6 +1780,7 @@ async def restore_sqlite_backup(
         logger.info("Auto-backup created before restore: %s", auto_backup_path)
 
         from app.core.database import engine
+
         await engine.dispose()
 
         shutil.copy2(str(backup_file), str(db_path))
@@ -1742,7 +1809,10 @@ async def delete_sqlite_backup(
     if not principal.is_superadmin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "forbidden", "message": "Only superadmins can delete backups"},
+            detail={
+                "code": "forbidden",
+                "message": "Only superadmins can delete backups",
+            },
         )
 
     safe_name = re.match(r"^[\w.\-]+$", filename)
