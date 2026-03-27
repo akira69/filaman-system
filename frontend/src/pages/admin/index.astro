@@ -63,6 +63,19 @@ import Layout from '../../layouts/Layout.astro'
     </div>
   </div>
 
+  <h2 style="font-size: 1.4rem; font-weight: 700; margin: 32px 0 16px; font-family: var(--font-serif);" data-i18n="admin.apiInfoTitle">API</h2>
+  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px;">
+    <div class="fm-card" style="padding: 24px;">
+      <div style="display: grid; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="font-size: 0.85rem; color: var(--text-muted);" data-i18n="admin.apiVersion">API Version:</span>
+          <span id="api-version" style="font-weight: 600;">...</span>
+        </div>
+        <a href="/admin/api-docs" class="fm-btn fm-btn-outline" style="margin-top: 8px; text-align: center;" data-i18n="admin.openApiDocs">API Documentation</a>
+      </div>
+    </div>
+  </div>
+
   <h2 style="font-size: 1.4rem; font-weight: 700; margin: 32px 0 16px; color: var(--error-text); font-family: var(--font-serif);" data-i18n="admin.dangerZone">Danger Zone</h2>
   <div class="fm-card" style="border: 1px solid var(--error-text); padding: 24px;">
     <div style="display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap;">
@@ -155,6 +168,10 @@ import Layout from '../../layouts/Layout.astro'
         const pluginCount = document.getElementById('plugin-update-count')!
         installedEl.textContent = `v${data.installed_version}`
         latestEl.textContent = data.latest_version ? `v${data.latest_version}` : t('admin.versionUnknown')
+
+        /* API Version card */
+        const apiVersionEl = document.getElementById('api-version')
+        if (apiVersionEl) apiVersionEl.textContent = `v${data.installed_version}`
 
         if (data.update_available) {
           latestEl.style.color = 'var(--error-text)'

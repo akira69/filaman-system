@@ -1,0 +1,171 @@
+---
+import Layout from '../../layouts/Layout.astro'
+---
+
+<Layout title="FilaMan - API Documentation">
+  <style>
+    /* Swagger UI theme overrides to match FilaMan look */
+    #swagger-container {
+      margin-top: 16px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+    }
+
+    /* Hide default Swagger topbar — we have our own header */
+    #swagger-container .swagger-ui .topbar { display: none; }
+
+    /* Adapt colors to FilaMan theme */
+    #swagger-container .swagger-ui {
+      color: var(--text);
+    }
+    #swagger-container .swagger-ui .info .title,
+    #swagger-container .swagger-ui .opblock-tag {
+      color: var(--text);
+    }
+    #swagger-container .swagger-ui .info p,
+    #swagger-container .swagger-ui .info li,
+    #swagger-container .swagger-ui .info table,
+    #swagger-container .swagger-ui .opblock-description-wrapper p,
+    #swagger-container .swagger-ui .opblock-external-docs-wrapper p,
+    #swagger-container .swagger-ui .response-col_description__inner p,
+    #swagger-container .swagger-ui table thead tr th,
+    #swagger-container .swagger-ui table thead tr td,
+    #swagger-container .swagger-ui .parameter__name,
+    #swagger-container .swagger-ui .parameter__type,
+    #swagger-container .swagger-ui .response-col_status,
+    #swagger-container .swagger-ui .tab li {
+      color: var(--text-muted);
+    }
+    #swagger-container .swagger-ui .scheme-container,
+    #swagger-container .swagger-ui .opblock .opblock-section-header {
+      background: var(--bg);
+      box-shadow: none;
+    }
+    #swagger-container .swagger-ui section.models {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    #swagger-container .swagger-ui section.models .model-container {
+      background: var(--bg);
+    }
+    #swagger-container .swagger-ui .model-box {
+      background: var(--bg);
+    }
+    #swagger-container .swagger-ui .model {
+      color: var(--text-muted);
+    }
+    #swagger-container .swagger-ui select {
+      background: var(--card-bg);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    #swagger-container .swagger-ui input[type="text"],
+    #swagger-container .swagger-ui textarea {
+      background: var(--bg);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    #swagger-container .swagger-ui .btn {
+      color: var(--text);
+      border-color: var(--border);
+    }
+    /* Make opblock backgrounds semi-transparent for dark mode compat */
+    #swagger-container .swagger-ui .opblock.opblock-get {
+      background: rgba(97,175,254,.05);
+      border-color: rgba(97,175,254,.3);
+    }
+    #swagger-container .swagger-ui .opblock.opblock-post {
+      background: rgba(73,204,144,.05);
+      border-color: rgba(73,204,144,.3);
+    }
+    #swagger-container .swagger-ui .opblock.opblock-put {
+      background: rgba(252,161,48,.05);
+      border-color: rgba(252,161,48,.3);
+    }
+    #swagger-container .swagger-ui .opblock.opblock-delete {
+      background: rgba(249,62,62,.05);
+      border-color: rgba(249,62,62,.3);
+    }
+    #swagger-container .swagger-ui .opblock.opblock-patch {
+      background: rgba(80,227,194,.05);
+      border-color: rgba(80,227,194,.3);
+    }
+    #swagger-container .swagger-ui .opblock .opblock-summary-method {
+      border-radius: 4px;
+    }
+    #swagger-container .swagger-ui .opblock .opblock-summary {
+      border-bottom: 1px solid rgba(128,128,128,.15);
+    }
+    /* Response body & code blocks */
+    #swagger-container .swagger-ui .highlight-code,
+    #swagger-container .swagger-ui .microlight {
+      background: var(--bg) !important;
+      color: var(--text) !important;
+      border-radius: 6px;
+    }
+    /* Expand/collapse arrow */
+    #swagger-container .swagger-ui .expand-operation svg {
+      fill: var(--text-muted);
+    }
+    /* Authorization dialog */
+    #swagger-container .swagger-ui .dialog-ux .modal-ux {
+      background: var(--card-bg);
+      border-color: var(--border);
+    }
+    #swagger-container .swagger-ui .dialog-ux .modal-ux-header h3 {
+      color: var(--text);
+    }
+    /* Loading state */
+    #swagger-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 64px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+  </style>
+
+  <a href="/admin" style="color: var(--accent); text-decoration: none;">&larr; <span data-i18n="admin.backToAdmin">Back to Admin</span></a>
+  <h1 style="font-size: 1.8rem; font-weight: 700; margin: 16px 0 8px; font-family: var(--font-serif);" data-i18n="admin.apiDocsTitle">API Documentation</h1>
+  <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;" data-i18n="admin.apiDocsDesc">Interactive documentation for the FilaMan REST API.</p>
+
+  <div id="swagger-container">
+    <div id="swagger-loading" data-i18n="admin.apiDocsLoading">Loading API documentation...</div>
+  </div>
+
+  <script>
+    import SwaggerUI from 'swagger-ui-dist/swagger-ui-es-bundle.js'
+    import 'swagger-ui-dist/index.css'
+    import { t, initI18n } from '../../lib/i18n'
+    await initI18n()
+
+    const loadingEl = document.getElementById('swagger-loading')
+
+    try {
+      SwaggerUI({
+        dom_id: '#swagger-container',
+        url: '/openapi.json',
+        deepLinking: true,
+        defaultModelsExpandDepth: 0,
+        docExpansion: 'list',
+        filter: true,
+        tryItOutEnabled: false,
+        requestInterceptor: (req: Record<string, Record<string, string>>) => {
+          // Attach CSRF token for state-changing requests
+          const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
+          if (match) {
+            req.headers['X-CSRF-Token'] = decodeURIComponent(match[1])
+          }
+          return req
+        },
+      })
+    } catch {
+      if (loadingEl) {
+        loadingEl.textContent = t('admin.apiDocsLoadFailed')
+      }
+    }
+  </script>
+</Layout>

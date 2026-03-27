@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 import json as _json
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +21,7 @@ from app.plugins.manager import plugin_manager
 from app.services.plugin_service import PLUGINS_DIR
 
 setup_logging()
-logger = __import__('logging').getLogger(__name__)
+logger = __import__("logging").getLogger(__name__)
 
 
 def run_migrations() -> None:
@@ -34,9 +35,10 @@ def run_migrations() -> None:
     from alembic.config import Config
 
     alembic_cfg = Config("alembic.ini")
-    alembic_cfg.set_main_option("script_location", str(
-        __import__("pathlib").Path(__file__).resolve().parent.parent / "alembic"
-    ))
+    alembic_cfg.set_main_option(
+        "script_location",
+        str(__import__("pathlib").Path(__file__).resolve().parent.parent / "alembic"),
+    )
     # Wir muessen hier nichts mehr an der URL drehen, das macht env.py jetzt selbst.
 
     command.upgrade(alembic_cfg, "head")
@@ -70,17 +72,34 @@ async def lifespan(app: FastAPI):
     logger.info("FilaMan backend stopped")
 
 
+def _read_version() -> str:
+    """Installierte Version aus version.txt lesen."""
+    candidates = [
+        Path("/app/version.txt"),
+        Path(__file__).resolve().parents[2] / "version.txt",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return p.read_text().strip()
+    return "0.0.0"
+
+
 app = FastAPI(
     title=settings.app_name,
+    version=_read_version(),
     debug=settings.debug,
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
 )
 
 cors_origins: list[str] = []
 if settings.cors_origins == "*":
     cors_origins = ["*"]
 elif settings.cors_origins:
-    cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+    cors_origins = [
+        origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()
+    ]
 
 if cors_origins:
     app.add_middleware(
@@ -104,13 +123,15 @@ async def add_cache_control_header(request, call_next):
     path = request.url.path
     is_api = path.startswith("/api/") or path.startswith("/auth/")
     if not is_api and (
-        path.startswith("/_astro/") or
-        path.startswith("/img/") or
-        path.endswith((".js", ".css", ".png", ".jpg", ".svg", ".woff2", ".ico"))
+        path.startswith("/_astro/")
+        or path.startswith("/img/")
+        or path.endswith((".js", ".css", ".png", ".jpg", ".svg", ".woff2", ".ico"))
     ):
         # Cache hashed static assets for 1 year
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-    elif not is_api and response.headers.get("content-type", "").startswith("text/html"):
+    elif not is_api and response.headers.get("content-type", "").startswith(
+        "text/html"
+    ):
         # HTML pages: always revalidate so new deployments are picked up immediately
         response.headers["Cache-Control"] = "no-cache"
     return response
@@ -199,66 +220,100 @@ if not settings.debug:
         # IMPORTANT: These must come BEFORE the /{id} routes to avoid "new" being parsed as int
         @app.get("/filaments/new")
         async def serve_filament_new():
-            return FileResponse(os.path.join(static_files_path, "filaments/new/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/new/index.html")
+            )
 
         @app.get("/spools/new")
         async def serve_spool_new():
-            return FileResponse(os.path.join(static_files_path, "spools/new/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "spools/new/index.html")
+            )
 
         @app.get("/spools/detail")
         async def serve_spool_detail_placeholder():
-            return FileResponse(os.path.join(static_files_path, "spools/detail/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "spools/detail/index.html")
+            )
 
         @app.get("/spools/detail/edit")
         async def serve_spool_edit_placeholder():
-            return FileResponse(os.path.join(static_files_path, "spools/detail/edit/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "spools/detail/edit/index.html")
+            )
 
         @app.get("/spools/{id}")
         async def serve_spool_detail(id: int):
-            return FileResponse(os.path.join(static_files_path, "spools/detail/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "spools/detail/index.html")
+            )
 
         @app.get("/spools/{id}/edit")
         async def serve_spool_edit(id: int):
-            return FileResponse(os.path.join(static_files_path, "spools/detail/edit/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "spools/detail/edit/index.html")
+            )
 
         @app.get("/spools/detail/print")
         async def serve_spool_print_placeholder():
-            return FileResponse(os.path.join(static_files_path, "spools/detail/print/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "spools/detail/print/index.html")
+            )
 
         @app.get("/spools/{id}/print")
         async def serve_spool_print(id: int):
-            return FileResponse(os.path.join(static_files_path, "spools/detail/print/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "spools/detail/print/index.html")
+            )
 
         @app.get("/printers/detail")
         async def serve_printer_detail_placeholder():
-            return FileResponse(os.path.join(static_files_path, "printers/detail/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "printers/detail/index.html")
+            )
 
         @app.get("/printers/{id}")
         async def serve_printer_detail(id: int):
-            return FileResponse(os.path.join(static_files_path, "printers/detail/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "printers/detail/index.html")
+            )
 
         @app.get("/filaments/colors")
         async def serve_filament_colors():
-            return FileResponse(os.path.join(static_files_path, "filaments/colors/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/colors/index.html")
+            )
 
         @app.get("/filaments/detail")
         async def serve_filament_detail_placeholder():
-            return FileResponse(os.path.join(static_files_path, "filaments/detail/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/detail/index.html")
+            )
 
         @app.get("/filaments/detail/edit")
         async def serve_filament_edit_placeholder():
-            return FileResponse(os.path.join(static_files_path, "filaments/detail/edit/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/detail/edit/index.html")
+            )
 
         @app.get("/filaments/{id}")
         async def serve_filament_detail(id: int):
-            return FileResponse(os.path.join(static_files_path, "filaments/detail/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/detail/index.html")
+            )
 
         @app.get("/filaments/{id}/edit")
         async def serve_filament_edit(id: int):
-            return FileResponse(os.path.join(static_files_path, "filaments/detail/edit/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/detail/edit/index.html")
+            )
 
         @app.get("/admin/oidc")
         async def serve_admin_oidc():
-            return FileResponse(os.path.join(static_files_path, "admin/oidc/index.html"))
+            return FileResponse(
+                os.path.join(static_files_path, "admin/oidc/index.html")
+            )
 
-        app.mount("/", StaticFiles(directory=static_files_path, html=True), name="static")
+        app.mount(
+            "/", StaticFiles(directory=static_files_path, html=True), name="static"
+        )
