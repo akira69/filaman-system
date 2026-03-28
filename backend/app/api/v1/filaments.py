@@ -1,11 +1,12 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, literal_column
+from sqlalchemy import delete, func, select, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
+from app.core.cache import response_cache
 from app.core.db_utils import get_next_available_id
 from app.api.v1.schemas import PaginatedResponse
 from app.api.v1.schemas_filament import (
@@ -40,7 +41,7 @@ async def list_manufacturers(
 ):
     # Base query for manufacturers
     query = select(Manufacturer).order_by(Manufacturer.name)
-    
+
     # Executing the pagination slice
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     items = list(result.scalars().all())
@@ -55,19 +56,33 @@ async def list_manufacturers(
 
     if mfr_ids:
         # Run the count queries sequentially (same AsyncSession cannot run concurrent queries)
-        
-        fc_stmt = select(Filament.manufacturer_id, func.count(Filament.id)).where(Filament.manufacturer_id.in_(mfr_ids)).group_by(Filament.manufacturer_id)
-        types_stmt = select(Filament.manufacturer_id, Filament.material_type).where(Filament.manufacturer_id.in_(mfr_ids)).distinct()
-        
+
+        fc_stmt = (
+            select(Filament.manufacturer_id, func.count(Filament.id))
+            .where(Filament.manufacturer_id.in_(mfr_ids))
+            .group_by(Filament.manufacturer_id)
+        )
+        types_stmt = (
+            select(Filament.manufacturer_id, Filament.material_type)
+            .where(Filament.manufacturer_id.in_(mfr_ids))
+            .distinct()
+        )
+
         # Comprehensive spool stats query
         # We need sum of prices and counts for both active and archived
         spool_stats_stmt = (
             select(
                 Filament.manufacturer_id,
-                func.count(Spool.id).filter(SpoolStatus.key != "archived").label("active_count"),
-                func.count(Spool.id).filter(SpoolStatus.key == "archived").label("archived_count"),
-                func.sum(Spool.purchase_price).filter(SpoolStatus.key != "archived").label("active_price"),
-                func.sum(Spool.purchase_price).label("total_price")
+                func.count(Spool.id)
+                .filter(SpoolStatus.key != "archived")
+                .label("active_count"),
+                func.count(Spool.id)
+                .filter(SpoolStatus.key == "archived")
+                .label("archived_count"),
+                func.sum(Spool.purchase_price)
+                .filter(SpoolStatus.key != "archived")
+                .label("active_price"),
+                func.sum(Spool.purchase_price).label("total_price"),
             )
             .join(Spool, Spool.filament_id == Filament.id)
             .join(SpoolStatus, Spool.status_id == SpoolStatus.id)
@@ -80,12 +95,12 @@ async def list_manufacturers(
         spool_stats_result = await db.execute(spool_stats_stmt)
 
         fil_counts = {row[0]: row[1] for row in fc_result.all()}
-        
+
         for row in types_result.all():
             mfr_id, mat_type = row[0], row[1]
             if mfr_id in materials_map and mat_type:
                 materials_map[mfr_id].append(mat_type)
-        
+
         for row in spool_stats_result.all():
             mfr_id, active_c, archived_c, active_p, total_p = row
             active_spool_counts[mfr_id] = active_c or 0
@@ -111,20 +126,29 @@ async def list_manufacturers(
     count_result = await db.execute(select(func.count()).select_from(Manufacturer))
     total = count_result.scalar() or 0
 
-    return PaginatedResponse(items=items_out, page=page, page_size=page_size, total=total)
+    return PaginatedResponse(
+        items=items_out, page=page, page_size=page_size, total=total
+    )
 
 
-@router.post("", response_model=ManufacturerResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=ManufacturerResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_manufacturer(
     data: ManufacturerCreate,
     db: DBSession,
-    principal = RequirePermission("manufacturers:create"),
+    principal=RequirePermission("manufacturers:create"),
 ):
-    result = await db.execute(select(Manufacturer).where(Manufacturer.name == data.name))
+    result = await db.execute(
+        select(Manufacturer).where(Manufacturer.name == data.name)
+    )
     if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "conflict", "message": "Manufacturer with this name already exists"},
+            detail={
+                "code": "conflict",
+                "message": "Manufacturer with this name already exists",
+            },
         )
 
     next_id = await get_next_available_id(db, Manufacturer)
@@ -137,8 +161,12 @@ async def create_manufacturer(
 
 
 @router.get("/{manufacturer_id}", response_model=ManufacturerResponse)
-async def get_manufacturer(manufacturer_id: int, db: DBSession, principal: PrincipalDep):
-    result = await db.execute(select(Manufacturer).where(Manufacturer.id == manufacturer_id))
+async def get_manufacturer(
+    manufacturer_id: int, db: DBSession, principal: PrincipalDep
+):
+    result = await db.execute(
+        select(Manufacturer).where(Manufacturer.id == manufacturer_id)
+    )
     manufacturer = result.scalar_one_or_none()
     if not manufacturer:
         raise HTTPException(
@@ -153,9 +181,11 @@ async def update_manufacturer(
     manufacturer_id: int,
     data: ManufacturerUpdate,
     db: DBSession,
-    principal = RequirePermission("manufacturers:update"),
+    principal=RequirePermission("manufacturers:update"),
 ):
-    result = await db.execute(select(Manufacturer).where(Manufacturer.id == manufacturer_id))
+    result = await db.execute(
+        select(Manufacturer).where(Manufacturer.id == manufacturer_id)
+    )
     manufacturer = result.scalar_one_or_none()
     if not manufacturer:
         raise HTTPException(
@@ -172,7 +202,10 @@ async def update_manufacturer(
         if existing.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={"code": "conflict", "message": "Manufacturer with this name already exists"},
+                detail={
+                    "code": "conflict",
+                    "message": "Manufacturer with this name already exists",
+                },
             )
 
     for key, value in update_data.items():
@@ -188,10 +221,12 @@ async def update_manufacturer(
 async def delete_manufacturer(
     manufacturer_id: int,
     db: DBSession,
-    principal = RequirePermission("manufacturers:delete"),
+    principal=RequirePermission("manufacturers:delete"),
     force: bool = False,
 ):
-    result = await db.execute(select(Manufacturer).where(Manufacturer.id == manufacturer_id))
+    result = await db.execute(
+        select(Manufacturer).where(Manufacturer.id == manufacturer_id)
+    )
     manufacturer = result.scalar_one_or_none()
     if not manufacturer:
         raise HTTPException(
@@ -199,23 +234,33 @@ async def delete_manufacturer(
             detail={"code": "not_found", "message": "Manufacturer not found"},
         )
 
-    result = await db.execute(select(Filament).where(Filament.manufacturer_id == manufacturer_id).limit(1))
+    result = await db.execute(
+        select(Filament).where(Filament.manufacturer_id == manufacturer_id).limit(1)
+    )
     if result.scalar_one_or_none():
         if not force:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={"code": "conflict", "message": "Manufacturer has filaments, cannot delete without force flag"},
+                detail={
+                    "code": "conflict",
+                    "message": "Manufacturer has filaments, cannot delete without force flag",
+                },
             )
         else:
             # If force is true, we delete the spools first
             # The filament deletion is handled by cascade delete in the DB if configured,
             # or we do it explicitly. SQLAlchemy often handles relationships, but let's be safe:
-            filaments_result = await db.execute(select(Filament).where(Filament.manufacturer_id == manufacturer_id))
+            filaments_result = await db.execute(
+                select(Filament).where(Filament.manufacturer_id == manufacturer_id)
+            )
             filaments_to_delete = filaments_result.scalars().all()
             for f in filaments_to_delete:
                 # Delete associated spools first
                 from app.models import Spool
-                spools_result = await db.execute(select(Spool).where(Spool.filament_id == f.id))
+
+                spools_result = await db.execute(
+                    select(Spool).where(Spool.filament_id == f.id)
+                )
                 spools_to_delete = spools_result.scalars().all()
                 for s in spools_to_delete:
                     await db.delete(s)
@@ -246,10 +291,10 @@ async def list_colors(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    
+
     result = await db.execute(query)
     rows = result.all()
-    
+
     items = []
     for color, usage_count in rows:
         # Convert to dict to include usage_count in the response model validation
@@ -263,11 +308,13 @@ async def list_colors(
     return PaginatedResponse(items=items, page=page, page_size=page_size, total=total)
 
 
-@router_colors.post("", response_model=ColorResponse, status_code=status.HTTP_201_CREATED)
+@router_colors.post(
+    "", response_model=ColorResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_color(
     data: ColorCreate,
     db: DBSession,
-    principal = RequirePermission("colors:create"),
+    principal=RequirePermission("colors:create"),
 ):
     color = Color(**data.model_dump())
     db.add(color)
@@ -294,7 +341,7 @@ async def update_color(
     color_id: int,
     data: ColorUpdate,
     db: DBSession,
-    principal = RequirePermission("colors:update"),
+    principal=RequirePermission("colors:update"),
 ):
     result = await db.execute(select(Color).where(Color.id == color_id))
     color = result.scalar_one_or_none()
@@ -317,7 +364,7 @@ async def update_color(
 async def delete_color(
     color_id: int,
     db: DBSession,
-    principal = RequirePermission("colors:delete"),
+    principal=RequirePermission("colors:delete"),
 ):
     result = await db.execute(select(Color).where(Color.id == color_id))
     color = result.scalar_one_or_none()
@@ -327,11 +374,16 @@ async def delete_color(
             detail={"code": "not_found", "message": "Color not found"},
         )
 
-    result = await db.execute(select(FilamentColor).where(FilamentColor.color_id == color_id).limit(1))
+    result = await db.execute(
+        select(FilamentColor).where(FilamentColor.color_id == color_id).limit(1)
+    )
     if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "conflict", "message": "Color is used by filaments, cannot delete"},
+            detail={
+                "code": "conflict",
+                "message": "Color is used by filaments, cannot delete",
+            },
         )
 
     await db.delete(color)
@@ -348,10 +400,15 @@ DEFAULT_FILAMENT_TYPES = ["PLA", "PETG", "ABS", "ASA", "TPU", "NYLON", "PC"]
 @router_filaments.get("/types", response_model=list[str])
 async def list_filament_types(db: DBSession, principal: PrincipalDep):
     """Return all known filament types: defaults merged with distinct types from DB, sorted."""
+    cached = response_cache.get("filament_types")
+    if cached is not None:
+        return cached
+
     result = await db.execute(select(Filament.material_type).distinct())
     db_types = {row[0] for row in result.all() if row[0]}
 
     all_types = sorted(set(DEFAULT_FILAMENT_TYPES) | db_types)
+    response_cache.set("filament_types", all_types, ttl=600)
     return all_types
 
 
@@ -378,11 +435,15 @@ async def list_filaments(
         query = query.where(Filament.manufacturer_id == manufacturer_id)
         count_query = count_query.where(Filament.manufacturer_id == manufacturer_id)
 
-    query = query.order_by(Filament.designation).offset((page - 1) * page_size).limit(page_size)
+    query = (
+        query.order_by(Filament.designation)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
 
     result = await db.execute(query)
     count_result = await db.execute(count_query)
-    
+
     items = result.scalars().unique().all()
     total = count_result.scalar() or 0
 
@@ -412,17 +473,23 @@ async def list_filaments(
         for f in items
     ]
 
-    return PaginatedResponse(items=items_with_count, page=page, page_size=page_size, total=total)
+    return PaginatedResponse(
+        items=items_with_count, page=page, page_size=page_size, total=total
+    )
 
 
-@router_filaments.post("", response_model=FilamentDetailResponse, status_code=status.HTTP_201_CREATED)
+@router_filaments.post(
+    "", response_model=FilamentDetailResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_filament(
     data: FilamentCreate,
     db: DBSession,
-    principal = RequirePermission("filaments:create"),
+    principal=RequirePermission("filaments:create"),
 ):
     # Fetch manufacturer to cascade properties if they are not provided
-    m_result = await db.execute(select(Manufacturer).where(Manufacturer.id == data.manufacturer_id))
+    m_result = await db.execute(
+        select(Manufacturer).where(Manufacturer.id == data.manufacturer_id)
+    )
     manufacturer = m_result.scalar_one_or_none()
     if manufacturer:
         if data.default_spool_weight_g is None:
@@ -454,6 +521,7 @@ async def create_filament(
 
     await db.commit()
     await event_bus.publish({"event": "filaments_changed"})
+    response_cache.delete("filament_types")
 
     # Reload with relationships
     result = await db.execute(
@@ -511,11 +579,12 @@ async def get_filament(filament_id: int, db: DBSession, principal: PrincipalDep)
         }
     )
 
+
 @router_filaments.patch("/bulk", status_code=status.HTTP_200_OK)
 async def update_filaments_bulk(
     data: BulkFilamentUpdateRequest,
     db: DBSession,
-    principal = RequirePermission("filaments:update"),
+    principal=RequirePermission("filaments:update"),
 ):
     """Bulk update fields on multiple filaments (price, diameter, spool weight, density)."""
     result = await db.execute(
@@ -537,6 +606,7 @@ async def update_filaments_bulk(
 
     await db.commit()
     await event_bus.publish({"event": "filaments_changed"})
+    response_cache.delete("filament_types")
     return {"success": True, "count": count}
 
 
@@ -544,31 +614,41 @@ async def update_filaments_bulk(
 async def delete_filaments_bulk(
     data: BulkFilamentDeleteRequest,
     db: DBSession,
-    principal = RequirePermission("filaments:delete"),
+    principal=RequirePermission("filaments:delete"),
 ):
     """Bulk delete multiple filaments. Use force=true to cascade-delete associated spools."""
-    result = await db.execute(
-        select(Filament).where(Filament.id.in_(data.filament_ids))
-    )
-    filaments = result.scalars().all()
+    filament_ids = list(data.filament_ids)
 
-    count = 0
-    for filament in filaments:
-        # Check for associated spools
-        spool_result = await db.execute(select(Spool).where(Spool.filament_id == filament.id).limit(1))
-        if spool_result.scalar_one_or_none():
-            if not data.force:
-                continue  # Skip filaments with spools when force is not set
-            else:
-                # Force delete all spools associated with this filament
-                spools_result = await db.execute(select(Spool).where(Spool.filament_id == filament.id))
-                for s in spools_result.scalars().all():
-                    await db.delete(s)
-        await db.delete(filament)
-        count += 1
+    # Find which filaments have associated spools
+    spool_check = await db.execute(
+        select(Spool.filament_id).where(Spool.filament_id.in_(filament_ids)).distinct()
+    )
+    filament_ids_with_spools = set(spool_check.scalars().all())
+
+    if data.force:
+        # Force: delete spools for all filaments that have them, then delete all filaments
+        if filament_ids_with_spools:
+            await db.execute(
+                delete(Spool).where(Spool.filament_id.in_(filament_ids_with_spools))
+            )
+        result = await db.execute(delete(Filament).where(Filament.id.in_(filament_ids)))
+        count = result.rowcount
+    else:
+        # Skip filaments that have spools
+        ids_to_delete = [
+            fid for fid in filament_ids if fid not in filament_ids_with_spools
+        ]
+        if ids_to_delete:
+            result = await db.execute(
+                delete(Filament).where(Filament.id.in_(ids_to_delete))
+            )
+            count = result.rowcount
+        else:
+            count = 0
 
     await db.commit()
     await event_bus.publish({"event": "filaments_changed"})
+    response_cache.delete("filament_types")
     return {"success": True, "count": count}
 
 
@@ -577,7 +657,7 @@ async def update_filament(
     filament_id: int,
     data: FilamentUpdate,
     db: DBSession,
-    principal = RequirePermission("filaments:update"),
+    principal=RequirePermission("filaments:update"),
 ):
     result = await db.execute(select(Filament).where(Filament.id == filament_id))
     filament = result.scalar_one_or_none()
@@ -593,15 +673,18 @@ async def update_filament(
     await db.commit()
     await db.refresh(filament)
     await event_bus.publish({"event": "filaments_changed"})
+    response_cache.delete("filament_types")
     return filament
 
 
-@router_filaments.put("/{filament_id}/colors", response_model=list[FilamentColorResponse])
+@router_filaments.put(
+    "/{filament_id}/colors", response_model=list[FilamentColorResponse]
+)
 async def replace_filament_colors(
     filament_id: int,
     data: FilamentColorsReplace,
     db: DBSession,
-    principal = RequirePermission("filaments:update"),
+    principal=RequirePermission("filaments:update"),
 ):
     """Replace all color assignments for a filament (spec: PUT /filaments/{id}/colors)."""
     result = await db.execute(select(Filament).where(Filament.id == filament_id))
@@ -617,11 +700,9 @@ async def replace_filament_colors(
     filament.multi_color_style = data.multi_color_style
 
     # Delete existing filament_colors
-    existing = await db.execute(
-        select(FilamentColor).where(FilamentColor.filament_id == filament_id)
+    await db.execute(
+        delete(FilamentColor).where(FilamentColor.filament_id == filament_id)
     )
-    for fc in existing.scalars().all():
-        await db.delete(fc)
 
     await db.flush()
 
@@ -646,6 +727,7 @@ async def replace_filament_colors(
             detail={"code": "color_update_failed", "message": str(e)},
         )
     await event_bus.publish({"event": "filaments_changed"})
+    response_cache.delete("filament_types")
 
     # Reload with color relationships
     result = await db.execute(
@@ -661,7 +743,7 @@ async def replace_filament_colors(
 async def delete_filament(
     filament_id: int,
     db: DBSession,
-    principal = RequirePermission("filaments:delete"),
+    principal=RequirePermission("filaments:delete"),
     force: bool = False,
 ):
     result = await db.execute(select(Filament).where(Filament.id == filament_id))
@@ -674,19 +756,27 @@ async def delete_filament(
 
     from app.models import Spool
 
-    result = await db.execute(select(Spool).where(Spool.filament_id == filament_id).limit(1))
+    result = await db.execute(
+        select(Spool).where(Spool.filament_id == filament_id).limit(1)
+    )
     if result.scalar_one_or_none():
         if not force:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail={"code": "conflict", "message": "Filament has spools, cannot delete without force flag"},
+                detail={
+                    "code": "conflict",
+                    "message": "Filament has spools, cannot delete without force flag",
+                },
             )
         else:
             # Force delete all spools associated with this filament
-            spools_result = await db.execute(select(Spool).where(Spool.filament_id == filament_id))
+            spools_result = await db.execute(
+                select(Spool).where(Spool.filament_id == filament_id)
+            )
             for s in spools_result.scalars().all():
                 await db.delete(s)
 
     await db.delete(filament)
     await db.commit()
     await event_bus.publish({"event": "filaments_changed"})
+    response_cache.delete("filament_types")

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.deps import DBSession, RequirePermission
+from app.core.cache import response_cache
 from app.models import AppSettings
 
 router = APIRouter(prefix="/admin/app-settings", tags=["admin"])
@@ -71,6 +72,8 @@ async def update_app_settings(
     await db.commit()
     await db.refresh(settings_row)
 
+    response_cache.delete("app_settings_public")
+
     return AppSettingsResponse(
         login_disabled=settings_row.login_disabled, currency=settings_row.currency
     )
@@ -81,11 +84,18 @@ public_router = APIRouter(prefix="/app-settings", tags=["app-settings"])
 
 @public_router.get("/public-info", response_model=AppSettingsResponse)
 async def get_public_app_settings(db: DBSession):
+    cached = response_cache.get("app_settings_public")
+    if cached is not None:
+        return cached
+
     result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
     settings_row = result.scalar_one_or_none()
     if settings_row is None:
-        return AppSettingsResponse(login_disabled=False, currency="EUR")
+        resp = AppSettingsResponse(login_disabled=False, currency="EUR")
+    else:
+        resp = AppSettingsResponse(
+            login_disabled=settings_row.login_disabled, currency=settings_row.currency
+        )
 
-    return AppSettingsResponse(
-        login_disabled=settings_row.login_disabled, currency=settings_row.currency
-    )
+    response_cache.set("app_settings_public", resp, ttl=300)
+    return resp

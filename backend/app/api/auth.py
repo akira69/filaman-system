@@ -61,7 +61,10 @@ async def login(
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"code": "no_admin_user", "message": "No active admin user found"},
+                detail={
+                    "code": "no_admin_user",
+                    "message": "No active admin user found",
+                },
             )
     else:
         result = await db.execute(
@@ -74,7 +77,10 @@ async def login(
         if user is None or user.password_hash is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"code": "invalid_credentials", "message": "Invalid email or password"},
+                detail={
+                    "code": "invalid_credentials",
+                    "message": "Invalid email or password",
+                },
             )
 
         if not user.is_active or user.deleted_at is not None:
@@ -86,7 +92,10 @@ async def login(
         if not await verify_password_async(data.password, user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"code": "invalid_credentials", "message": "Invalid email or password"},
+                detail={
+                    "code": "invalid_credentials",
+                    "message": "Invalid email or password",
+                },
             )
 
     secret = generate_token_secret()
@@ -109,7 +118,10 @@ async def login(
     # So we relax Secure=True if we detect an insecure connection.
     secure_cookie = not settings.debug
     if secure_cookie:
-        is_ssl = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+        is_ssl = (
+            request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto") == "https"
+        )
         if not is_ssl:
             secure_cookie = False
 
@@ -133,7 +145,9 @@ async def login(
     )
 
     await db.execute(
-        update(User).where(User.id == user.id).values(last_login_at=datetime.now(timezone.utc))
+        update(User)
+        .where(User.id == user.id)
+        .values(last_login_at=datetime.now(timezone.utc))
     )
     await db.commit()
 
@@ -159,6 +173,11 @@ async def logout(
             .values(revoked_at=datetime.now(timezone.utc))
         )
         await db.commit()
+
+        # Evict from auth cache so the session is not reused
+        from app.core.middleware import _session_cache
+
+        _session_cache.pop(principal.session_id, None)
 
     response.delete_cookie("session_id", path="/")
     response.delete_cookie("csrf_token", path="/")

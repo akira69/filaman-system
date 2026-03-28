@@ -19,6 +19,7 @@ from sqlalchemy.inspection import inspect as sa_inspect
 
 import httpx
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
+from app.core.cache import response_cache
 from app.core.config import settings
 from app.models import (
     AppSettings,
@@ -139,6 +140,10 @@ async def plugin_nav(
     db: DBSession,
     _principal: PrincipalDep,
 ):
+    cached = response_cache.get("plugin_nav")
+    if cached is not None:
+        return cached
+
     result = await db.execute(
         select(InstalledPlugin)
         .where(InstalledPlugin.is_active.is_(True))
@@ -147,7 +152,12 @@ async def plugin_nav(
         .where(InstalledPlugin.page_url != "")
         .order_by(InstalledPlugin.name)
     )
-    return result.scalars().all()
+    items = result.scalars().all()
+
+    # Cache the serialized list (ORM objects can't be pickled after session closes)
+    serialized = [PluginNavItem.model_validate(p) for p in items]
+    response_cache.set("plugin_nav", serialized, ttl=600)
+    return serialized
 
 
 # ------------------------------------------------------------------ #
@@ -503,8 +513,9 @@ async def install_from_registry(
 
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
 
-    # Version-Cache invalidieren (Plugin-Status hat sich geaendert)
+    # Caches invalidieren (Plugin-Status hat sich geaendert)
     _invalidate_version_cache()
+    response_cache.delete("plugin_nav")
 
     action = "aktualisiert" if is_upgrade else "installiert"
     return PluginInstallResponse(
@@ -609,8 +620,9 @@ async def install_plugin(
 
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
 
-    # Version-Cache invalidieren (Plugin-Status hat sich geaendert)
+    # Caches invalidieren (Plugin-Status hat sich geaendert)
     _invalidate_version_cache()
+    response_cache.delete("plugin_nav")
 
     action = "aktualisiert" if is_upgrade else "installiert"
     return PluginInstallResponse(
@@ -694,8 +706,9 @@ async def uninstall_plugin(
             },
         )
 
-    # Version-Cache invalidieren (Plugin entfernt)
+    # Caches invalidieren (Plugin entfernt)
     _invalidate_version_cache()
+    response_cache.delete("plugin_nav")
 
 
 @router.patch("/plugins/{plugin_key}/active", response_model=PluginResponse)
@@ -717,6 +730,7 @@ async def toggle_plugin_active(
                 "message": str(e),
             },
         )
+    response_cache.delete("plugin_nav")
     return plugin
 
 
@@ -959,6 +973,8 @@ async def killswitch(
         total,
         len([v for v in deleted.values() if v > 0]),
     )
+
+    response_cache.clear()
 
     return KillswitchResponse(
         message=f"Killswitch executed. {total} rows deleted.",
@@ -1528,6 +1544,8 @@ async def import_backup(
 
         logger.info(f"Backup import completed successfully by user {principal.user_id}")
 
+        response_cache.clear()
+
         return BackupImportResponse(
             message=f"Backup imported successfully. Auto-backup created at: {auto_backup_path.name}",
             imported=imported,
@@ -1614,6 +1632,8 @@ async def import_inventory_backup(
         logger.info(
             f"Inventory backup import completed successfully by user {principal.user_id}"
         )
+
+        response_cache.clear()
 
         return BackupImportResponse(
             message=f"Inventory backup imported successfully. Auto-backup created at: {auto_backup_path.name}",
@@ -1792,6 +1812,8 @@ async def restore_sqlite_backup(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "restore_failed", "message": f"Restore failed: {exc}"},
         )
+
+    response_cache.clear()
 
     return SqliteRestoreResponse(
         message=f"Database restored from '{body.filename}'. Please reload the application.",

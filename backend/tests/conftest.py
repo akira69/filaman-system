@@ -31,22 +31,22 @@ async def db_engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     yield engine
-    
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-    
+
     await engine.dispose()
 
 
 @pytest_asyncio.fixture(scope="function")
 async def db_session(db_engine):
     async_session = async_sessionmaker(db_engine, expire_on_commit=False)
-    
+
     async with async_session() as session:
         await run_all_seeds(session)
         yield session
@@ -55,13 +55,14 @@ async def db_session(db_engine):
 @pytest_asyncio.fixture(scope="function")
 async def client(db_session, db_engine):
     from httpx import ASGITransport
-    
+
     async def override_db():
         yield db_session
-    
+
     from app.api.deps import get_db
+
     app.dependency_overrides[get_db] = override_db
-    
+
     # Patch the global async_session_maker so the AuthMiddleware
     # (which creates its own DB sessions) uses the same test session.
     # SQLite in-memory + StaticPool shares one connection, but concurrent
@@ -69,13 +70,16 @@ async def client(db_session, db_engine):
     # By returning the same session, the middleware sees test fixture data.
     import app.core.database as db_module
     import app.core.middleware as mw_module
+
     original_db_session_maker = db_module.async_session_maker
     original_mw_session_maker = mw_module.async_session_maker
 
     class _FakeSessionContext:
         """Context manager that returns the existing test session without closing it."""
+
         async def __aenter__(self):
             return db_session
+
         async def __aexit__(self, *args):
             pass  # Don't close the shared test session
 
@@ -84,11 +88,20 @@ async def client(db_session, db_engine):
 
     db_module.async_session_maker = _fake_session_maker
     mw_module.async_session_maker = _fake_session_maker
-    
+
+    # Clear auth caches so stale entries from prior tests don't interfere
+    from app.core.middleware import invalidate_auth_caches
+
+    invalidate_auth_caches()
+    # Clear API response caches as well
+    from app.core.cache import response_cache
+
+    response_cache.clear()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
-    
+
     db_module.async_session_maker = original_db_session_maker
     mw_module.async_session_maker = original_mw_session_maker
     app.dependency_overrides.clear()
@@ -98,12 +111,12 @@ async def client(db_session, db_engine):
 async def admin_user(db_session):
     from app.models import User
     from sqlalchemy import select
-    
+
     result = await db_session.execute(
         select(User).where(User.email == "test-admin@example.com")
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         user = User(
             email="test-admin@example.com",
@@ -115,7 +128,7 @@ async def admin_user(db_session):
         db_session.add(user)
         await db_session.commit()
         await db_session.refresh(user)
-    
+
     return user
 
 
@@ -123,7 +136,7 @@ async def admin_user(db_session):
 async def normal_user(db_session):
     from app.models import User, UserRole, Role
     from sqlalchemy import select
-    
+
     user = User(
         email="test-user@example.com",
         password_hash=hash_password("testpassword"),
@@ -134,22 +147,22 @@ async def normal_user(db_session):
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
-    
+
     result = await db_session.execute(select(Role).where(Role.key == "user"))
     user_role = result.scalar_one_or_none()
-    
+
     if user_role:
         user_role_assoc = UserRole(user_id=user.id, role_id=user_role.id)
         db_session.add(user_role_assoc)
         await db_session.commit()
-    
+
     return user
 
 
 @pytest_asyncio.fixture
 async def auth_client(client, admin_user, db_session):
     from app.models import UserSession
-    
+
     secret = generate_token_secret()
     session = UserSession(
         user_id=admin_user.id,
@@ -158,13 +171,13 @@ async def auth_client(client, admin_user, db_session):
     db_session.add(session)
     await db_session.commit()
     await db_session.refresh(session)
-    
+
     session_token = f"sess.{session.id}.{secret}"
     csrf_token = generate_token_secret()
-    
+
     client.cookies.set("session_id", session_token)
     client.cookies.set("csrf_token", csrf_token)
-    
+
     return client, csrf_token
 
 

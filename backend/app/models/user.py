@@ -1,7 +1,15 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, TZDateTime
@@ -27,20 +35,34 @@ class User(Base, TimestampMixin):
 
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
 
-    oauth_identities: Mapped[list["OAuthIdentity"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    roles: Mapped[list["Role"]] = relationship(secondary="user_roles", back_populates="users")
-    direct_permissions: Mapped[list["Permission"]] = relationship(secondary="user_permissions", back_populates="users")
-    api_keys: Mapped[list["UserApiKey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    oauth_identities: Mapped[list["OAuthIdentity"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    roles: Mapped[list["Role"]] = relationship(
+        secondary="user_roles", back_populates="users"
+    )
+    direct_permissions: Mapped[list["Permission"]] = relationship(
+        secondary="user_permissions", back_populates="users"
+    )
+    api_keys: Mapped[list["UserApiKey"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    sessions: Mapped[list["UserSession"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     spool_events: Mapped[list["SpoolEvent"]] = relationship(back_populates="user")
-    filament_ratings: Mapped[list["FilamentRating"]] = relationship(back_populates="user")
+    filament_ratings: Mapped[list["FilamentRating"]] = relationship(
+        back_populates="user"
+    )
 
 
 class OAuthIdentity(Base, TimestampMixin):
     __tablename__ = "oauth_identities"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     provider_subject: Mapped[str] = mapped_column(String(255), nullable=False)
     provider_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -48,22 +70,30 @@ class OAuthIdentity(Base, TimestampMixin):
 
     access_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
-    token_expires_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(
+        TZDateTime(), nullable=True
+    )
 
     last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="oauth_identities")
 
-    __table_args__ = (UniqueConstraint("provider", "provider_subject", name="uq_oauth_provider_subject"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "provider", "provider_subject", name="uq_oauth_provider_subject"
+        ),
+    )
 
 
 class UserApiKey(Base, TimestampMixin):
     __tablename__ = "user_api_keys"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     scopes: Mapped[list[str] | None] = mapped_column(nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
@@ -74,10 +104,16 @@ class UserSession(Base):
     __tablename__ = "user_sessions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    session_token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    session_token_hash: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
 
-    created_at: Mapped[datetime] = mapped_column(TZDateTime(), default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TZDateTime(), default=func.now(), nullable=False
+    )
     last_used_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)

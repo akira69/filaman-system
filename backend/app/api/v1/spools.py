@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
+from app.core.cache import response_cache
 from app.core.db_utils import get_next_available_id, get_next_available_ids
 from app.api.v1.schemas import PaginatedResponse
 from app.api.v1.schemas_spool import (
@@ -174,8 +175,16 @@ async def list_spool_statuses(
     db: DBSession,
     principal: PrincipalDep,
 ):
+    cached = response_cache.get("spool_statuses")
+    if cached is not None:
+        return cached
+
     result = await db.execute(select(SpoolStatus).order_by(SpoolStatus.sort_order))
-    return result.scalars().all()
+    items = result.scalars().all()
+
+    serialized = [SpoolStatusResponse.model_validate(s) for s in items]
+    response_cache.set("spool_statuses", serialized, ttl=600)
+    return serialized
 
 
 @router_spools.get("", response_model=PaginatedResponse[SpoolResponse])
@@ -407,9 +416,9 @@ async def create_spools_bulk(
         for i in range(data.quantity):
             spool = Spool(id=next_ids[i], **spool_data.copy())
             db.add(spool)
-            await db.flush()
-            spool_ids.append(spool.id)
+            spool_ids.append(next_ids[i])
 
+        await db.flush()
         await db.commit()
     except Exception as e:
         await db.rollback()
@@ -471,14 +480,9 @@ async def delete_spools_bulk(
     principal=RequirePermission("spools:delete"),
 ):
     """Bulk archive or permanently delete multiple spools."""
-    result = await db.execute(select(Spool).where(Spool.id.in_(data.spool_ids)))
-    spools = result.scalars().all()
-
-    count = 0
     if data.permanent:
-        for spool in spools:
-            await db.delete(spool)
-            count += 1
+        result = await db.execute(delete(Spool).where(Spool.id.in_(data.spool_ids)))
+        count = result.rowcount
     else:
         archived_result = await db.execute(
             select(SpoolStatus).where(SpoolStatus.key == "archived")
@@ -489,9 +493,12 @@ async def delete_spools_bulk(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail={"code": "config_error", "message": "Archived status not found"},
             )
-        for spool in spools:
-            spool.status_id = archived_status.id
-            count += 1
+        result = await db.execute(
+            update(Spool)
+            .where(Spool.id.in_(data.spool_ids))
+            .values(status_id=archived_status.id)
+        )
+        count = result.rowcount
 
     await db.commit()
     await event_bus.publish({"event": "spools_changed"})
