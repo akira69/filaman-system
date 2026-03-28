@@ -23,18 +23,6 @@ import Layout from '../../layouts/Layout.astro'
     }
   </style>
   <style is:global>
-    .col-picker-wrap { position: relative; }
-    .col-picker-dropdown {
-      display: none; position: absolute; right: 0; top: calc(100% + 4px);
-      background: var(--bg-elevated); border: 1px solid var(--border);
-      border-radius: var(--radius-sm); padding: 8px 12px; z-index: 200;
-      min-width: 170px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    .col-picker-dropdown label {
-      display: flex; align-items: center; gap: 8px; padding: 4px 0;
-      cursor: pointer; font-size: 0.85rem; white-space: nowrap; user-select: none;
-    }
-    .col-picker-dropdown label:hover { color: var(--accent); }
     .pagination-container { display: flex; justify-content: space-between; align-items: center; }
     .pagination-pages { display: flex; gap: 4px; align-items: center; font-size: 0.8rem; }
     .pagination-pages a { color: var(--accent); cursor: pointer; padding: 2px 6px; text-decoration: none; border-radius: 3px; }
@@ -82,12 +70,15 @@ import Layout from '../../layouts/Layout.astro'
           <th data-i18n="manufacturers.filaments" data-sort="filament_count" class="sortable col-filaments">Filaments</th>
           <th data-i18n="manufacturers.spools" data-sort="spool_count" class="sortable col-spools">Spools</th>
           <th data-i18n="manufacturers.materials" class="col-materials">Materials</th>
+          <th data-i18n="manufacturers.colTotalPrice" class="col-total_price">Total Value</th>
+          <th data-i18n="manufacturers.colArchived" class="col-archived">Archived</th>
+          <th data-i18n="manufacturers.colSpoolWeight" class="col-spool_weight">Spool Weight</th>
           <th style="text-align: right;" data-i18n="common.actions">Actions</th>
         </tr>
       </thead>
       <tbody id="manufacturers-table">
         <tr>
-          <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;" data-i18n="common.loading">Loading...</td>
+          <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 24px;" data-i18n="common.loading">Loading...</td>
         </tr>
       </tbody>
     </table>
@@ -213,6 +204,7 @@ import Layout from '../../layouts/Layout.astro'
     import { t, initI18n } from '../../lib/i18n'
     import { fetchAllPages } from '../../lib/api'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
+    import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
     await initI18n()
     await initCurrency()
 
@@ -360,7 +352,7 @@ import Layout from '../../layouts/Layout.astro'
         console.error('Failed to load manufacturers:', error)
         document.getElementById('manufacturers-table')!.innerHTML = `
           <tr>
-            <td colspan="6" style="text-align: center; color: var(--error-text); padding: 24px;">${t('manufacturers.failedLoad')}</td>
+            <td colspan="9" style="text-align: center; color: var(--error-text); padding: 24px;">${t('manufacturers.failedLoad')}</td>
           </tr>
         `
       }
@@ -478,7 +470,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || material
         tbody.innerHTML = `
           <tr>
-            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+            <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 24px;">
               ${hasFilters ? t('manufacturers.noResults') : t('manufacturers.noManufacturers')}
             </td>
           </tr>
@@ -499,6 +491,9 @@ import Layout from '../../layouts/Layout.astro'
           <td class="col-filaments"><a href="/filaments?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.filament_count || 0}</a></td>
           <td class="col-spools"><a href="/spools?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.spool_count || 0}</a></td>
           <td class="col-materials">${mf.materials && mf.materials.length > 0 ? mf.materials.map(m => escapeHtml(m)).join(', ') : '<span style="color: var(--text-muted);">-</span>'}</td>
+          <td class="col-total_price" style="font-family: monospace;">${mf.total_price_available != null ? formatPrice(mf.total_price_available, getCurrency()) : '-'}</td>
+          <td class="col-archived" style="color: var(--text-muted);">${mf.archived_spool_count ?? '-'}</td>
+          <td class="col-spool_weight" style="font-family: monospace;">${mf.empty_spool_weight_g != null ? mf.empty_spool_weight_g + 'g' : '-'}</td>
           <td style="text-align: right; white-space: nowrap;">
             <button data-mf='${escapeHtml(JSON.stringify(mf))}' class="btn-edit fm-btn fm-btn-outline stop-prop" style="padding: 5px 12px; font-size: 0.8rem;">${t('common.edit')}</button>
             <button data-id="${mf.id}" class="btn-delete fm-btn fm-btn-danger stop-prop" style="padding: 5px 12px; font-size: 0.8rem; margin-left: 6px;">${t('common.delete')}</button>
@@ -756,74 +751,32 @@ import Layout from '../../layouts/Layout.astro'
     })
 
     // ── Column Visibility ──────────────────────────────────────────────
-    const MFR_OPTIONAL_COLS = [
-      { key: 'url', label: t('manufacturers.url') },
-      { key: 'filaments', label: t('manufacturers.filaments') },
-      { key: 'spools', label: t('manufacturers.spools') },
-      { key: 'materials', label: t('manufacturers.materials') },
+    const mfrColumnGroups: ColumnGroup[] = [
+      {
+        heading: t('common.columnsStandard'),
+        columns: [
+          { key: 'url', label: t('manufacturers.url') },
+          { key: 'filaments', label: t('manufacturers.filaments') },
+          { key: 'spools', label: t('manufacturers.spools') },
+          { key: 'materials', label: t('manufacturers.materials') },
+        ],
+      },
+      {
+        heading: t('common.columnsExtended'),
+        columns: [
+          { key: 'total_price', label: t('manufacturers.colTotalPrice') },
+          { key: 'archived', label: t('manufacturers.colArchived') },
+          { key: 'spool_weight', label: t('manufacturers.colSpoolWeight') },
+        ],
+      },
     ]
-    let mfrVisibleCols: Set<string> = (() => {
-      try {
-        const saved = localStorage.getItem('filaman-columns-manufacturers')
-        if (saved) return new Set(JSON.parse(saved) as string[])
-      } catch {}
-      return new Set(MFR_OPTIONAL_COLS.map(c => c.key))
-    })()
-
-    function applyMfrColumnVisibility() {
-      let style = document.getElementById('col-vis-style') as HTMLStyleElement | null
-      if (!style) {
-        style = document.createElement('style')
-        style.id = 'col-vis-style'
-        document.head.appendChild(style)
-      }
-      style.textContent = MFR_OPTIONAL_COLS
-        .filter(c => !mfrVisibleCols.has(c.key))
-        .map(c => `.fm-table .col-${c.key} { display: none; }`)
-        .join('\n')
-    }
-
-    function renderColumnPicker() {
-      const dropdown = document.getElementById('columns-dropdown')!
-      const frag = document.createDocumentFragment()
-      MFR_OPTIONAL_COLS.forEach(c => {
-        const lbl = document.createElement('label')
-        const cb = document.createElement('input')
-        cb.type = 'checkbox'
-        cb.className = 'fm-checkbox'
-        cb.dataset.col = c.key
-        cb.checked = mfrVisibleCols.has(c.key)
-        cb.addEventListener('change', () => {
-          if (cb.checked) mfrVisibleCols.add(c.key)
-          else mfrVisibleCols.delete(c.key)
-          localStorage.setItem('filaman-columns-manufacturers', JSON.stringify([...mfrVisibleCols]))
-          applyMfrColumnVisibility()
-        })
-        lbl.appendChild(cb)
-        lbl.append(' ' + c.label)
-        frag.appendChild(lbl)
-      })
-      dropdown.textContent = ''
-      dropdown.appendChild(frag)
-    }
-
-    document.getElementById('btn-columns')?.addEventListener('click', (e) => {
-      e.stopPropagation()
-      const dropdown = document.getElementById('columns-dropdown')!
-      if (dropdown.style.display === 'block') {
-        dropdown.style.display = 'none'
-      } else {
-        renderColumnPicker()
-        dropdown.style.display = 'block'
-      }
+    initColumnPicker({
+      storageKey: 'filaman-columns-manufacturers',
+      defaultVisible: ['url', 'filaments', 'spools', 'materials'],
+      groups: mfrColumnGroups,
+      btnId: 'btn-columns',
+      dropdownId: 'columns-dropdown',
     })
-    document.addEventListener('click', () => {
-      const dropdown = document.getElementById('columns-dropdown')
-      if (dropdown) dropdown.style.display = 'none'
-    })
-    document.getElementById('columns-dropdown')?.addEventListener('click', e => e.stopPropagation())
-
-    applyMfrColumnVisibility()
     // ── End Column Visibility ──────────────────────────────────────────
 
     setupSortableHeaders()

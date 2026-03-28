@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Erweiterte Spaltenauswahl: Spulen, Filamente und Hersteller bieten jetzt viele zusätzliche Spalten (Preis, Gewicht, Kaufdatum, Dichte u.v.m.) — gruppiert in Standard, Erweitert und Extrafelder" }
+        ],
+        "en": [
+          { "type": "feature", "text": "Extended column picker: Spools, Filaments and Manufacturers now offer many additional columns (price, weight, purchase date, density and more) — grouped into Standard, Extended and Extra Fields" }
+        ]
+      }
+    },
+    {
       "version": "1.1.17",
       "date": "",
       "changes": {

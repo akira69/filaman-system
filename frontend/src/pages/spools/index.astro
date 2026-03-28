@@ -11,18 +11,6 @@ import Layout from '../../layouts/Layout.astro'
     .sortable.sort-desc::after { content: ' \2193'; opacity: 1; }
   </style>
   <style is:global>
-    .col-picker-wrap { position: relative; }
-    .col-picker-dropdown {
-      display: none; position: absolute; right: 0; top: calc(100% + 4px);
-      background: var(--bg-elevated); border: 1px solid var(--border);
-      border-radius: var(--radius-sm); padding: 8px 12px; z-index: 200;
-      min-width: 170px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    .col-picker-dropdown label {
-      display: flex; align-items: center; gap: 8px; padding: 4px 0;
-      cursor: pointer; font-size: 0.85rem; white-space: nowrap; user-select: none;
-    }
-    .col-picker-dropdown label:hover { color: var(--accent); }
     .pagination-container { display: flex; justify-content: space-between; align-items: center; }
     .pagination-pages { display: flex; gap: 4px; align-items: center; font-size: 0.8rem; }
     .pagination-pages a { color: var(--accent); cursor: pointer; padding: 2px 6px; text-decoration: none; border-radius: 3px; }
@@ -131,12 +119,19 @@ import Layout from '../../layouts/Layout.astro'
           <th data-i18n="spools.status" data-sort="status_id" class="sortable col-status">Status</th>
           <th data-i18n="spools.remaining" data-sort="remaining_weight_g" class="sortable col-remaining">Remaining</th>
           <th data-i18n="spools.location" data-sort="location_id" class="sortable col-location">Location</th>
+          <th data-i18n="spools.colPrice" class="col-price">Price</th>
+          <th data-i18n="spools.colMfrColor" class="col-mfr_color">Mfr. Color</th>
+          <th data-i18n="spools.colLot" class="col-lot">Lot</th>
+          <th data-i18n="spools.colPurchaseDate" class="col-purchase_date">Purchase Date</th>
+          <th data-i18n="spools.colLastUsed" class="col-last_used">Last Used</th>
+          <th data-i18n="spools.colTotalWeight" class="col-total_weight">Total Weight</th>
+          <th data-i18n="spools.colEmptyWeight" class="col-empty_weight">Empty Weight</th>
           <th style="width: 40px;"></th>
         </tr>
       </thead>
       <tbody id="spools-table">
         <tr>
-          <td colspan="9" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
+          <td colspan="16" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
         </tr>
       </tbody>
     </table>
@@ -217,6 +212,8 @@ import Layout from '../../layouts/Layout.astro'
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
     import { fetchAllPages } from '../../lib/api'
+    import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
+    import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     await initI18n()
 
     let currentPage = 1
@@ -546,7 +543,7 @@ import Layout from '../../layouts/Layout.astro'
         console.error('Failed to load spools:', error)
         document.getElementById('spools-table')!.innerHTML = `
           <tr>
-            <td colspan="9" style="text-align: center; color: var(--error-text);">${t('spools.failedLoad')}</td>
+            <td colspan="16" style="text-align: center; color: var(--error-text);">${t('spools.failedLoad')}</td>
           </tr>
         `
       }
@@ -603,6 +600,8 @@ import Layout from '../../layouts/Layout.astro'
 
       const colorDots = getColorDots(s)
       
+      const fil = getFilamentForSpool(s)
+      const currency = getCurrency()
       const hasTag = !!s.rfid_uid
       const isOnline = activeDevices.length > 0
       const iconColor = hasTag ? 'color: #10b981;' : 'color: var(--text-muted);'
@@ -632,6 +631,18 @@ import Layout from '../../layouts/Layout.astro'
             ${s.remaining_weight_g !== null ? s.remaining_weight_g.toFixed(0) + 'g' : '-'}
           </td>
           <td class="col-location" style="padding: 12px;">${getLocationName(s.location_id)}</td>
+          <td class="col-price" style="padding: 12px; font-family: monospace;">${s.purchase_price != null ? formatPrice(s.purchase_price, currency) : '-'}</td>
+          <td class="col-mfr_color" style="padding: 12px; color: var(--text-muted);">${fil?.manufacturer_color_name || '-'}</td>
+          <td class="col-lot" style="padding: 12px; color: var(--text-muted);">${s.lot_number || '-'}</td>
+          <td class="col-purchase_date" style="padding: 12px; color: var(--text-muted);">${s.purchase_date ? new Date(s.purchase_date).toLocaleDateString() : '-'}</td>
+          <td class="col-last_used" style="padding: 12px; color: var(--text-muted);">${s.last_used_at ? new Date(s.last_used_at).toLocaleDateString() : '-'}</td>
+          <td class="col-total_weight" style="padding: 12px; font-family: monospace;">${s.initial_total_weight_g != null ? s.initial_total_weight_g + 'g' : '-'}</td>
+          <td class="col-empty_weight" style="padding: 12px; font-family: monospace;">${s.empty_spool_weight_g != null ? s.empty_spool_weight_g + 'g' : '-'}</td>
+          ${((window as any).__spoolExtraFields || []).map((f: any) => {
+            const val = s.custom_fields?.[f.key]
+            const display = f.field_type === 'checkbox' ? (val ? '✓' : '✗') : (val ?? '-')
+            return `<td class="col-cf_${f.key}" style="padding: 12px; color: var(--text-muted);">${display}</td>`
+          }).join('')}
           ${rfidIcon}
         </tr>
       `
@@ -644,7 +655,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || statusId || locationId || manufacturerId || material
         tbody.innerHTML = `
           <tr>
-            <td colspan="9" style="text-align: center; color: var(--text-muted);">
+            <td colspan="16" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('spools.noResults') : `${t('spools.noSpools')} <a href="/spools/new" style="color: var(--accent);">${t('spools.addOne')}</a>.`}
             </td>
           </tr>
@@ -664,7 +675,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || statusId || locationId || manufacturerId || material
         tbody.innerHTML = `
           <tr>
-            <td colspan="9" style="text-align: center; color: var(--text-muted);">
+            <td colspan="16" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('spools.noResults') : `${t('spools.noSpools')} <a href="/spools/new" style="color: var(--accent);">${t('spools.addOne')}</a>.`}
             </td>
           </tr>
@@ -697,7 +708,7 @@ import Layout from '../../layouts/Layout.astro'
         const gid = `group-${groupIdx}`
         html += `
           <tr data-group="${gid}" style="background: var(--group-header-bg); font-weight: 600; cursor: pointer; user-select: none; border-left: 3px solid var(--group-header-border);" onmouseenter="this.style.background='var(--group-header-bg-hover)'" onmouseleave="this.style.background='var(--group-header-bg)'">
-            <td colspan="9" style="padding: 10px 12px; color: var(--text);">
+            <td colspan="16" style="padding: 10px 12px; color: var(--text);">
               <span data-toggle="${gid}" style="display: inline-block;">&#9660; ${group.colorDots} ${group.label}</span>
               <span style="margin-left: 12px; font-weight: 400; color: var(--text-muted); font-size: 0.85rem;">${group.manufacturer} &middot; ${group.material} &middot; ${t('spools.spoolsInGroup', { count: group.spools.length })}</span>
             </td>
@@ -838,77 +849,68 @@ import Layout from '../../layouts/Layout.astro'
     document.getElementById('filter-group')?.addEventListener('change', () => applyFiltersAndRender())
     
     // ── Column Visibility ──────────────────────────────────────────────
-    const SPL_OPTIONAL_COLS = [
-      { key: 'id', label: t('spools.id') },
-      { key: 'manufacturer', label: t('spools.manufacturer') },
-      { key: 'material', label: t('spools.material') },
-      { key: 'status', label: t('spools.status') },
-      { key: 'remaining', label: t('spools.remaining') },
-      { key: 'location', label: t('spools.location') },
+    const splColumnGroups: ColumnGroup[] = [
+      {
+        heading: t('common.columnsStandard'),
+        columns: [
+          { key: 'id', label: t('spools.id') },
+          { key: 'manufacturer', label: t('spools.manufacturer') },
+          { key: 'material', label: t('spools.material') },
+          { key: 'status', label: t('spools.status') },
+          { key: 'remaining', label: t('spools.remaining') },
+          { key: 'location', label: t('spools.location') },
+        ],
+      },
+      {
+        heading: t('common.columnsExtended'),
+        columns: [
+          { key: 'price', label: t('spools.colPrice') },
+          { key: 'mfr_color', label: t('spools.colMfrColor') },
+          { key: 'lot', label: t('spools.colLot') },
+          { key: 'purchase_date', label: t('spools.colPurchaseDate') },
+          { key: 'last_used', label: t('spools.colLastUsed') },
+          { key: 'total_weight', label: t('spools.colTotalWeight') },
+          { key: 'empty_weight', label: t('spools.colEmptyWeight') },
+        ],
+      },
     ]
-    let splVisibleCols: Set<string> = (() => {
+    const splPicker = initColumnPicker({
+      storageKey: 'filaman-columns-spools',
+      defaultVisible: ['id', 'manufacturer', 'material', 'status', 'remaining', 'location'],
+      groups: splColumnGroups,
+      btnId: 'btn-columns',
+      dropdownId: 'columns-dropdown',
+    })
+
+    // Load SystemExtraFields for spools and add as dynamic column group
+    async function loadSpoolExtraFieldColumns() {
       try {
-        const saved = localStorage.getItem('filaman-columns-spools')
-        if (saved) return new Set(JSON.parse(saved) as string[])
-      } catch {}
-      return new Set(SPL_OPTIONAL_COLS.map(c => c.key))
-    })()
-
-    function applySplColumnVisibility() {
-      let style = document.getElementById('col-vis-style') as HTMLStyleElement | null
-      if (!style) {
-        style = document.createElement('style')
-        style.id = 'col-vis-style'
-        document.head.appendChild(style)
+        const res = await fetch('/api/v1/system-extra-fields?target_type=spool', { credentials: 'include' })
+        if (!res.ok) return
+        const fields: any[] = await res.json()
+        if (fields.length === 0) return
+        const extraGroup: ColumnGroup = {
+          heading: t('common.columnsExtraFields'),
+          columns: fields.map(f => ({ key: `cf_${f.key}`, label: f.label })),
+        }
+        splPicker.updateGroups([...splColumnGroups, extraGroup])
+        // Add dynamic <th> headers for extra fields
+        const headerRow = document.querySelector('.fm-table thead tr')
+        if (headerRow) {
+          const lastTh = headerRow.querySelector('th:last-child')
+          fields.forEach(f => {
+            const th = document.createElement('th')
+            th.className = `col-cf_${f.key}`
+            th.textContent = f.label
+            headerRow.insertBefore(th, lastTh)
+          })
+        }
+        // Store fields for renderSpoolRow access
+        ;(window as any).__spoolExtraFields = fields
+      } catch (e) {
+        console.error('Failed to load spool extra field columns:', e)
       }
-      // Only static col keys (no user data) are interpolated here
-      style.textContent = SPL_OPTIONAL_COLS
-        .filter(c => !splVisibleCols.has(c.key))
-        .map(c => `.fm-table .col-${c.key} { display: none; }`)
-        .join('\n')
     }
-
-    function renderSplColumnPicker() {
-      const dropdown = document.getElementById('columns-dropdown')!
-      const frag = document.createDocumentFragment()
-      SPL_OPTIONAL_COLS.forEach(c => {
-        const lbl = document.createElement('label')
-        const cb = document.createElement('input')
-        cb.type = 'checkbox'
-        cb.className = 'fm-checkbox'
-        cb.dataset.col = c.key
-        cb.checked = splVisibleCols.has(c.key)
-        cb.addEventListener('change', () => {
-          if (cb.checked) splVisibleCols.add(c.key)
-          else splVisibleCols.delete(c.key)
-          localStorage.setItem('filaman-columns-spools', JSON.stringify([...splVisibleCols]))
-          applySplColumnVisibility()
-        })
-        lbl.appendChild(cb)
-        lbl.append(' ' + c.label)
-        frag.appendChild(lbl)
-      })
-      dropdown.textContent = ''
-      dropdown.appendChild(frag)
-    }
-
-    document.getElementById('btn-columns')?.addEventListener('click', (e) => {
-      e.stopPropagation()
-      const dropdown = document.getElementById('columns-dropdown')!
-      if (dropdown.style.display === 'block') {
-        dropdown.style.display = 'none'
-      } else {
-        renderSplColumnPicker()
-        dropdown.style.display = 'block'
-      }
-    })
-    document.addEventListener('click', () => {
-      const dropdown = document.getElementById('columns-dropdown')
-      if (dropdown) dropdown.style.display = 'none'
-    })
-    document.getElementById('columns-dropdown')?.addEventListener('click', e => e.stopPropagation())
-
-    applySplColumnVisibility()
     // ── End Column Visibility ──────────────────────────────────────────
 
     setupSortableHeaders()
@@ -917,7 +919,7 @@ import Layout from '../../layouts/Layout.astro'
     if (savedFilterState?.group) {
       (document.getElementById('filter-group') as HTMLInputElement).checked = true
     }
-    Promise.all([loadFilters(), loadActiveDevices()])
+    Promise.all([loadFilters(), loadActiveDevices(), initCurrency(), loadSpoolExtraFieldColumns()])
       .then(() => loadSpools())
 
     // Live-Update via SSE: Spulen automatisch neu laden

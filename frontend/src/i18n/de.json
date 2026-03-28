@@ -74,6 +74,9 @@
     "off": "Aus",
     "duplicate": "Duplizieren",
     "columns": "Spalten",
+    "columnsStandard": "Standard",
+    "columnsExtended": "Erweitert",
+    "columnsExtraFields": "Extrafelder",
     "perPage": "pro Seite"
   },
   "rfid": {
@@ -288,7 +291,13 @@
     "bulkConfirmDeleteForce": "Auch alle zugehörigen Spulen endgültig löschen. Dies kann nicht rückgängig gemacht werden.",
     "bulkSuccess": "{count} Filament(e) erfolgreich aktualisiert",
     "bulkDeleteSuccess": "{count} Filament(e) erfolgreich gelöscht",
-    "bulkError": "Massenoperation fehlgeschlagen"
+    "bulkError": "Massenoperation fehlgeschlagen",
+    "colPrice": "Preis",
+    "colMfrColor": "Herst.-Farbe",
+    "colFinish": "Oberfläche",
+    "colSubgroup": "Untergruppe",
+    "colWeight": "Materialgewicht",
+    "colDensity": "Dichte"
   },
   "spools": {
     "title": "Spulen",
@@ -429,7 +438,14 @@
     "bulkDeleteSuccess": "{count} Spule(n) erfolgreich gelöscht",
     "bulkError": "Massenoperation fehlgeschlagen",
     "bulkSelectAll": "Alle auswählen",
-    "bulkDeselectAll": "Alle abwählen"
+    "bulkDeselectAll": "Alle abwählen",
+    "colPrice": "Preis",
+    "colMfrColor": "Herst.-Farbe",
+    "colLot": "Chargennummer",
+    "colPurchaseDate": "Kaufdatum",
+    "colLastUsed": "Zuletzt verwendet",
+    "colTotalWeight": "Gesamtgewicht",
+    "colEmptyWeight": "Leergewicht"
   },
   "colors": {
     "title": "Farben verwalten",
@@ -546,7 +562,10 @@
     "availableSpools": "Verfügbare Spulen",
     "archivedSpools": "Archivierte Spulen",
     "totalValueAvailable": "Gesamtwert (verfügbar)",
-    "totalSpentAllTime": "Gesamtausgaben (historisch)"
+    "totalSpentAllTime": "Gesamtausgaben (historisch)",
+    "colTotalPrice": "Gesamtwert",
+    "colArchived": "Archiviert",
+    "colSpoolWeight": "Spulengewicht"
   },
   "admin": {
     "title": "Admin",

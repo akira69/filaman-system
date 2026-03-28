@@ -74,6 +74,9 @@
     "off": "Off",
     "duplicate": "Duplicate",
     "columns": "Columns",
+    "columnsStandard": "Standard",
+    "columnsExtended": "Extended",
+    "columnsExtraFields": "Extra Fields",
     "perPage": "per page"
   },
   "rfid": {
@@ -286,7 +289,13 @@
     "bulkConfirmDeleteForce": "Also delete all associated spools permanently. This cannot be undone.",
     "bulkSuccess": "{count} filament(s) updated successfully",
     "bulkDeleteSuccess": "{count} filament(s) deleted successfully",
-    "bulkError": "Bulk operation failed"
+    "bulkError": "Bulk operation failed",
+    "colPrice": "Price",
+    "colMfrColor": "Mfr. Color",
+    "colFinish": "Finish",
+    "colSubgroup": "Subgroup",
+    "colWeight": "Material Weight",
+    "colDensity": "Density"
   },
   "spools": {
     "title": "Spools",
@@ -427,7 +436,14 @@
     "bulkDeleteSuccess": "{count} spool(s) deleted successfully",
     "bulkError": "Bulk operation failed",
     "bulkSelectAll": "Select all",
-    "bulkDeselectAll": "Deselect all"
+    "bulkDeselectAll": "Deselect all",
+    "colPrice": "Price",
+    "colMfrColor": "Mfr. Color",
+    "colLot": "Lot Number",
+    "colPurchaseDate": "Purchase Date",
+    "colLastUsed": "Last Used",
+    "colTotalWeight": "Total Weight",
+    "colEmptyWeight": "Empty Weight"
   },
   "colors": {
     "title": "Manage Colors",
@@ -544,7 +560,10 @@
     "availableSpools": "Available Spools",
     "archivedSpools": "Archived Spools",
     "totalValueAvailable": "Total Value (available)",
-    "totalSpentAllTime": "Total Spent (all time)"
+    "totalSpentAllTime": "Total Spent (all time)",
+    "colTotalPrice": "Total Value",
+    "colArchived": "Archived",
+    "colSpoolWeight": "Spool Weight"
   },
   "admin": {
     "title": "Admin",

@@ -11,18 +11,6 @@ import Layout from '../../layouts/Layout.astro'
     .sortable.sort-desc::after { content: ' \2193'; opacity: 1; }
   </style>
   <style is:global>
-    .col-picker-wrap { position: relative; }
-    .col-picker-dropdown {
-      display: none; position: absolute; right: 0; top: calc(100% + 4px);
-      background: var(--bg-elevated); border: 1px solid var(--border);
-      border-radius: var(--radius-sm); padding: 8px 12px; z-index: 200;
-      min-width: 170px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    .col-picker-dropdown label {
-      display: flex; align-items: center; gap: 8px; padding: 4px 0;
-      cursor: pointer; font-size: 0.85rem; white-space: nowrap; user-select: none;
-    }
-    .col-picker-dropdown label:hover { color: var(--accent); }
     .pagination-container { display: flex; justify-content: space-between; align-items: center; }
     .pagination-pages { display: flex; gap: 4px; align-items: center; font-size: 0.8rem; }
     .pagination-pages a { color: var(--accent); cursor: pointer; padding: 2px 6px; text-decoration: none; border-radius: 3px; }
@@ -112,11 +100,17 @@ import Layout from '../../layouts/Layout.astro'
           <th data-i18n="filaments.colors" data-sort="colors" class="sortable col-colors">Colors</th>
           <th data-i18n="filaments.diameter" data-sort="diameter_mm" class="sortable col-diameter">Diameter</th>
           <th style="text-align: right;" data-i18n="filaments.spools" data-sort="spool_count" class="sortable col-spools">Spools</th>
+          <th data-i18n="filaments.colPrice" class="col-price">Price</th>
+          <th data-i18n="filaments.colMfrColor" class="col-mfr_color">Mfr. Color</th>
+          <th data-i18n="filaments.colFinish" class="col-finish">Finish</th>
+          <th data-i18n="filaments.colSubgroup" class="col-subgroup">Subgroup</th>
+          <th data-i18n="filaments.colWeight" class="col-weight">Material Weight</th>
+          <th data-i18n="filaments.colDensity" class="col-density">Density</th>
         </tr>
       </thead>
       <tbody id="filaments-table">
         <tr>
-          <td colspan="7" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
+          <td colspan="13" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
         </tr>
       </tbody>
     </table>
@@ -148,6 +142,8 @@ import Layout from '../../layouts/Layout.astro'
   
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
+    import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
+    import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     await initI18n()
 
     let currentPage = 1
@@ -430,7 +426,7 @@ import Layout from '../../layouts/Layout.astro'
         console.error('Failed to load filaments:', error)
         document.getElementById('filaments-table')!.innerHTML = `
           <tr>
-            <td colspan="7" style="text-align: center; color: var(--error-text);">${t('filaments.failedLoad')}</td>
+            <td colspan="13" style="text-align: center; color: var(--error-text);">${t('filaments.failedLoad')}</td>
           </tr>
         `
       }
@@ -453,7 +449,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || manufacturerId || type || color
         tbody.innerHTML = `
           <tr>
-            <td colspan="7" style="text-align: center; color: var(--text-muted);">
+            <td colspan="13" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('filaments.noResults') : `${t('filaments.noFilaments')} <a href="/filaments/new" style="color: var(--accent);">${t('filaments.addOne')}</a>.`}
             </td>
           </tr>
@@ -465,6 +461,7 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function renderFilamentRow(f: any): string {
+      const currency = getCurrency()
       return `
         <tr class="${selectedFilamentIds.has(f.id) ? 'bulk-selected' : ''}" style="cursor: pointer;" onclick="window.location='/filaments/${f.id}'">
           <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-filament-id="${f.id}" ${selectedFilamentIds.has(f.id) ? 'checked' : ''} onchange="window.__toggleFilamentSelection(${f.id}, this.checked)" /></td>
@@ -477,6 +474,17 @@ import Layout from '../../layouts/Layout.astro'
           <td class="col-colors" style="padding: 12px;">${renderColorDots(f.colors)}</td>
           <td class="col-diameter" style="padding: 12px; color: var(--text-muted);">${f.diameter_mm}mm</td>
           <td class="col-spools" style="padding: 12px; text-align: right; color: var(--text-muted);">${f.spool_count ?? 0}</td>
+          <td class="col-price" style="padding: 12px; font-family: monospace;">${f.price != null ? formatPrice(f.price, currency) : '-'}</td>
+          <td class="col-mfr_color" style="padding: 12px; color: var(--text-muted);">${f.manufacturer_color_name || '-'}</td>
+          <td class="col-finish" style="padding: 12px; color: var(--text-muted);">${f.finish_type || '-'}</td>
+          <td class="col-subgroup" style="padding: 12px; color: var(--text-muted);">${f.material_subgroup || '-'}</td>
+          <td class="col-weight" style="padding: 12px; font-family: monospace;">${f.raw_material_weight_g != null ? f.raw_material_weight_g + 'g' : '-'}</td>
+          <td class="col-density" style="padding: 12px; font-family: monospace;">${f.density_g_cm3 != null ? f.density_g_cm3 + ' g/cm\u00B3' : '-'}</td>
+          ${((window as any).__filamentExtraFields || []).map((ef: any) => {
+            const val = f.custom_fields?.[ef.key]
+            const display = ef.field_type === 'checkbox' ? (val ? '\u2713' : '\u2717') : (val ?? '-')
+            return `<td class="col-cf_${ef.key}" style="padding: 12px; color: var(--text-muted);">${display}</td>`
+          }).join('')}
         </tr>
       `
     }
@@ -489,7 +497,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || manufacturerId || type || color
         tbody.innerHTML = `
           <tr>
-            <td colspan="7" style="text-align: center; color: var(--text-muted);">
+            <td colspan="13" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('filaments.noResults') : `${t('filaments.noFilaments')} <a href="/filaments/new" style="color: var(--accent);">${t('filaments.addOne')}</a>.`}
             </td>
           </tr>
@@ -517,7 +525,7 @@ import Layout from '../../layouts/Layout.astro'
         const gid = `group-${groupIdx}`
         html += `
           <tr data-group="${gid}" style="background: var(--group-header-bg); font-weight: 600; cursor: pointer; user-select: none; border-left: 3px solid var(--group-header-border);" onmouseenter="this.style.background='var(--group-header-bg-hover)'" onmouseleave="this.style.background='var(--group-header-bg)'">
-            <td colspan="7" style="padding: 10px 12px; color: var(--text);">
+            <td colspan="13" style="padding: 10px 12px; color: var(--text);">
               <span data-toggle="${gid}" style="display: inline-block;">&#9660; ${group.label}</span>
               <span style="margin-left: 12px; font-weight: 400; color: var(--text-muted); font-size: 0.85rem;">${t('filaments.filamentsInGroup', { count: group.filaments.length })}</span>
             </td>
@@ -656,76 +664,65 @@ import Layout from '../../layouts/Layout.astro'
     document.getElementById('filter-group')?.addEventListener('change', () => applyFiltersAndRender())
     
     // ── Column Visibility ──────────────────────────────────────────────
-    const FIL_OPTIONAL_COLS = [
-      { key: 'manufacturer', label: t('filaments.manufacturer') },
-      { key: 'type', label: t('filaments.type') },
-      { key: 'colors', label: t('filaments.colors') },
-      { key: 'diameter', label: t('filaments.diameter') },
-      { key: 'spools', label: t('filaments.spools') },
+    const filColumnGroups: ColumnGroup[] = [
+      {
+        heading: t('common.columnsStandard'),
+        columns: [
+          { key: 'manufacturer', label: t('filaments.manufacturer') },
+          { key: 'type', label: t('filaments.type') },
+          { key: 'colors', label: t('filaments.colors') },
+          { key: 'diameter', label: t('filaments.diameter') },
+          { key: 'spools', label: t('filaments.spools') },
+        ],
+      },
+      {
+        heading: t('common.columnsExtended'),
+        columns: [
+          { key: 'price', label: t('filaments.colPrice') },
+          { key: 'mfr_color', label: t('filaments.colMfrColor') },
+          { key: 'finish', label: t('filaments.colFinish') },
+          { key: 'subgroup', label: t('filaments.colSubgroup') },
+          { key: 'weight', label: t('filaments.colWeight') },
+          { key: 'density', label: t('filaments.colDensity') },
+        ],
+      },
     ]
-    let filVisibleCols: Set<string> = (() => {
+    const filPicker = initColumnPicker({
+      storageKey: 'filaman-columns-filaments',
+      defaultVisible: ['manufacturer', 'type', 'colors', 'diameter', 'spools'],
+      groups: filColumnGroups,
+      btnId: 'btn-columns',
+      dropdownId: 'columns-dropdown',
+    })
+
+    // Load SystemExtraFields for filaments and add as dynamic column group
+    async function loadFilamentExtraFieldColumns() {
       try {
-        const saved = localStorage.getItem('filaman-columns-filaments')
-        if (saved) return new Set(JSON.parse(saved) as string[])
-      } catch {}
-      return new Set(FIL_OPTIONAL_COLS.map(c => c.key))
-    })()
-
-    function applyFilColumnVisibility() {
-      let style = document.getElementById('col-vis-style') as HTMLStyleElement | null
-      if (!style) {
-        style = document.createElement('style')
-        style.id = 'col-vis-style'
-        document.head.appendChild(style)
+        const res = await fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' })
+        if (!res.ok) return
+        const fields: any[] = await res.json()
+        if (fields.length === 0) return
+        const extraGroup: ColumnGroup = {
+          heading: t('common.columnsExtraFields'),
+          columns: fields.map(f => ({ key: `cf_${f.key}`, label: f.label })),
+        }
+        filPicker.updateGroups([...filColumnGroups, extraGroup])
+        // Add dynamic <th> headers for extra fields
+        const headerRow = document.querySelector('.fm-table thead tr')
+        if (headerRow) {
+          fields.forEach(f => {
+            const th = document.createElement('th')
+            th.className = `col-cf_${f.key}`
+            th.textContent = f.label
+            headerRow.appendChild(th)
+          })
+        }
+        // Store fields for renderFilamentRow access
+        ;(window as any).__filamentExtraFields = fields
+      } catch (e) {
+        console.error('Failed to load filament extra field columns:', e)
       }
-      // Only static col keys (no user data) are interpolated here
-      style.textContent = FIL_OPTIONAL_COLS
-        .filter(c => !filVisibleCols.has(c.key))
-        .map(c => `.fm-table .col-${c.key} { display: none; }`)
-        .join('\n')
     }
-
-    function renderFilColumnPicker() {
-      const dropdown = document.getElementById('columns-dropdown')!
-      const frag = document.createDocumentFragment()
-      FIL_OPTIONAL_COLS.forEach(c => {
-        const lbl = document.createElement('label')
-        const cb = document.createElement('input')
-        cb.type = 'checkbox'
-        cb.className = 'fm-checkbox'
-        cb.dataset.col = c.key
-        cb.checked = filVisibleCols.has(c.key)
-        cb.addEventListener('change', () => {
-          if (cb.checked) filVisibleCols.add(c.key)
-          else filVisibleCols.delete(c.key)
-          localStorage.setItem('filaman-columns-filaments', JSON.stringify([...filVisibleCols]))
-          applyFilColumnVisibility()
-        })
-        lbl.appendChild(cb)
-        lbl.append(' ' + c.label)
-        frag.appendChild(lbl)
-      })
-      dropdown.textContent = ''
-      dropdown.appendChild(frag)
-    }
-
-    document.getElementById('btn-columns')?.addEventListener('click', (e) => {
-      e.stopPropagation()
-      const dropdown = document.getElementById('columns-dropdown')!
-      if (dropdown.style.display === 'block') {
-        dropdown.style.display = 'none'
-      } else {
-        renderFilColumnPicker()
-        dropdown.style.display = 'block'
-      }
-    })
-    document.addEventListener('click', () => {
-      const dropdown = document.getElementById('columns-dropdown')
-      if (dropdown) dropdown.style.display = 'none'
-    })
-    document.getElementById('columns-dropdown')?.addEventListener('click', e => e.stopPropagation())
-
-    applyFilColumnVisibility()
     // ── End Column Visibility ──────────────────────────────────────────
 
     setupSortableHeaders()
@@ -734,7 +731,7 @@ import Layout from '../../layouts/Layout.astro'
     if (savedFilterState?.group) {
       (document.getElementById('filter-group') as HTMLInputElement).checked = true
     }
-    loadFilaments()
+    initCurrency().then(() => loadFilamentExtraFieldColumns()).then(() => loadFilaments())
 
     // Live-Update via SSE: Filamente automatisch neu laden
     let _filamentsReloadTimer: ReturnType<typeof setTimeout> | null = null
