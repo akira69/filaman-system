@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Drucker-Status (Treiber läuft/gestoppt) wird jetzt zuverlässig angezeigt — kein Flackern der Start/Stopp-Schaltfläche mehr bei mehreren Server-Prozessen" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Printer driver status (running/stopped) is now displayed reliably — no more flickering of the start/stop button when running multiple server processes" }
+        ]
+      }
+    },
+    {
       "version": "1.1.19",
       "date": "",
       "changes": {

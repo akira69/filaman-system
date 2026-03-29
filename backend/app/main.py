@@ -20,6 +20,7 @@ from app.core.database import async_session_maker
 from app.core.logging_config import setup_logging
 from app.core.middleware import AuthMiddleware, CsrfMiddleware, RequestIdMiddleware
 from app.core.seeds import run_all_seeds
+from app.core.shared_health import shared_health_store
 from app.plugins.manager import plugin_manager
 from app.services.plugin_service import PLUGINS_DIR
 
@@ -93,6 +94,11 @@ async def _watchdog_health_check() -> None:
     from sqlalchemy import select
 
     health = plugin_manager.get_health()
+
+    # Publish current health to shared memory so secondary workers
+    # can return accurate status to the frontend.
+    if health:
+        shared_health_store.publish(health)
 
     # 1. Restart drivers that report running=False
     for printer_id, status in list(health.items()):
@@ -205,6 +211,10 @@ async def lifespan(app: FastAPI):
         async with async_session_maker() as db:
             await run_all_seeds(db)
         await plugin_manager.start_all()
+        # Publish initial health so secondary workers have data immediately
+        initial_health = plugin_manager.get_health()
+        if initial_health:
+            shared_health_store.publish(initial_health)
 
     # Start the driver watchdog in every worker (handles health checks
     # for the primary and automatic takeover for secondary workers).
@@ -223,6 +233,8 @@ async def lifespan(app: FastAPI):
 
     if _is_primary:
         await plugin_manager.stop_all()
+        # Clean up shared health memory (primary is the owner)
+        shared_health_store.cleanup()
         # Release the file lock (OS also releases automatically on exit).
         # We intentionally do NOT delete the lock file so that secondary
         # workers can still attempt flock() on it during takeover.
@@ -234,6 +246,9 @@ async def lifespan(app: FastAPI):
                 pass
             _lock_fd = None
         _is_primary = False
+    else:
+        # Secondary workers just close their handle (don't unlink)
+        shared_health_store.close()
     logger.info("FilaMan backend stopped")
 
 

@@ -16,6 +16,7 @@ from app.models import (
     Filament,
     FilamentColor,
 )
+from app.core.shared_health import shared_health_store
 from app.plugins.manager import plugin_manager
 
 logger = logging.getLogger(__name__)
@@ -445,9 +446,18 @@ async def driver_health(
     principal: PrincipalDep,
 ):
     driver = plugin_manager.drivers.get(printer_id)
-    if not driver:
-        return {"running": False, "connected": False}
-    return driver.health()
+    if driver:
+        health = driver.health()
+        # Primary worker: update shared memory so secondaries stay in sync
+        shared_health_store.publish({printer_id: health})
+        return health
+
+    # No local driver – check shared memory from primary worker
+    shared = shared_health_store.read(printer_id)
+    if shared is not None:
+        return shared
+
+    return {"running": False, "connected": False}
 
 
 @router.post("/reconnect-all")
@@ -506,6 +516,11 @@ async def start_driver(
             detail={"code": "start_failed", "message": "Driver could not be started"},
         )
 
+    # Publish health immediately so all workers see the new state
+    driver = plugin_manager.drivers.get(printer_id)
+    if driver:
+        shared_health_store.publish({printer_id: driver.health()})
+
     return DriverActionResponse(success=True, message="Driver started")
 
 
@@ -530,6 +545,10 @@ async def stop_driver(
         return DriverActionResponse(success=True, message="Driver not running")
 
     await plugin_manager.stop_printer(printer_id)
+
+    # Clear shared health so secondaries immediately see running=False
+    shared_health_store.clear(printer_id)
+
     return DriverActionResponse(success=True, message="Driver stopped")
 
 
