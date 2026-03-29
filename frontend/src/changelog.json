@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Container-Start bei Nutzung von SQLite (z.\u00a0B. unter Home Assistant) konnte h\u00e4ngen bleiben — Datenbankverbindung und paralleler Worker-Start wurden korrigiert" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Container startup could hang when using SQLite (e.g. on Home Assistant) — database connection and parallel worker startup have been fixed" }
+        ]
+      }
+    },
+    {
       "version": "1.1.18",
       "date": "",
       "changes": {

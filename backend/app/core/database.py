@@ -1,4 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool, QueuePool
 
 from app.core.config import settings
 
@@ -10,16 +11,21 @@ _engine_kwargs: dict = {
 _is_sqlite = settings.database_url.startswith("sqlite")
 
 if _is_sqlite:
-    # SQLite: use StaticPool for aiosqlite (single connection, thread-safe)
-    from sqlalchemy.pool import StaticPool
-
+    # SQLite: NullPool – every checkout creates a fresh connection and closes it
+    # on return.  This avoids long-held file-locks when multiple Gunicorn workers
+    # run against the same SQLite file.  A 30-second busy_timeout lets workers
+    # wait for each other instead of failing immediately on write contention.
     _engine_kwargs.update(
-        poolclass=StaticPool,
-        connect_args={"check_same_thread": False},
+        poolclass=NullPool,
+        connect_args={
+            "check_same_thread": False,
+            "timeout": 30,  # SQLite busy_timeout in seconds
+        },
     )
 else:
     # MySQL / PostgreSQL: proper connection pooling
     _engine_kwargs.update(
+        poolclass=QueuePool,
         pool_size=10,
         max_overflow=20,
         pool_recycle=3600,

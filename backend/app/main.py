@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
+import fcntl
 import json as _json
 import os
 from pathlib import Path
+import tempfile
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +24,13 @@ from app.services.plugin_service import PLUGINS_DIR
 
 setup_logging()
 logger = __import__("logging").getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Startup guard – ensures seeds and plugin-start run only once across all
+# Gunicorn workers.  Uses an exclusive file lock so only the first worker
+# executes these tasks; the others skip them.
+# ---------------------------------------------------------------------------
+_STARTUP_LOCK_PATH = Path(tempfile.gettempdir()) / "filaman-startup.lock"
 
 
 def run_migrations() -> None:
@@ -62,13 +71,43 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Skipping in-app migrations (RUN_MIGRATIONS_IN_APP is false)")
 
-    async with async_session_maker() as db:
-        await run_all_seeds(db)
-    await plugin_manager.start_all()
+    # --- Startup guard: run seeds & plugin start only in ONE worker ----------
+    # With Gunicorn prefork (multiple workers) every worker executes this
+    # lifespan independently.  Seeds and plugin drivers must only run once.
+    # We use an exclusive file-lock: the first worker wins and runs the
+    # one-time tasks; all other workers skip them.
+    is_primary = False
+    lock_fd = None
+    try:
+        lock_fd = open(_STARTUP_LOCK_PATH, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        is_primary = True
+        logger.info("Primary worker – running seeds and starting plugins")
+    except OSError:
+        # Another worker already holds the lock
+        logger.info("Secondary worker – skipping seeds and plugin start")
+    except Exception as exc:
+        logger.warning(f"Startup lock failed ({exc}), running seeds as fallback")
+        is_primary = True
+
+    if is_primary:
+        async with async_session_maker() as db:
+            await run_all_seeds(db)
+        await plugin_manager.start_all()
+
     logger.info("FilaMan backend started")
     yield
     logger.info("Shutting down FilaMan backend...")
-    await plugin_manager.stop_all()
+    if is_primary:
+        await plugin_manager.stop_all()
+        # Release and clean up the lock file
+        if lock_fd:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd.close()
+                _STARTUP_LOCK_PATH.unlink(missing_ok=True)
+            except OSError:
+                pass
     logger.info("FilaMan backend stopped")
 
 
