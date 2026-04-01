@@ -2,7 +2,7 @@
 
 [ ] 2) speed up screen refresh from database read - is slow to populate
 
-[ ] 3) Add filament print PR (PR846 spoolman basis) :  https://github.com/akira69/filaman-system/pull/1
+[X] 3) Add filament print PR (PR846 spoolman basis) :  https://github.com/akira69/filaman-system/pull/1
 
 [ ] 4) Add label export workflow (PNG/AML) (PR860 spoolman basis)
 
