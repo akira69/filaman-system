@@ -66,6 +66,40 @@ const { id } = Astro.params
         </div>
       </div>
 
+      <details class="export-panel">
+        <summary class="export-summary">
+          <span id="title-export">Export</span>
+          <span class="export-summary-caret" aria-hidden="true"></span>
+        </summary>
+        <div class="export-body">
+          <div>
+            <label class="fm-label" id="label-export-format">Format</label>
+            <select id="select-export-format" class="fm-input">
+              <option id="option-export-png" value="png">PNG</option>
+              <option id="option-export-aml" value="aml">AML</option>
+            </select>
+          </div>
+
+          <div id="export-dpi-group">
+            <label class="fm-label export-inline-label">
+              <span id="label-export-dpi">DPI</span>
+              <span id="value-export-dpi">300</span>
+            </label>
+            <input type="range" id="input-export-dpi" min="72" max="600" value="300" class="fm-input" style="padding: 8px;">
+          </div>
+
+          <div class="export-meta">
+            <div class="export-meta-label" id="label-planned-filename">Planned file name</div>
+            <div class="export-meta-value" id="preview-filename">filament-label.png</div>
+          </div>
+
+          <button id="btn-export" class="fm-btn fm-btn-primary export-action-button" type="button">
+            <svg class="export-action-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+            <span id="btn-export-label">Export PNG</span>
+          </button>
+        </div>
+      </details>
+
       <div class="action-buttons">
         <button id="btn-print" class="fm-btn fm-btn-primary" onclick="filamanPrint()">Print</button>
         <button id="btn-reset" class="fm-btn fm-btn-outline">Reset</button>
@@ -141,6 +175,90 @@ const { id } = Astro.params
     margin: 0;
   }
 
+  .export-panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+  }
+
+  .export-summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+  }
+
+  .export-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .export-summary-caret {
+    width: 9px;
+    height: 9px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform var(--transition);
+    margin-top: -3px;
+  }
+
+  .export-panel[open] .export-summary-caret {
+    transform: rotate(225deg);
+    margin-top: 3px;
+  }
+
+  .export-body {
+    padding: 0 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .export-inline-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .export-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .export-meta-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+  }
+
+  .export-meta-value {
+    font-size: 0.74rem;
+    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Monaco, Consolas, Liberation Mono, monospace;
+    line-height: 1.45;
+    color: var(--text);
+    word-break: break-word;
+  }
+
+  .export-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .export-action-icon {
+    flex-shrink: 0;
+  }
+
   .preview-container {
     flex: 1;
     display: flex;
@@ -163,6 +281,12 @@ const { id } = Astro.params
     position: relative;
     border: 1px dashed #ccc;
     border-radius: 4px;
+  }
+
+  .label-preview.is-exporting-label {
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
   }
 
   #label-text-container {
@@ -357,6 +481,8 @@ const { id } = Astro.params
 </style>
 
 <script>
+  import { buildPlannedFileName, exportLabelAsAml, exportLabelAsPng } from '../../../lib/label-export'
+
   ;(window as any).filamanPrint = function() {
     try {
       document.execCommand('print', false, null)
@@ -365,13 +491,16 @@ const { id } = Astro.params
     }
   }
 
-  const id = window.location.pathname.split('/').filter(Boolean).slice(-2, -1)[0]
+  // The Astro route is scaffolded with a placeholder id, so query params carry the real label data.
+  const pathId = window.location.pathname.split('/').filter(Boolean).slice(-2, -1)[0]
+  const params = new URLSearchParams(window.location.search)
+  const id = params.get('id') || pathId
   let labelData = {
     id,
-    designation: '',
-    manufacturer: '',
-    type: '',
-    color: '',
+    designation: params.get('designation') || '',
+    manufacturer: params.get('mfr') || '',
+    type: params.get('type') || '',
+    color: params.get('color') || '',
   }
 
   const widthInput = document.getElementById('input-width') as HTMLInputElement
@@ -383,6 +512,13 @@ const { id } = Astro.params
   const checkMfr = document.getElementById('check-mfr') as HTMLInputElement
   const checkMat = document.getElementById('check-mat') as HTMLInputElement
   const checkColor = document.getElementById('check-color') as HTMLInputElement
+  const exportFormatSelect = document.getElementById('select-export-format') as HTMLSelectElement
+  const exportDpiInput = document.getElementById('input-export-dpi') as HTMLInputElement
+  const exportDpiGroup = document.getElementById('export-dpi-group') as HTMLDivElement
+  const exportDpiValue = document.getElementById('value-export-dpi') as HTMLSpanElement
+  const previewFilename = document.getElementById('preview-filename') as HTMLDivElement
+  const exportButton = document.getElementById('btn-export') as HTMLButtonElement
+  const exportButtonLabel = document.getElementById('btn-export-label') as HTMLSpanElement
   const labelPreview = document.getElementById('label-preview') as HTMLDivElement
   const qrContainer = document.getElementById('label-qr-container') as HTMLDivElement
 
@@ -399,6 +535,8 @@ const { id } = Astro.params
       showMfr: checkMfr.checked,
       showMat: checkMat.checked,
       showColor: checkColor.checked,
+      exportFormat: exportFormatSelect.value,
+      exportDpi: exportDpiInput.value,
     }))
   }
 
@@ -416,6 +554,8 @@ const { id } = Astro.params
       if (settings.showMfr !== undefined) checkMfr.checked = settings.showMfr
       if (settings.showMat !== undefined) checkMat.checked = settings.showMat
       if (settings.showColor !== undefined) checkColor.checked = settings.showColor
+      if (settings.exportFormat) exportFormatSelect.value = settings.exportFormat
+      if (settings.exportDpi) exportDpiInput.value = settings.exportDpi
     } catch {
       // ignore corrupt local settings
     }
@@ -436,10 +576,95 @@ const { id } = Astro.params
   document.getElementById('btn-reset')!.textContent = (window as any).__t('spools.resetDefaults')
   document.getElementById('title-display')!.textContent = (window as any).__t('filaments.printDisplay')
   document.getElementById('label-show-id')!.textContent = (window as any).__t('filaments.showFilamentId')
+  document.getElementById('title-export')!.textContent = (window as any).__t('common.export')
+  document.getElementById('label-export-format')!.textContent = (window as any).__t('common.format')
+  document.getElementById('label-export-dpi')!.textContent = (window as any).__t('common.dpi')
+  document.getElementById('label-planned-filename')!.textContent = (window as any).__t('common.plannedFileName')
+  document.getElementById('option-export-png')!.textContent = (window as any).__t('common.png')
+  document.getElementById('option-export-aml')!.textContent = (window as any).__t('common.aml')
 
   const backBtn = document.getElementById('btn-back') as HTMLAnchorElement
   backBtn.href = `/filaments/${id}`
   document.getElementById('label-back')!.textContent = (window as any).__t('filaments.backToFilament')
+
+  function getSelectedExportFormat() {
+    return exportFormatSelect.value === 'aml' ? 'aml' : 'png'
+  }
+
+  function getPlannedBaseFileName() {
+    return buildPlannedFileName(
+      [
+        checkMfr.checked ? labelData.manufacturer : '',
+        checkMat.checked ? labelData.type : '',
+        labelData.designation,
+        checkColor.checked ? labelData.color : '',
+        checkID.checked ? `filament-${labelData.id}` : '',
+      ],
+      `filament-label-${labelData.id}`,
+    )
+  }
+
+  async function renderQrCode(scale = 1) {
+    qrContainer.innerHTML = ''
+    const url = window.location.origin + '/filaments/' + labelData.id
+    const qrPx = Math.max(1, Math.round(parseInt(qrSizeInput.value, 10) * 3.78 * scale))
+
+    // @ts-ignore
+    new QRCode(qrContainer, {
+      text: url,
+      width: qrPx,
+      height: qrPx,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: (window as any).QRCode.CorrectLevel.H,
+    })
+
+    qrContainer.style.width = qrSizeInput.value + 'mm'
+    qrContainer.style.height = qrSizeInput.value + 'mm'
+
+    const canvas = qrContainer.querySelector('canvas')
+    if (canvas) {
+      const ctx = (canvas as HTMLCanvasElement).getContext('2d')
+      if (ctx) {
+        const fontSize = Math.round(qrPx * 0.13)
+        ctx.font = `700 ${fontSize}px "Space Grotesk", sans-serif`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        const text = 'FilaMan'
+        const metrics = ctx.measureText(text)
+        const tw = metrics.width
+        const th = fontSize
+        const pad = Math.round(fontSize * 0.3)
+        const cx = qrPx / 2
+        const cy = qrPx / 2
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(cx - tw / 2 - pad, cy - th / 2 - pad, tw + pad * 2, th + pad * 2)
+        ctx.fillStyle = '#000000'
+        ctx.fillText(text, cx, cy)
+      }
+
+      const dataUrl = (canvas as HTMLCanvasElement).toDataURL('image/png')
+      qrContainer.innerHTML = ''
+      const img = document.createElement('img')
+      img.src = dataUrl
+      img.style.width = '100%'
+      img.style.height = '100%'
+      img.style.display = 'block'
+      qrContainer.appendChild(img)
+    }
+
+    qrContainer.style.flexShrink = '0'
+  }
+
+  function updateExportUi() {
+    const format = getSelectedExportFormat()
+    const exportLabel = document.getElementById('title-export')?.textContent?.trim() || 'Export'
+    const formatLabel = exportFormatSelect.selectedOptions[0]?.textContent?.trim() || format.toUpperCase()
+    exportDpiGroup.style.display = 'block'
+    exportDpiValue.textContent = exportDpiInput.value
+    previewFilename.textContent = `${getPlannedBaseFileName()}.${format}`
+    exportButtonLabel.textContent = `${exportLabel} ${formatLabel}`
+  }
 
   function getColorDisplay(filament: any): string {
     if (filament.manufacturer_color_name) {
@@ -474,6 +699,8 @@ const { id } = Astro.params
     } catch (error) {
       console.error('Failed to load filament print data:', error)
     }
+
+    updateExportUi()
   }
 
   async function updatePreview() {
@@ -515,55 +742,7 @@ const { id } = Astro.params
     document.getElementById('prev-filament')!.textContent = labelData.designation
 
     if (checkQR.checked) {
-      qrContainer.innerHTML = ''
-      const url = window.location.origin + '/filaments/' + labelData.id
-      const qrPx = Math.round(parseInt(qrSize, 10) * 3.78)
-
-      // @ts-ignore
-      new QRCode(qrContainer, {
-        text: url,
-        width: qrPx,
-        height: qrPx,
-        colorDark: '#000000',
-        colorLight: '#ffffff',
-        correctLevel: (window as any).QRCode.CorrectLevel.H,
-      })
-
-      qrContainer.style.width = qrSize + 'mm'
-      qrContainer.style.height = qrSize + 'mm'
-
-      const canvas = qrContainer.querySelector('canvas')
-      if (canvas) {
-        const ctx = (canvas as HTMLCanvasElement).getContext('2d')
-        if (ctx) {
-          const fontSize = Math.round(qrPx * 0.13)
-          ctx.font = `700 ${fontSize}px "Space Grotesk", sans-serif`
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
-          const text = 'FilaMan'
-          const metrics = ctx.measureText(text)
-          const tw = metrics.width
-          const th = fontSize
-          const pad = Math.round(fontSize * 0.3)
-          const cx = qrPx / 2
-          const cy = qrPx / 2
-          ctx.fillStyle = '#ffffff'
-          ctx.fillRect(cx - tw / 2 - pad, cy - th / 2 - pad, tw + pad * 2, th + pad * 2)
-          ctx.fillStyle = '#000000'
-          ctx.fillText(text, cx, cy)
-        }
-
-        const dataUrl = (canvas as HTMLCanvasElement).toDataURL('image/png')
-        qrContainer.innerHTML = ''
-        const img = document.createElement('img')
-        img.src = dataUrl
-        img.style.width = '100%'
-        img.style.height = '100%'
-        img.style.display = 'block'
-        qrContainer.appendChild(img)
-      }
-
-      qrContainer.style.flexShrink = '0'
+      await renderQrCode()
     }
 
     const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)
@@ -586,14 +765,71 @@ const { id } = Astro.params
     if (oldStyle) oldStyle.remove()
     style.id = 'page-style'
     document.head.appendChild(style)
+    updateExportUi()
     saveSettings()
   }
+
+  ;[checkID, checkMfr, checkMat, checkColor].forEach((element) => {
+    element.addEventListener('change', updateExportUi)
+  })
 
   ;[widthInput, heightInput, fontSizeInput, qrSizeInput, checkQR, checkID, checkMfr, checkMat, checkColor].forEach((element) => {
     element.addEventListener('change', updatePreview)
     if (element.type === 'range' || element.type === 'number') {
       element.addEventListener('input', updatePreview)
     }
+  })
+
+  ;[exportFormatSelect, exportDpiInput].forEach((element) => {
+    element.addEventListener('input', () => {
+      updateExportUi()
+      saveSettings()
+    })
+    element.addEventListener('change', () => {
+      updateExportUi()
+      saveSettings()
+    })
+    if (element.type === 'range') {
+      element.addEventListener('input', () => {
+        updateExportUi()
+        saveSettings()
+      })
+    }
+  })
+
+  async function runExport(saveMode: 'download' | 'save-as' = 'download') {
+    const fileName = getPlannedBaseFileName()
+    const dpi = parseInt(exportDpiInput.value, 10) || 300
+    const widthMm = parseFloat(widthInput.value) || 60
+    const heightMm = parseFloat(heightInput.value) || 25
+    const exportScale = Math.max(1, Math.min(dpi / 96, 10))
+
+    try {
+      if (checkQR.checked) {
+        await renderQrCode(exportScale)
+      }
+
+      if (getSelectedExportFormat() === 'aml') {
+        await exportLabelAsAml(labelPreview, fileName, dpi, widthMm, heightMm, saveMode)
+      } else {
+        await exportLabelAsPng(labelPreview, fileName, dpi, saveMode)
+      }
+    } catch (error) {
+      console.error('Failed to export filament label:', error)
+    } finally {
+      if (checkQR.checked) {
+        await renderQrCode()
+      }
+    }
+  }
+
+  exportButton.addEventListener('click', async () => {
+    await runExport('download')
+  })
+
+  exportButton.addEventListener('contextmenu', async (event) => {
+    event.preventDefault()
+    await runExport('save-as')
   })
 
   document.getElementById('btn-reset')?.addEventListener('click', () => {
@@ -607,8 +843,12 @@ const { id } = Astro.params
     checkMfr.checked = true
     checkMat.checked = true
     checkColor.checked = true
+    exportFormatSelect.value = 'png'
+    exportDpiInput.value = '300'
     updatePreview()
   })
+
+  updateExportUi()
 
   loadFilamentData().finally(() => {
     updatePreview()
