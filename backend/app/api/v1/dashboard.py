@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select, case
 from pydantic import BaseModel
-import asyncio
 
 from app.api.deps import DBSession, PrincipalDep
 from app.models import Filament, Location, Manufacturer, Spool, SpoolStatus
@@ -70,52 +69,73 @@ async def get_dashboard_stats(
     spool_distribution_stmt = (
         select(
             func.sum(case((Spool.remaining_weight_g <= 0, 1), else_=0)).label("empty"),
-            func.sum(case(
-                (
-                    (Spool.remaining_weight_g > 0) & 
-                    (Spool.remaining_weight_g > Spool.low_weight_threshold_g) &
-                    (Spool.initial_total_weight_g > 0) &
-                    ((Spool.remaining_weight_g / Spool.initial_total_weight_g) * 100 > 75),
-                    1
-                ),
-                else_=0
-            )).label("full"),
-            func.sum(case(
-                (
-                    (Spool.remaining_weight_g > 0) & 
-                    (Spool.remaining_weight_g > Spool.low_weight_threshold_g) &
+            func.sum(
+                case(
                     (
-                        (Spool.initial_total_weight_g.is_(None)) | 
-                        (Spool.initial_total_weight_g <= 0) | 
-                        ((Spool.remaining_weight_g / Spool.initial_total_weight_g) * 100 <= 75)
+                        (Spool.remaining_weight_g > 0)
+                        & (Spool.remaining_weight_g > Spool.low_weight_threshold_g)
+                        & (Spool.initial_total_weight_g > 0)
+                        & (
+                            (Spool.remaining_weight_g / Spool.initial_total_weight_g)
+                            * 100
+                            > 75
+                        ),
+                        1,
                     ),
-                    1
-                ),
-                else_=0
-            )).label("normal"),
-            func.sum(case(
-                (
-                    (Spool.remaining_weight_g > 0) & 
-                    (Spool.remaining_weight_g <= Spool.low_weight_threshold_g) &
-                    (Spool.remaining_weight_g > Spool.low_weight_threshold_g / 2),
-                    1
-                ),
-                else_=0
-            )).label("low"),
-            func.sum(case(
-                (
-                    (Spool.remaining_weight_g > 0) & 
-                    (Spool.remaining_weight_g <= Spool.low_weight_threshold_g / 2),
-                    1
-                ),
-                else_=0
-            )).label("critical")
+                    else_=0,
+                )
+            ).label("full"),
+            func.sum(
+                case(
+                    (
+                        (Spool.remaining_weight_g > 0)
+                        & (Spool.remaining_weight_g > Spool.low_weight_threshold_g)
+                        & (
+                            (Spool.initial_total_weight_g.is_(None))
+                            | (Spool.initial_total_weight_g <= 0)
+                            | (
+                                (
+                                    Spool.remaining_weight_g
+                                    / Spool.initial_total_weight_g
+                                )
+                                * 100
+                                <= 75
+                            )
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("normal"),
+            func.sum(
+                case(
+                    (
+                        (Spool.remaining_weight_g > 0)
+                        & (Spool.remaining_weight_g <= Spool.low_weight_threshold_g)
+                        & (Spool.remaining_weight_g > Spool.low_weight_threshold_g / 2),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("low"),
+            func.sum(
+                case(
+                    (
+                        (Spool.remaining_weight_g > 0)
+                        & (
+                            Spool.remaining_weight_g <= Spool.low_weight_threshold_g / 2
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("critical"),
         )
         .join(SpoolStatus)
         .where(SpoolStatus.key != "archived")
         .where(Spool.remaining_weight_g.isnot(None))
     )
-    
+
     # Filament-Statistik nach Typ
     filament_stats_stmt = (
         select(
@@ -133,10 +153,14 @@ async def get_dashboard_stats(
         .group_by(Filament.material_type)
         .order_by(func.sum(Spool.remaining_weight_g).desc())
     )
-    
+
     # Hersteller mit nicht-leeren Spulen (remaining_weight_g > 0)
     non_empty_stmt = (
-        select(Manufacturer.id, Manufacturer.name, func.count(Spool.id).label("spool_count"))
+        select(
+            Manufacturer.id,
+            Manufacturer.name,
+            func.count(Spool.id).label("spool_count"),
+        )
         .join(Filament, Filament.manufacturer_id == Manufacturer.id)
         .join(Spool, Spool.filament_id == Filament.id)
         .join(SpoolStatus, Spool.status_id == SpoolStatus.id)
@@ -147,7 +171,7 @@ async def get_dashboard_stats(
         .order_by(func.count(Spool.id).desc())
         .limit(limit)
     )
-    
+
     # Spulen mit fast-leeren Restgewicht
     low_stock_stmt = (
         select(
@@ -168,7 +192,7 @@ async def get_dashboard_stats(
         .order_by(Spool.remaining_weight_g.asc())
         .limit(limit)
     )
-    
+
     # Leere Spulen (remaining_weight_g <= 0)
     empty_stmt = (
         select(
@@ -186,7 +210,7 @@ async def get_dashboard_stats(
         .order_by(Spool.remaining_weight_g.asc())
         .limit(limit)
     )
-    
+
     # Filament-Typen mit Anzahl
     types_stmt = (
         select(Filament.material_type, func.count(Filament.id).label("filament_count"))
@@ -198,7 +222,7 @@ async def get_dashboard_stats(
         .group_by(Filament.material_type)
         .order_by(func.count(Filament.id).desc())
     )
-    
+
     # Lagerorte-Statistik
     location_stats_stmt = (
         select(
@@ -212,7 +236,9 @@ async def get_dashboard_stats(
             (Spool.location_id == Location.id)
             & (
                 Spool.status_id
-                != select(SpoolStatus.id).where(SpoolStatus.key == "archived").scalar_subquery()
+                != select(SpoolStatus.id)
+                .where(SpoolStatus.key == "archived")
+                .scalar_subquery()
             ),
         )
         .where(Location.name.isnot(None))
@@ -227,26 +253,15 @@ async def get_dashboard_stats(
         .where(SpoolStatus.key != "archived")
     )
 
-    # Execute all queries concurrently
-    (
-        dist_res, 
-        fil_stats_res, 
-        mfg_res, 
-        low_stock_res, 
-        empty_res, 
-        types_res, 
-        loc_res,
-        total_val_res
-    ) = await asyncio.gather(
-        db.execute(spool_distribution_stmt),
-        db.execute(filament_stats_stmt),
-        db.execute(non_empty_stmt),
-        db.execute(low_stock_stmt),
-        db.execute(empty_stmt),
-        db.execute(types_stmt),
-        db.execute(location_stats_stmt),
-        db.execute(total_value_stmt),
-    )
+    # Execute all queries sequentially (async sessions do not support concurrent operations)
+    dist_res = await db.execute(spool_distribution_stmt)
+    fil_stats_res = await db.execute(filament_stats_stmt)
+    mfg_res = await db.execute(non_empty_stmt)
+    low_stock_res = await db.execute(low_stock_stmt)
+    empty_res = await db.execute(empty_stmt)
+    types_res = await db.execute(types_stmt)
+    loc_res = await db.execute(location_stats_stmt)
+    total_val_res = await db.execute(total_value_stmt)
 
     total_value_available = float(total_val_res.scalar() or 0.0)
 
@@ -296,8 +311,7 @@ async def get_dashboard_stats(
     ]
 
     filament_types = [
-        FilamentTypeCount(material_type=row[0], count=row[1])
-        for row in types_res.all()
+        FilamentTypeCount(material_type=row[0], count=row[1]) for row in types_res.all()
     ]
 
     location_stats = [

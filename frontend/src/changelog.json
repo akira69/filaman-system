@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Dashboard-Statistiken werden jetzt zuverlässig geladen — kein 500-Fehler mehr beim Aufruf der Übersichtsseite" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Dashboard statistics now load reliably — no more 500 error when opening the overview page" }
+        ]
+      }
+    },
+    {
       "version": "1.1.21",
       "date": "",
       "changes": {
