@@ -4,7 +4,7 @@
 
 [X] 3) Add filament print PR (PR846 spoolman basis) :  https://github.com/akira69/filaman-system/pull/1
 
-[ ] 4) Add label export workflow (PNG/AML) (PR860 spoolman basis)
+[X] 4) Add label export workflow (PNG/AML) (PR860 spoolman basis) : https://github.com/akira69/filaman-system/pull/3
 
 [ ] 5) Add Manufacturer Logo inclusion and improvement to Label design & filament/spool show pages (PR857)
 
