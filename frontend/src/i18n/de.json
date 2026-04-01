@@ -297,7 +297,11 @@
     "colFinish": "Oberfläche",
     "colSubgroup": "Untergruppe",
     "colWeight": "Materialgewicht",
-    "colDensity": "Dichte"
+    "colDensity": "Dichte",
+    "printLabel": "Label drucken",
+    "backToFilament": "Zurück zum Filament",
+    "showFilamentId": "Filament-ID",
+    "printDisplay": "Anzeige"
   },
   "spools": {
     "title": "Spulen",

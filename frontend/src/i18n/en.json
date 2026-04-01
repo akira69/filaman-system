@@ -295,7 +295,11 @@
     "colFinish": "Finish",
     "colSubgroup": "Subgroup",
     "colWeight": "Material Weight",
-    "colDensity": "Density"
+    "colDensity": "Density",
+    "printLabel": "Print Label",
+    "backToFilament": "Back to Filament",
+    "showFilamentId": "Filament ID",
+    "printDisplay": "Display"
   },
   "spools": {
     "title": "Spools",
