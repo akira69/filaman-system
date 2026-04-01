@@ -298,7 +298,21 @@
     "colFinish": "Finish",
     "colSubgroup": "Subgroup",
     "colWeight": "Material Weight",
-    "colDensity": "Density"
+    "colDensity": "Density",
+    "printLabel": "Print Label",
+    "backToFilament": "Back to Filament",
+    "showFilamentId": "Filament ID",
+    "printDisplay": "Display",
+    "printSettings": "Print Settings",
+    "labelWidth": "Width (mm)",
+    "labelHeight": "Height (mm)",
+    "fontSize": "Font Size",
+    "qrSize": "QR Size",
+    "showQRCode": "QR Code",
+    "showManufacturer": "Manufacturer",
+    "showMaterial": "Material",
+    "showColor": "Color",
+    "resetDefaults": "Defaults"
   },
   "spools": {
     "title": "Spools",

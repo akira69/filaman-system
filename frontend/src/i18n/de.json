@@ -300,7 +300,21 @@
     "colFinish": "Oberfläche",
     "colSubgroup": "Untergruppe",
     "colWeight": "Materialgewicht",
-    "colDensity": "Dichte"
+    "colDensity": "Dichte",
+    "printLabel": "Label drucken",
+    "backToFilament": "Zurück zum Filament",
+    "showFilamentId": "Filament-ID",
+    "printDisplay": "Anzeige",
+    "printSettings": "Druckeinstellungen",
+    "labelWidth": "Breite (mm)",
+    "labelHeight": "Höhe (mm)",
+    "fontSize": "Schriftgröße",
+    "qrSize": "QR-Größe",
+    "showQRCode": "QR-Code",
+    "showManufacturer": "Hersteller",
+    "showMaterial": "Material",
+    "showColor": "Farbe",
+    "resetDefaults": "Standardwerte"
   },
   "spools": {
     "title": "Spulen",
