@@ -366,13 +366,12 @@ const { id } = Astro.params
   }
 
   const id = window.location.pathname.split('/').filter(Boolean).slice(-2, -1)[0]
-  const params = new URLSearchParams(window.location.search)
-  const labelData = {
+  let labelData = {
     id,
-    designation: params.get('designation') || '',
-    manufacturer: params.get('mfr') || '',
-    type: params.get('type') || '',
-    color: params.get('color') || '',
+    designation: '',
+    manufacturer: '',
+    type: '',
+    color: '',
   }
 
   const widthInput = document.getElementById('input-width') as HTMLInputElement
@@ -441,6 +440,41 @@ const { id } = Astro.params
   const backBtn = document.getElementById('btn-back') as HTMLAnchorElement
   backBtn.href = `/filaments/${id}`
   document.getElementById('label-back')!.textContent = 'Back to Filament'
+
+  function getColorDisplay(filament: any): string {
+    if (filament.manufacturer_color_name) {
+      return filament.manufacturer_color_name
+    }
+
+    if (Array.isArray(filament.colors) && filament.colors.length > 0) {
+      return filament.colors
+        .map((entry: any) => entry.display_name_override || entry.color?.name || '')
+        .filter(Boolean)
+        .join(', ')
+    }
+
+    return ''
+  }
+
+  async function loadFilamentData() {
+    try {
+      const response = await fetch(`/api/v1/filaments/${id}`, { credentials: 'include' })
+      if (!response.ok) {
+        throw new Error('Failed to fetch filament for print')
+      }
+
+      const filament = await response.json()
+      labelData = {
+        id: String(filament.id ?? id),
+        designation: filament.designation || '',
+        manufacturer: filament.manufacturer?.name || '',
+        type: filament.material_type || '',
+        color: getColorDisplay(filament),
+      }
+    } catch (error) {
+      console.error('Failed to load filament print data:', error)
+    }
+  }
 
   async function updatePreview() {
     if (typeof (window as any).QRCode === 'undefined') {
@@ -576,5 +610,7 @@ const { id } = Astro.params
     updatePreview()
   })
 
-  updatePreview()
+  loadFilamentData().finally(() => {
+    updatePreview()
+  })
 </script>
