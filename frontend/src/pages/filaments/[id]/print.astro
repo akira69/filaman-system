@@ -434,12 +434,12 @@ const { id } = Astro.params
   document.getElementById('label-show-color')!.textContent = (window as any).__t('spools.showColor')
   document.getElementById('btn-print')!.textContent = (window as any).__t('common.print')
   document.getElementById('btn-reset')!.textContent = (window as any).__t('spools.resetDefaults')
-  document.getElementById('title-display')!.textContent = 'Display'
-  document.getElementById('label-show-id')!.textContent = 'Filament ID'
+  document.getElementById('title-display')!.textContent = (window as any).__t('filaments.printDisplay')
+  document.getElementById('label-show-id')!.textContent = (window as any).__t('filaments.showFilamentId')
 
   const backBtn = document.getElementById('btn-back') as HTMLAnchorElement
   backBtn.href = `/filaments/${id}`
-  document.getElementById('label-back')!.textContent = 'Back to Filament'
+  document.getElementById('label-back')!.textContent = (window as any).__t('filaments.backToFilament')
 
   function getColorDisplay(filament: any): string {
     if (filament.manufacturer_color_name) {
