@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.cache import response_cache
 from app.core.database import async_session_maker
 from app.models import Printer
 from app.models.filament import Filament
@@ -583,6 +584,12 @@ class PluginManager:
                 )
 
             await db.commit()
+
+            # Invalidate extra_fields cache after plugin fields are created/updated
+            for target_type in target_types:
+                response_cache.delete(f"extra_fields:{target_type}:{driver_key}")
+                response_cache.delete(f"extra_fields:{target_type}:all")
+            response_cache.delete("extra_fields:all:all")
 
     async def _migrate_spoolman_bambu_fields(self, driver_key: str) -> None:
         """Migrate bambu_* calibration data from custom_fields into printer_params tables.

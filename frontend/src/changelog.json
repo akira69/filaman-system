@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Sporadische lange Ladezeiten (bis zu 55 Sekunden) wurden behoben — API-Antworten sind jetzt durchgehend schnell" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Sporadic long loading times (up to 55 seconds) have been fixed — API responses are now consistently fast" }
+        ]
+      }
+    },
+    {
       "version": "1.1.22",
       "date": "",
       "changes": {
