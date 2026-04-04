@@ -5,9 +5,11 @@
       "date": "",
       "changes": {
         "de": [
+          { "type": "added", "text": "Brute-Force-Schutz für Login: Nach 5 Fehlversuchen wird das Konto für 15 Minuten gesperrt, zusätzlich IP-basiertes Rate-Limiting (max. 10 Login-Versuche pro Minute)" },
           { "type": "fix", "text": "Sporadische lange Ladezeiten (bis zu 55 Sekunden) wurden behoben — API-Antworten sind jetzt durchgehend schnell" }
         ],
         "en": [
+          { "type": "added", "text": "Brute-force protection for login: After 5 failed attempts, the account is locked for 15 minutes, plus IP-based rate limiting (max. 10 login attempts per minute)" },
           { "type": "fix", "text": "Sporadic long loading times (up to 55 seconds) have been fixed — API responses are now consistently fast" }
         ]
       }

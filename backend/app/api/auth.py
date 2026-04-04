@@ -7,10 +7,15 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.core.security import generate_token_secret, hash_token, verify_password_async
 from app.models import AppSettings, User, UserSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Brute-force protection settings
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION_MINUTES = 15
 
 
 class LoginRequest(BaseModel):
@@ -36,6 +41,7 @@ class MeResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
+@limiter.limit("10/minute")
 async def login(
     request: Request,
     response: Response,
@@ -89,7 +95,38 @@ async def login(
                 detail={"code": "account_disabled", "message": "Account is disabled"},
             )
 
+        # Check if account is locked due to too many failed attempts
+        now = datetime.now(timezone.utc)
+        if user.locked_until and user.locked_until > now:
+            remaining_seconds = int((user.locked_until - now).total_seconds())
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "code": "account_locked",
+                    "message": f"Account temporarily locked. Try again in {remaining_seconds} seconds.",
+                    "retry_after": remaining_seconds,
+                },
+            )
+
         if not await verify_password_async(data.password, user.password_hash):
+            # Increment failed login counter
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+
+            if user.failed_login_count >= MAX_LOGIN_ATTEMPTS:
+                # Lock the account
+                user.locked_until = now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+                user.failed_login_count = 0  # Reset counter after locking
+                await db.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail={
+                        "code": "account_locked",
+                        "message": f"Too many failed attempts. Account locked for {LOCKOUT_DURATION_MINUTES} minutes.",
+                        "retry_after": LOCKOUT_DURATION_MINUTES * 60,
+                    },
+                )
+
+            await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={
@@ -97,6 +134,11 @@ async def login(
                     "message": "Invalid email or password",
                 },
             )
+
+        # Successful login: reset failed login counter and clear any lock
+        if user.failed_login_count > 0 or user.locked_until:
+            user.failed_login_count = 0
+            user.locked_until = None
 
     secret = generate_token_secret()
     session = UserSession(

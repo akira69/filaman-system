@@ -33,6 +33,10 @@ class User(Base, TimestampMixin):
     last_login_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
+    # Brute-force protection
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
+
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
 
     oauth_identities: Mapped[list["OAuthIdentity"]] = relationship(
