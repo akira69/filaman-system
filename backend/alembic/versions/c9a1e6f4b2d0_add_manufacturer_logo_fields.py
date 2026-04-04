@@ -21,11 +21,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     with op.batch_alter_table("manufacturers") as batch_op:
-        batch_op.add_column(sa.Column("logo_url", sa.String(length=500), nullable=True))
         batch_op.add_column(sa.Column("logo_file_path", sa.String(length=500), nullable=True))
 
 
 def downgrade() -> None:
     with op.batch_alter_table("manufacturers") as batch_op:
         batch_op.drop_column("logo_file_path")
-        batch_op.drop_column("logo_url")
