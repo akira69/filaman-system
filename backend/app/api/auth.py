@@ -7,8 +7,12 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep
 from app.core.config import settings
-from app.core.rate_limit import limiter
-from app.core.security import generate_token_secret, hash_token, verify_password_async
+from app.core.security import (
+    generate_token_secret,
+    hash_password,
+    hash_token,
+    verify_password_async,
+)
 from app.models import AppSettings, User, UserSession
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -16,6 +20,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Brute-force protection settings
 MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_DURATION_MINUTES = 15
+
+# Dummy hash for timing-safe comparison when user doesn't exist
+# This prevents user enumeration via timing attacks
+_DUMMY_HASH = hash_password("dummy-password-for-timing")
 
 
 class LoginRequest(BaseModel):
@@ -41,7 +49,6 @@ class MeResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
-@limiter.limit("10/minute")
 async def login(
     request: Request,
     response: Response,
@@ -81,6 +88,9 @@ async def login(
         user = result.scalar_one_or_none()
 
         if user is None or user.password_hash is None:
+            # Perform dummy password check to prevent timing-based user enumeration
+            # This ensures response time is consistent regardless of user existence
+            await verify_password_async(data.password, _DUMMY_HASH)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={

@@ -98,11 +98,7 @@ async def client(db_session, db_engine):
 
     response_cache.clear()
 
-    # Clear rate limiter storage between tests to avoid rate limit interference
-    from app.core.rate_limit import limiter
-
-    if hasattr(limiter, "_storage") and limiter._storage:
-        limiter._storage.reset()
+    # Note: Rate limiting is now handled by nginx, not slowapi
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

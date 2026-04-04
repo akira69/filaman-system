@@ -20,9 +20,6 @@ from app.core.config import settings
 from app.core.database import async_session_maker
 from app.core.logging_config import setup_logging
 from app.core.middleware import AuthMiddleware, CsrfMiddleware, RequestIdMiddleware
-from app.core.rate_limit import limiter
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from app.core.seeds import run_all_seeds
 from app.core.shared_health import shared_health_store
 from app.plugins.manager import plugin_manager
@@ -299,9 +296,8 @@ app.add_middleware(CsrfMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# Rate limiting for brute-force protection
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Note: Rate limiting for /auth/login is handled by nginx (see nginx.conf)
+# This ensures consistent limits across all Gunicorn workers
 
 
 # Slow-Request Logging Middleware - helps diagnose performance issues

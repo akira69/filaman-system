@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "security", "text": "Login-Schutz verbessert: Rate-Limiting funktioniert jetzt zuverlässig bei mehreren Server-Prozessen" }
+        ],
+        "en": [
+          { "type": "security", "text": "Improved login protection: Rate limiting now works reliably with multiple server processes" }
+        ]
+      }
+    },
+    {
       "version": "1.1.23",
       "date": "",
       "changes": {
