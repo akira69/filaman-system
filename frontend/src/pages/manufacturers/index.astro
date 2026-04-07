@@ -202,9 +202,10 @@ import Layout from '../../layouts/Layout.astro'
 
   <script>
     import { t, initI18n } from '../../lib/i18n'
-    import { fetchAllPages } from '../../lib/api'
+    import { cachedFetchAllPages, invalidateCachePrefix, CACHE_KEYS } from '../../lib/cache'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
+    import { getAbortSignal, isAbortError } from '../../lib/abort'
     await initI18n()
     await initCurrency()
 
@@ -329,6 +330,10 @@ import Layout from '../../layouts/Layout.astro'
 
     function populateMaterialFilter(items: any[]) {
       const materialSelect = document.getElementById('filter-material') as HTMLSelectElement
+      const selectedValue = materialSelect.value
+      const defaultOption = materialSelect.querySelector('option[value=""]')?.cloneNode(true) as HTMLOptionElement | null
+      materialSelect.replaceChildren(defaultOption ?? new Option(t('manufacturers.allMaterials'), ''))
+
       const materials = new Set<string>()
       items.forEach(mf => {
         if (mf.materials) {
@@ -342,11 +347,13 @@ import Layout from '../../layouts/Layout.astro'
         opt.textContent = mat
         materialSelect.appendChild(opt)
       })
+
+      materialSelect.value = selectedValue && materials.has(selectedValue) ? selectedValue : ''
     }
 
     async function loadManufacturers() {
       try {
-        const data = await fetchAllPages('/api/v1/manufacturers')
+        const data = await cachedFetchAllPages(CACHE_KEYS.MANUFACTURERS, '/api/v1/manufacturers')
         manufacturers = data.items
         populateMaterialFilter(manufacturers)
         if (isInitialLoad) {
@@ -356,6 +363,7 @@ import Layout from '../../layouts/Layout.astro'
         }
         renderManufacturers()
       } catch (error) {
+        if (isAbortError(error)) return
         console.error('Failed to load manufacturers:', error)
         document.getElementById('manufacturers-table')!.innerHTML = `
           <tr>
@@ -540,6 +548,7 @@ import Layout from '../../layouts/Layout.astro'
               method: 'DELETE',
               headers: { 'X-CSRF-Token': getCsrfToken() },
               credentials: 'include',
+              signal: getAbortSignal(),
             })
 
             // If conflict (409), prompt for cascade delete
@@ -560,6 +569,7 @@ import Layout from '../../layouts/Layout.astro'
                 method: 'DELETE',
                 headers: { 'X-CSRF-Token': getCsrfToken() },
                 credentials: 'include',
+                signal: getAbortSignal(),
               })
             }
 
@@ -569,6 +579,8 @@ import Layout from '../../layouts/Layout.astro'
               return
             }
 
+            // Invalidate cache after successful delete
+            invalidateCachePrefix(CACHE_KEYS.MANUFACTURERS)
             loadManufacturers()
           } catch {
             await (window as any).__fmAlert(t('manufacturers.failedDelete'))
@@ -723,6 +735,7 @@ import Layout from '../../layouts/Layout.astro'
             'X-CSRF-Token': getCsrfToken(),
           },
           credentials: 'include',
+          signal: getAbortSignal(),
           body: JSON.stringify(data),
         })
 
@@ -731,9 +744,12 @@ import Layout from '../../layouts/Layout.astro'
           throw new Error(errorData.detail?.message || errorData.message || t('manufacturers.failedSave'))
         }
 
+        // Invalidate cache after successful save
+        invalidateCachePrefix(CACHE_KEYS.MANUFACTURERS)
         closeModal()
         loadManufacturers()
       } catch (err: any) {
+        if (isAbortError(err)) return
         error.textContent = err.message
         error.classList.remove('hidden')
       } finally {

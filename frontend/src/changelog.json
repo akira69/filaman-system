@@ -1,6 +1,46 @@
 {
   "versions": [
     {
+      "version": "1.1.25",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Chrome-Hänger beim schnellen Navigieren behoben — Seiten laden jetzt sofort, auch wenn vorherige Requests noch liefen" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Fixed Chrome freezes when navigating quickly — pages now load instantly even when previous requests were still running" }
+        ]
+      }
+    },
+    {
+      "version": "1.1.24",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "security", "text": "Login-Schutz verbessert: Rate-Limiting funktioniert jetzt zuverlässig bei mehreren Server-Prozessen" },
+          { "type": "improved", "text": "Verbrauchsmeldungen während eines Drucks werden jetzt zusammengefasst — statt hunderten Einzeleinträgen entsteht nur noch ein Event pro 5 Minuten, was die Datenbank deutlich entlastet" }
+        ],
+        "en": [
+          { "type": "security", "text": "Improved login protection: Rate limiting now works reliably with multiple server processes" },
+          { "type": "improved", "text": "Consumption reports during a print are now aggregated — instead of hundreds of individual entries, only one event per 5 minutes is created, significantly reducing database load" }
+        ]
+      }
+    },
+    {
+      "version": "1.1.23",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "added", "text": "Brute-Force-Schutz für Login: Nach 5 Fehlversuchen wird das Konto für 15 Minuten gesperrt, zusätzlich IP-basiertes Rate-Limiting (max. 10 Login-Versuche pro Minute)" },
+          { "type": "fix", "text": "Sporadische lange Ladezeiten (bis zu 55 Sekunden) wurden behoben — API-Antworten sind jetzt durchgehend schnell" }
+        ],
+        "en": [
+          { "type": "added", "text": "Brute-force protection for login: After 5 failed attempts, the account is locked for 15 minutes, plus IP-based rate limiting (max. 10 login attempts per minute)" },
+          { "type": "fix", "text": "Sporadic long loading times (up to 55 seconds) have been fixed — API responses are now consistently fast" }
+        ]
+      }
+    },
+    {
       "version": "1.1.22",
       "date": "",
       "changes": {

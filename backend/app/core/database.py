@@ -1,3 +1,4 @@
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -30,6 +31,24 @@ else:
     )
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
+
+# Enable WAL mode for SQLite - allows concurrent reads during writes
+# This significantly improves performance under load
+if _is_sqlite:
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        # WAL mode: allows readers and writer to operate concurrently
+        cursor.execute("PRAGMA journal_mode=WAL")
+        # NORMAL sync: faster than FULL, still safe (WAL protects against corruption)
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        # Increase cache size to 64MB for better read performance
+        cursor.execute("PRAGMA cache_size=-65536")
+        # Enable memory-mapped I/O for faster reads (256MB limit)
+        cursor.execute("PRAGMA mmap_size=268435456")
+        cursor.close()
+
 
 async_session_maker = async_sessionmaker(
     engine,

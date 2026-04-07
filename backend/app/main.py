@@ -5,6 +5,7 @@ import json as _json
 import os
 from pathlib import Path
 import tempfile
+import time
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -294,6 +295,30 @@ app.add_middleware(RequestIdMiddleware)
 app.add_middleware(CsrfMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Note: Rate limiting for /auth/login is handled by nginx (see nginx.conf)
+# This ensures consistent limits across all Gunicorn workers
+
+
+# Slow-Request Logging Middleware - helps diagnose performance issues
+_SLOW_REQUEST_THRESHOLD = 5.0  # Log requests taking longer than 5 seconds
+
+
+@app.middleware("http")
+async def log_slow_requests(request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration = time.monotonic() - start
+
+    if duration > _SLOW_REQUEST_THRESHOLD:
+        path = request.url.path
+        query = str(request.url.query) if request.url.query else ""
+        logger.warning(
+            f"SLOW REQUEST: {request.method} {path}"
+            + (f"?{query}" if query else "")
+            + f" took {duration:.2f}s (status: {response.status_code})"
+        )
+    return response
 
 
 # Cache-Control Middleware for static files

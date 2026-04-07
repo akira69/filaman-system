@@ -98,6 +98,8 @@ async def client(db_session, db_engine):
 
     response_cache.clear()
 
+    # Note: Rate limiting is now handled by nginx, not slowapi
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
