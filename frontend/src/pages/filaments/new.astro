@@ -347,6 +347,7 @@ import Layout from '../../layouts/Layout.astro'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { cachedFetchAllPages, invalidateCachePrefix, CACHE_KEYS } from '../../lib/cache'
     import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive } from '../../lib/filamentdb-lookup'
+    import { toCssColor } from '../../lib/colors'
     await initI18n()
 
     const filamentDbActive = await checkFilamentDbActive()
@@ -909,7 +910,7 @@ import Layout from '../../layouts/Layout.astro'
         const swatch = document.createElement('button')
         swatch.type = 'button'
         swatch.className = `fm-color-swatch ${isSelected ? 'selected' : ''}`
-        swatch.style.backgroundColor = c.hex_code
+        swatch.style.background = toCssColor(c.hex_code, c.hex_code)
         swatch.title = `${c.name} (${c.hex_code})`
         swatch.addEventListener('click', () => toggleColor(c.id))
         colorGrid.appendChild(swatch)
@@ -945,7 +946,7 @@ import Layout from '../../layouts/Layout.astro'
         const entry = document.createElement('div')
         entry.className = 'fm-color-entry'
         entry.innerHTML = `
-          <span class="fm-color-swatch-lg" style="background-color: ${color.hex_code};"></span>
+          <span class="fm-color-swatch-lg" style="background: ${toCssColor(color.hex_code, color.hex_code)};"></span>
           <span style="font-size: 0.85rem; color: var(--text);">${color.name}</span>
           <span style="font-size: 0.75rem; color: var(--text-muted);">${color.hex_code}</span>
           ${getColorMode() === 'multi' ? `<span style="font-size: 0.75rem; color: var(--text-muted);">#${idx + 1}</span>` : ''}

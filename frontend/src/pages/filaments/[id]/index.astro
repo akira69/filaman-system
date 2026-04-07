@@ -83,6 +83,7 @@ const { id } = Astro.params
   <script>
     import { t, initI18n } from '../../../lib/i18n'
     import { cachedFetchAllPages, fetchSequential, CACHE_KEYS } from '../../../lib/cache'
+    import { toCssColor } from '../../../lib/colors'
     import { formatPrice, getCurrency, initCurrency } from '../../../lib/format'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
     await initI18n()

@@ -1,6 +1,8 @@
 from typing import Any
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
+
+from app.utils.colors import normalize_hex_color
 
 
 class ManufacturerCreate(BaseModel):
@@ -70,11 +72,23 @@ class ColorCreate(BaseModel):
     hex_code: str
     custom_fields: dict[str, Any] | None = None
 
+    @field_validator("hex_code")
+    @classmethod
+    def validate_hex_code(cls, value: str) -> str:
+        return normalize_hex_color(value)
+
 
 class ColorUpdate(BaseModel):
     name: str | None = None
     hex_code: str | None = None
     custom_fields: dict[str, Any] | None = None
+
+    @field_validator("hex_code")
+    @classmethod
+    def validate_hex_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_hex_color(value)
 
 
 class ColorResponse(BaseModel):
