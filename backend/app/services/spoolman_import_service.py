@@ -77,6 +77,32 @@ class SpoolmanImportService:
         """Get the database dialect for JSON operations."""
         return self.db.bind.dialect
 
+    @staticmethod
+    def _normalize_hex_code(value: Any) -> str | None:
+        """Normalize incoming colors to a 6-digit #RRGGBB hex code.
+
+        Some Spoolman/SpoolmanDB data includes 8-digit ARGB values for
+        translucent colors (for example `00FFFFFF`). FilaMan stores colors in a
+        7-character `#RRGGBB` field, so the alpha component must be removed.
+        """
+        if value is None:
+            return None
+
+        raw = str(value).strip().lstrip("#")
+        if not raw:
+            return None
+
+        if len(raw) == 8:
+            raw = raw[2:]
+        elif len(raw) == 3:
+            raw = "".join(ch * 2 for ch in raw)
+
+        raw = raw.lower()
+        if len(raw) != 6 or any(ch not in "0123456789abcdef" for ch in raw):
+            return None
+
+        return f"#{raw}"
+
     # ------------------------------------------------------------------ #
     #  Verbindungstest
     # ------------------------------------------------------------------ #
@@ -292,8 +318,8 @@ class SpoolmanImportService:
         for fil in filaments:
             color_hex = fil.get("color_hex")
             if color_hex:
-                hex_code = f"#{color_hex.lstrip('#')}"
-                if hex_code.lower() not in seen:
+                hex_code = self._normalize_hex_code(color_hex)
+                if hex_code and hex_code.lower() not in seen:
                     seen.add(hex_code.lower())
                     # Farbname: Spoolman hat keinen separaten Farbnamen,
                     # wir nutzen den Hex-Code als Fallback
@@ -307,8 +333,8 @@ class SpoolmanImportService:
                 for h in hex_list:
                     h = h.strip()
                     if h:
-                        hex_code = f"#{h.lstrip('#')}"
-                        if hex_code.lower() not in seen:
+                        hex_code = self._normalize_hex_code(h)
+                        if hex_code and hex_code.lower() not in seen:
                             seen.add(hex_code.lower())
                             colors.append({"name": hex_code.upper(), "hex_code": hex_code})
 
@@ -701,8 +727,8 @@ class SpoolmanImportService:
         # Hauptfarbe
         color_hex = fil_data.get("color_hex")
         if color_hex:
-            hex_key = f"#{color_hex.lstrip('#')}".lower()
-            color_id = color_map.get(hex_key)
+            hex_key = self._normalize_hex_code(color_hex)
+            color_id = color_map.get(hex_key.lower()) if hex_key else None
             if color_id:
                 fc = FilamentColor(
                     filament_id=filament_id,
@@ -719,8 +745,8 @@ class SpoolmanImportService:
             for h in hex_list:
                 h = h.strip()
                 if h:
-                    hex_key = f"#{h.lstrip('#')}".lower()
-                    color_id = color_map.get(hex_key)
+                    hex_key = self._normalize_hex_code(h)
+                    color_id = color_map.get(hex_key.lower()) if hex_key else None
                     if color_id:
                         fc = FilamentColor(
                             filament_id=filament_id,
