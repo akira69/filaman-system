@@ -65,6 +65,12 @@
     "errorTitle": "Error",
     "successTitle": "Success",
     "open": "Open",
+    "export": "Export",
+    "format": "Format",
+    "plannedFileName": "Exported file name",
+    "dpi": "DPI",
+    "png": "PNG",
+    "aml": "AML",
     "customFields": "Custom Fields",
     "spoolDefaultSettings": "Spool Default Settings",
     "systemFields": "System Fields",
@@ -295,7 +301,11 @@
     "colFinish": "Finish",
     "colSubgroup": "Subgroup",
     "colWeight": "Material Weight",
-    "colDensity": "Density"
+    "colDensity": "Density",
+    "printLabel": "Print Label",
+    "backToFilament": "Back to Filament",
+    "showFilamentId": "Filament ID",
+    "printDisplay": "Display"
   },
   "spools": {
     "title": "Spools",
