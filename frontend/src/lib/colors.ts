@@ -26,6 +26,30 @@ export function toOpaqueRgbHex(value?: string | null, fallback = '#000000'): str
   return raw.length === 8 ? `#${raw.slice(2)}` : normalized
 }
 
+export function getAlphaPercent(value?: string | null): number {
+  const normalized = normalizeHexCode(value)
+  if (!normalized.startsWith('#')) return 100
+
+  const raw = normalized.slice(1)
+  if (raw.length !== 8) return 100
+
+  return Math.round((parseInt(raw.slice(0, 2), 16) / 255) * 100)
+}
+
+export function composeHexWithAlpha(value?: string | null, alphaPercent = 100): string {
+  const rgb = toOpaqueRgbHex(value, '#000000').replace('#', '').toUpperCase()
+  const percent = Math.max(0, Math.min(100, Number(alphaPercent) || 0))
+
+  if (percent >= 100) return `#${rgb}`
+
+  const alpha = Math.round((percent / 100) * 255)
+    .toString(16)
+    .padStart(2, '0')
+    .toUpperCase()
+
+  return `#${alpha}${rgb}`
+}
+
 export function toCssColor(value?: string | null, fallback = 'transparent'): string {
   const normalized = normalizeHexCode(value)
   if (!normalized.startsWith('#')) return fallback

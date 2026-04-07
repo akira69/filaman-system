@@ -73,6 +73,12 @@ import Layout from '../../layouts/Layout.astro'
               style="flex: 1;"
             />
           </div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
+            <label for="color-alpha" class="fm-label" style="margin: 0; min-width: 54px;">Opacity</label>
+            <input type="range" id="color-alpha" min="0" max="100" value="100" style="flex: 1;" />
+            <span id="color-alpha-value" style="min-width: 44px; text-align: right; color: var(--text-muted);">100%</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin: 6px 0 0;">Supports both <code>#RRGGBB</code> and <code>#AARRGGBB</code>.</p>
         </div>
         <div id="modal-error" class="fm-alert-error hidden"></div>
         <div style="display: flex; gap: 12px;">
@@ -91,7 +97,7 @@ import Layout from '../../layouts/Layout.astro'
     import { t, initI18n, translatePage } from '../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { fetchAllPages } from '../../lib/api'
-    import { normalizeHexCode, toCssColor, toOpaqueRgbHex } from '../../lib/colors'
+    import { composeHexWithAlpha, getAlphaPercent, normalizeHexCode, toCssColor, toOpaqueRgbHex } from '../../lib/colors'
     await initI18n()
 
     let colors: any[] = []
@@ -223,8 +229,12 @@ import Layout from '../../layouts/Layout.astro'
       title.textContent = id ? t('colors.editColor') : t('colors.addColor')
       idInput.value = id ? String(id) : ''
       nameInput.value = name
-      hexInput.value = normalizeHexCode(hex) || hex
-      picker.value = toOpaqueRgbHex(hex)
+      const normalizedHex = normalizeHexCode(hex) || hex
+      hexInput.value = normalizedHex
+      picker.value = toOpaqueRgbHex(normalizedHex)
+      const alpha = getAlphaPercent(normalizedHex)
+      alphaInput.value = String(alpha)
+      alphaValue.textContent = `${alpha}%`
       error.classList.add('hidden')
       
       container.classList.add('open')
@@ -238,20 +248,31 @@ import Layout from '../../layouts/Layout.astro'
     document.getElementById('btn-new')?.addEventListener('click', () => openModal())
     document.getElementById('modal-cancel')?.addEventListener('click', closeModal)
     
-    // Sync picker and hex input
+    // Sync picker, opacity slider, and hex input
     const hexInput = document.getElementById('color-hex') as HTMLInputElement
     const picker = document.getElementById('color-picker') as HTMLInputElement
-    
+    const alphaInput = document.getElementById('color-alpha') as HTMLInputElement
+    const alphaValue = document.getElementById('color-alpha-value') as HTMLSpanElement
+
+    function updateColorFromPicker() {
+      const alpha = Number(alphaInput.value)
+      alphaValue.textContent = `${alpha}%`
+      hexInput.value = composeHexWithAlpha(picker.value, alpha)
+    }
+
     hexInput.addEventListener('input', (e) => {
-      const val = (e.target as HTMLInputElement).value
-      if (/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(val)) {
+      const val = normalizeHexCode((e.target as HTMLInputElement).value)
+      if (val) {
+        hexInput.value = val
         picker.value = toOpaqueRgbHex(val)
+        const alpha = getAlphaPercent(val)
+        alphaInput.value = String(alpha)
+        alphaValue.textContent = `${alpha}%`
       }
     })
-    
-    picker.addEventListener('input', (e) => {
-      hexInput.value = (e.target as HTMLInputElement).value
-    })
+
+    picker.addEventListener('input', updateColorFromPicker)
+    alphaInput.addEventListener('input', updateColorFromPicker)
     
     document.getElementById('modal-form')?.addEventListener('submit', async (e) => {
       e.preventDefault()
