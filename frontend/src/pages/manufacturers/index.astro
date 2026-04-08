@@ -91,7 +91,7 @@ import Layout from '../../layouts/Layout.astro'
     <div class="fm-card" style="width: 100%; max-width: 480px; margin: 16px;">
       <h3 id="modal-title" style="font-size: 1.1rem; font-weight: 600; margin-bottom: 16px;" data-i18n="manufacturers.addManufacturer">Add Manufacturer</h3>
 
-      <!-- Mode toggle: DB lookup vs manual -->
+      <!-- Mode toggle: DB lookup vs manual (create mode) -->
       <div id="mfr-mode-toggle" class="fdb-mode-toggle" style="display: none;">
         <label>
           <input type="radio" name="mfr-mode" value="db" />
@@ -101,6 +101,13 @@ import Layout from '../../layouts/Layout.astro'
           <input type="radio" name="mfr-mode" value="manual" checked />
           <span data-i18n="filamentdbLookup.manualEntry">Create manually</span>
         </label>
+      </div>
+
+      <!-- Edit mode: "Load from FilaManDB" button -->
+      <div id="mfr-edit-lookup-btn" style="display: none; margin-bottom: 12px;">
+        <button type="button" id="mfr-edit-lookup-toggle" class="fm-btn fm-btn-outline" style="width: 100%; font-size: 0.85rem;" data-i18n="filamentdbLookup.loadFromDb">
+          Load from FilaManDB
+        </button>
       </div>
 
       <!-- FilamentDB lookup section (hidden by default) -->
@@ -528,7 +535,7 @@ import Layout from '../../layouts/Layout.astro'
       // Note: escapeHtml() is used for all user-supplied data; URLs use escapeHtml for both href and text
       tbody.innerHTML = paged.map(mf => `
         <tr style="cursor: pointer;" class="manufacturer-row" data-mf='${escapeHtml(JSON.stringify(mf))}'>
-          <td style="font-weight: 500;">${mf.logo_url ? `<span style="display: inline-flex; align-items: center; gap: 8px;"><img src="${escapeHtml(mf.logo_url)}" alt="" style="width: 24px; height: 24px; object-fit: contain; border-radius: 3px; flex-shrink: 0;" onerror="this.style.display='none'" />${escapeHtml(mf.name)}</span>` : escapeHtml(mf.name)}</td>
+          <td style="font-weight: 500;">${mf.logo_url ? `<span style="display: inline-flex; align-items: center; gap: 8px;"><img src="${escapeHtml(mf.logo_url)}" alt="" style="width: 40px; height: 40px; object-fit: contain; border-radius: 4px; flex-shrink: 0;" onerror="this.style.display='none'" />${escapeHtml(mf.name)}</span>` : escapeHtml(mf.name)}</td>
           <td class="col-url">${mf.url ? `<a href="${escapeHtml(mf.url)}" target="_blank" rel="noopener" class="stop-prop" style="color: var(--accent); text-decoration: none;">${escapeHtml(mf.url)}</a>` : '<span style="color: var(--text-muted);">-</span>'}</td>
           <td class="col-filaments"><a href="/filaments?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.filament_count || 0}</a></td>
           <td class="col-spools"><a href="/spools?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.spool_count || 0}</a></td>
@@ -634,24 +641,20 @@ import Layout from '../../layouts/Layout.astro'
       const dbLookup = document.getElementById('mfr-db-lookup')!
       const lookupContainer = document.getElementById('mfr-lookup-container')!
       const lookupToast = document.getElementById('mfr-lookup-toast')!
+      const editLookupBtn = document.getElementById('mfr-edit-lookup-btn')!
+      const editLookupToggle = document.getElementById('mfr-edit-lookup-toggle')!
 
-      if (mf) {
-        // Edit mode: hide toggle and lookup
-        modeToggle.style.display = 'none'
-        dbLookup.style.display = 'none'
-        pendingLogoSlug = null
-      } else {
-        // Create mode: show toggle only if FilamentDB plugin is active
-        modeToggle.style.display = filamentDbActive ? 'flex' : 'none'
-        const manualRadio = modeToggle.querySelector('input[value="manual"]') as HTMLInputElement
-        manualRadio.checked = true
-        dbLookup.style.display = 'none'
-        lookupToast.style.display = 'none'
+      // Destroy previous lookup instance
+      if (mfrLookup) { mfrLookup.destroy(); mfrLookup = null }
 
-        // Destroy previous lookup instance
-        if (mfrLookup) { mfrLookup.destroy(); mfrLookup = null }
+      // Reset state
+      dbLookup.style.display = 'none'
+      lookupToast.style.display = 'none'
+      pendingLogoSlug = null
 
-        // Create lookup instance
+      // Create lookup instance (shared for both create & edit)
+      const initLookup = () => {
+        if (mfrLookup) return
         mfrLookup = createFilamentDbLookup({
           container: lookupContainer,
           endpoint: '/filamentdb/manufacturers',
@@ -665,28 +668,52 @@ import Layout from '../../layouts/Layout.astro'
             // Fill form fields
             nameInput.value = item.name || ''
             urlInput.value = item.website || ''
-            // Track logo info for download after create
+            // Track logo info for download after save
             pendingLogoSlug = item.has_web_logo ? (item.slug || null) : null
-            // No spool defaults from FilamentDB manufacturers (they don't have those fields in the public API)
-            // Keep defaults
             lookupToast.className = 'fdb-toast fdb-toast-success'
             lookupToast.textContent = t('filamentdbLookup.prefillSuccess')
             lookupToast.style.display = ''
           },
         })
+      }
+
+      if (mf) {
+        // Edit mode: hide create toggle, show edit lookup button if FilamentDB active
+        modeToggle.style.display = 'none'
+        editLookupBtn.style.display = filamentDbActive ? '' : 'none'
+
+        // Toggle lookup on button click
+        editLookupToggle.onclick = () => {
+          const isVisible = dbLookup.style.display !== 'none'
+          if (isVisible) {
+            dbLookup.style.display = 'none'
+            lookupToast.style.display = 'none'
+          } else {
+            initLookup()
+            dbLookup.style.display = ''
+            mfrLookup?.reset()
+          }
+        }
+      } else {
+        // Create mode: show toggle only if FilamentDB plugin is active
+        editLookupBtn.style.display = 'none'
+        modeToggle.style.display = filamentDbActive ? 'flex' : 'none'
+        const manualRadio = modeToggle.querySelector('input[value="manual"]') as HTMLInputElement
+        manualRadio.checked = true
 
         // Mode toggle event
         modeToggle.querySelectorAll('input[name="mfr-mode"]').forEach(radio => {
           radio.addEventListener('change', () => {
             const mode = (modeToggle.querySelector('input[name="mfr-mode"]:checked') as HTMLInputElement).value
-            dbLookup.style.display = mode === 'db' ? '' : 'none'
-            lookupToast.style.display = 'none'
-            if (mode === 'manual') {
+            if (mode === 'db') {
+              initLookup()
+              dbLookup.style.display = ''
+              mfrLookup?.reset()
+            } else {
+              dbLookup.style.display = 'none'
               pendingLogoSlug = null
             }
-            if (mode === 'db' && mfrLookup) {
-              mfrLookup.reset()
-            }
+            lookupToast.style.display = 'none'
           })
         })
       }
@@ -730,7 +757,7 @@ import Layout from '../../layouts/Layout.astro'
         const img = document.createElement('img')
         img.src = mf.logo_url
         img.alt = ''
-        img.style.cssText = 'width: 32px; height: 32px; object-fit: contain; border-radius: 4px; vertical-align: middle; margin-right: 10px;'
+        img.style.cssText = 'width: 64px; height: 64px; object-fit: contain; border-radius: 6px; vertical-align: middle; margin-right: 12px;'
         img.onerror = () => { img.style.display = 'none' }
         title.appendChild(img)
       }
@@ -843,11 +870,15 @@ import Layout from '../../layouts/Layout.astro'
           throw new Error(errorData.detail?.message || errorData.message || t('manufacturers.failedSave'))
         }
 
-        // Download logo from FilamentDB if this was a new manufacturer with a logo
-        if (!id && pendingLogoSlug) {
+        // Download logo from FilamentDB if a manufacturer was selected from FilaManDB
+        if (pendingLogoSlug) {
           try {
-            const created = await response.json()
-            await fetch(`/api/v1/manufacturers/${created.id}/download-logo`, {
+            let manufacturerId = id
+            if (!manufacturerId) {
+              const created = await response.json()
+              manufacturerId = created.id
+            }
+            await fetch(`/api/v1/manufacturers/${manufacturerId}/download-logo`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -857,7 +888,7 @@ import Layout from '../../layouts/Layout.astro'
               body: JSON.stringify({ slug: pendingLogoSlug }),
             })
           } catch {
-            // Logo download failure is non-critical — don't block the create
+            // Logo download failure is non-critical — don't block the save
             console.warn('Logo download failed (non-critical)')
           }
           pendingLogoSlug = null
