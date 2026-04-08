@@ -55,6 +55,7 @@ from app.models import (
     UserSession,
 )
 from app.services.plugin_service import PluginInstallError, PluginInstallService
+from app.core.seeds import DEPRECATED_PLUGINS, BUILTIN_PLUGINS
 from app.services.spoolman_import_service import (
     SpoolmanImportError,
     SpoolmanImportService,
@@ -1317,10 +1318,16 @@ async def killswitch(
 # ------------------------------------------------------------------ #
 
 
+class BackupPluginInfo(BaseModel):
+    plugin_key: str
+    version: str
+
+
 class BackupMetadata(BaseModel):
     export_date: str
     app_version: str
     schema_version: str | None
+    plugins: list[BackupPluginInfo] | None = None
 
 
 class BackupExportResponse(BaseModel):
@@ -1331,6 +1338,8 @@ class BackupExportResponse(BaseModel):
 class BackupImportResponse(BaseModel):
     message: str
     imported: dict[str, int]
+    plugins_installed: list[str] | None = None
+    plugins_warnings: list[str] | None = None
 
 
 def _serialize_row(row: Any) -> dict[str, Any]:
@@ -1482,10 +1491,24 @@ async def export_backup(
     # Export all data
     data = await _export_all_data(db)
 
+    # Collect non-builtin, non-deprecated plugin info for metadata
+    builtin_keys = {p["plugin_key"] for p in BUILTIN_PLUGINS}
+    deprecated_keys = set(DEPRECATED_PLUGINS)
+    result = await db.execute(
+        select(InstalledPlugin).where(InstalledPlugin.installed_by.isnot(None))
+    )
+    user_plugins = result.scalars().all()
+    backup_plugins = [
+        BackupPluginInfo(plugin_key=p.plugin_key, version=p.version)
+        for p in user_plugins
+        if p.plugin_key not in builtin_keys and p.plugin_key not in deprecated_keys
+    ]
+
     metadata = BackupMetadata(
         export_date=datetime.now(timezone.utc).isoformat(),
         app_version=app_version,
         schema_version=schema_version,
+        plugins=backup_plugins if backup_plugins else None,
     )
 
     logger.info(f"Backup export completed by user {principal.user_id}")
@@ -1792,6 +1815,95 @@ async def _import_all_data(
     return imported
 
 
+async def _reinstall_plugins_from_backup(
+    db: DBSession,
+    plugins: list[BackupPluginInfo],
+) -> tuple[list[str], list[str]]:
+    """Reinstall user-installed plugins from backup via the plugin registry.
+
+    Downloads and installs plugins that were listed in the backup metadata.
+    Skips builtin and deprecated plugins.
+
+    Returns:
+        Tuple of (installed plugin messages, warning messages).
+    """
+    builtin_keys = {p["plugin_key"] for p in BUILTIN_PLUGINS}
+    deprecated_keys = set(DEPRECATED_PLUGINS)
+
+    # Filter to only installable plugins
+    to_install = [
+        p
+        for p in plugins
+        if p.plugin_key not in builtin_keys and p.plugin_key not in deprecated_keys
+    ]
+
+    if not to_install:
+        return [], []
+
+    installed: list[str] = []
+    warnings: list[str] = []
+
+    # Fetch available plugins from registry
+    try:
+        available = await _fetch_available_from_filaman()
+    except Exception as exc:
+        logger.warning("Plugin-Registry nicht erreichbar: %s", exc)
+        for p in to_install:
+            warnings.append(
+                f"Plugin '{p.plugin_key}' konnte nicht installiert werden "
+                f"(Registry nicht erreichbar)"
+            )
+        return installed, warnings
+
+    service = PluginInstallService(db)
+
+    for plugin_info in to_install:
+        key = plugin_info.plugin_key
+        registry_entry = available.get(key)
+
+        if not registry_entry:
+            warnings.append(f"Plugin '{key}' ist nicht in der Registry verfuegbar")
+            continue
+
+        download_url = registry_entry["download_url"]
+
+        # Download ZIP from registry
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                resp = await client.get(download_url)
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            warnings.append(f"Plugin '{key}': Download fehlgeschlagen ({exc})")
+            continue
+
+        zip_data = resp.content
+        if not zip_data:
+            warnings.append(f"Plugin '{key}': Heruntergeladene Datei ist leer")
+            continue
+
+        # Install via existing pipeline (finds DB record from import → upgrade)
+        try:
+            plugin, _ = await service.install_from_zip(
+                zip_data=zip_data,
+                installed_by=None,
+            )
+            installed.append(f"Plugin '{plugin.name}' v{plugin.version} installiert")
+            logger.info(
+                "Backup-Import: Plugin '%s' v%s aus Registry installiert",
+                plugin.name,
+                plugin.version,
+            )
+        except PluginInstallError as exc:
+            warnings.append(f"Plugin '{key}': Installation fehlgeschlagen ({exc})")
+            logger.warning(
+                "Backup-Import: Plugin '%s' konnte nicht installiert werden: %s",
+                key,
+                exc,
+            )
+
+    return installed, warnings
+
+
 @router.post("/backup/import", response_model=BackupImportResponse)
 async def import_backup(
     db: DBSession,
@@ -1876,9 +1988,32 @@ async def import_backup(
 
         response_cache.clear()
 
+        # Step 4: Reinstall user-installed plugins from backup
+        plugins_installed = None
+        plugins_warnings = None
+        backup_metadata = backup_data.get("metadata", {})
+        raw_plugins = backup_metadata.get("plugins")
+        if raw_plugins:
+            plugin_list = [BackupPluginInfo(**p) for p in raw_plugins]
+            plugins_installed, plugins_warnings = await _reinstall_plugins_from_backup(
+                db, plugin_list
+            )
+            if plugins_installed:
+                logger.info(
+                    "Backup-Import: %d Plugin(s) installiert",
+                    len(plugins_installed),
+                )
+            if plugins_warnings:
+                logger.warning(
+                    "Backup-Import: %d Plugin-Warnung(en)",
+                    len(plugins_warnings),
+                )
+
         return BackupImportResponse(
             message=f"Backup imported successfully. Auto-backup created at: {auto_backup_path.name}",
             imported=imported,
+            plugins_installed=plugins_installed or None,
+            plugins_warnings=plugins_warnings or None,
         )
 
     except Exception as exc:
