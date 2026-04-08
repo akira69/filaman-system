@@ -942,6 +942,8 @@
     "downloaded": "heruntergeladen",
     "failed": "fehlgeschlagen",
     "warnings": "Warnungen",
-    "errors": "Fehler"
+    "errors": "Fehler",
+    "searchManufacturers": "Hersteller suchen...",
+    "loadingFilaments": "Lade Filamente..."
   }
 }

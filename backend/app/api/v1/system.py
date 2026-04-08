@@ -990,8 +990,14 @@ class FilamentDBPreviewResponse(BaseModel):
     summary: dict[str, int]
     manufacturers: list[dict[str, Any]]
     materials: list[dict[str, Any]]
+
+
+class FilamentDBFilamentsRequest(BaseModel):
+    manufacturer_ids: list[int]
+
+
+class FilamentDBFilamentsResponse(BaseModel):
     filaments: list[dict[str, Any]]
-    spool_profiles: list[dict[str, Any]]
     colors: list[dict[str, str]]
 
 
@@ -1030,18 +1036,15 @@ async def filamentdb_preview(
     db: DBSession,
     principal=RequirePermission("admin:plugins_manage"),
 ):
-    """Vorschau der zu importierenden FilamentDB-Daten."""
+    """Vorschau der zu importierenden FilamentDB-Daten (nur Hersteller + Materialien)."""
     service = FilamentDBImportService(db)
     try:
-        preview = await service.preview()
+        preview = await service.preview_manufacturers()
         return JSONResponse(
             {
                 "summary": preview.summary,
                 "manufacturers": preview.manufacturers,
                 "materials": preview.materials,
-                "filaments": preview.filaments,
-                "spool_profiles": preview.spool_profiles,
-                "colors": preview.colors,
             }
         )
     except FilamentDBImportError as e:
@@ -1055,6 +1058,45 @@ async def filamentdb_preview(
 
         tb = traceback.format_exc()
         logger.exception("Unexpected error in FilamentDB preview: %s", tb)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": {
+                    "code": "internal_error",
+                    "message": f"Unerwarteter Fehler: {str(e)}\n\nTraceback:\n{tb}",
+                    "type": type(e).__name__,
+                }
+            },
+        )
+
+
+@router.post("/filamentdb-import/filaments")
+async def filamentdb_filaments(
+    body: FilamentDBFilamentsRequest,
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Filamente + Farben fuer ausgewaehlte Hersteller laden."""
+    service = FilamentDBImportService(db)
+    try:
+        result = await service.fetch_filaments(body.manufacturer_ids)
+        return JSONResponse(
+            {
+                "filaments": result.filaments,
+                "colors": result.colors,
+            }
+        )
+    except FilamentDBImportError as e:
+        logger.warning("FilamentDB Filaments Error: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": {"code": e.code, "message": str(e)}},
+        )
+    except Exception as e:
+        import traceback
+
+        tb = traceback.format_exc()
+        logger.exception("Unexpected error in FilamentDB filaments: %s", tb)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

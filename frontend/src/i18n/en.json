@@ -940,6 +940,8 @@
     "downloaded": "downloaded",
     "failed": "failed",
     "warnings": "Warnings",
-    "errors": "Errors"
+    "errors": "Errors",
+    "searchManufacturers": "Search manufacturers...",
+    "loadingFilaments": "Loading filaments..."
   }
 }

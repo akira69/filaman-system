@@ -71,6 +71,31 @@ class ImportPreview:
 
 
 @dataclass
+class ManufacturerPreview:
+    """Leichtgewichtige Vorschau — nur Hersteller + Materialien (keine Filamente)."""
+
+    manufacturers: list[dict[str, Any]] = field(default_factory=list)
+    materials: list[dict[str, Any]] = field(default_factory=list)
+    total_filaments: int = 0
+
+    @property
+    def summary(self) -> dict[str, int]:
+        return {
+            "manufacturers": len(self.manufacturers),
+            "materials": len(self.materials),
+            "filaments": self.total_filaments,
+        }
+
+
+@dataclass
+class FilamentsByManufacturer:
+    """Filamente + Farben fuer ausgewaehlte Hersteller."""
+
+    filaments: list[dict[str, Any]] = field(default_factory=list)
+    colors: list[dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
 class ImportResult:
     """Ergebnis des Imports."""
 
@@ -194,7 +219,167 @@ class FilamentDBImportService:
         return colors
 
     # ------------------------------------------------------------------ #
-    #  Vorschau
+    #  Leichtgewichtige Vorschau (nur Hersteller + Materialien)
+    # ------------------------------------------------------------------ #
+
+    async def preview_manufacturers(self) -> ManufacturerPreview:
+        """Vorschau: nur Hersteller und Materialien zurueckgeben.
+
+        Filamente werden intern gelesen (fuer ``_filament_count`` und
+        ``_material_types``), aber NICHT an den Caller zurueckgegeben.
+        Das spart bei 40k+ Filamenten enorm Bandbreite.
+        """
+        data = await self._fetch_sync_data()
+
+        manufacturers = data.get("manufacturers", [])
+        materials = data.get("materials", [])
+        filaments = data.get("filaments", [])
+
+        # -- Duplikat-Abgleich: Manufacturers --
+        existing_mfr_result = await self.db.execute(select(Manufacturer))
+        existing_mfr_names: set[str] = {
+            (m.name or "").lower() for m in existing_mfr_result.scalars().all()
+        }
+
+        for mfr in manufacturers:
+            name = (mfr.get("name") or "").strip().lower()
+            mfr["_exists"] = name in existing_mfr_names
+
+        # -- Material-Map fuer Filament-Zaehlung --
+        mat_map: dict[int, str] = {}
+        for mat in materials:
+            mid = mat.get("id")
+            mkey = mat.get("key", "").upper() or mat.get("name", "PLA").upper()
+            if mid:
+                mat_map[mid] = mkey
+
+        # Filament-Zaehler und Materialtypen pro Manufacturer
+        mfr_filament_counts: dict[int, int] = {}
+        mfr_material_types: dict[int, set[str]] = {}
+
+        for fil in filaments:
+            mfr_id_fdb = _resolve_mfr_id(fil)
+
+            # Material auflösen
+            mat_id_fdb = fil.get("material_id")
+            mat_nested = fil.get("material")
+            if not mat_id_fdb and isinstance(mat_nested, dict):
+                mat_id_fdb = mat_nested.get("id")
+
+            material_key = mat_map.get(mat_id_fdb, "PLA")
+            if material_key == "PLA" and isinstance(mat_nested, dict):
+                material_key = (
+                    mat_nested.get("key") or mat_nested.get("name") or "PLA"
+                ).upper()
+
+            if mfr_id_fdb:
+                mfr_filament_counts[mfr_id_fdb] = (
+                    mfr_filament_counts.get(mfr_id_fdb, 0) + 1
+                )
+                mfr_material_types.setdefault(mfr_id_fdb, set()).add(material_key)
+
+        # Manufacturers anreichern
+        for mfr in manufacturers:
+            fdb_id = mfr.get("id")
+            mfr["_filament_count"] = mfr_filament_counts.get(fdb_id, 0)
+            mfr["_material_types"] = sorted(mfr_material_types.get(fdb_id, set()))
+
+        return ManufacturerPreview(
+            manufacturers=manufacturers,
+            materials=materials,
+            total_filaments=len(filaments),
+        )
+
+    # ------------------------------------------------------------------ #
+    #  Filamente fuer ausgewaehlte Hersteller
+    # ------------------------------------------------------------------ #
+
+    async def fetch_filaments(
+        self, manufacturer_ids: list[int]
+    ) -> FilamentsByManufacturer:
+        """Filamente + Farben fuer die gegebenen Hersteller-IDs laden.
+
+        Filtert die FilamentDB-Daten auf die uebergebenen Manufacturer-IDs
+        und reichert jedes Filament mit ``_exists`` und ``_material_key`` an.
+        """
+        data = await self._fetch_sync_data()
+
+        manufacturers = data.get("manufacturers", [])
+        materials = data.get("materials", [])
+        all_filaments = data.get("filaments", [])
+
+        mfr_id_set = set(manufacturer_ids)
+
+        # Material-Map
+        mat_map: dict[int, str] = {}
+        for mat in materials:
+            mid = mat.get("id")
+            mkey = mat.get("key", "").upper() or mat.get("name", "PLA").upper()
+            if mid:
+                mat_map[mid] = mkey
+
+        # FDB-Manufacturer-ID -> Name (fuer Filament-Duplikat-Check)
+        fdb_mfr_id_to_name: dict[int, str] = {}
+        for mfr in manufacturers:
+            fdb_id = mfr.get("id")
+            if fdb_id:
+                fdb_mfr_id_to_name[fdb_id] = (mfr.get("name") or "").strip()
+
+        # Duplikat-Abgleich: Filaments
+        existing_fil_result = await self.db.execute(
+            select(
+                Filament.designation,
+                Filament.material_type,
+                Manufacturer.name,
+            ).join(Manufacturer, Filament.manufacturer_id == Manufacturer.id)
+        )
+        existing_fil_keys: set[tuple[str, str, str]] = {
+            (
+                (row[2] or "").lower(),
+                (row[0] or "").lower(),
+                (row[1] or "").lower(),
+            )
+            for row in existing_fil_result.all()
+        }
+
+        # Filamente filtern und anreichern
+        filtered_filaments: list[dict[str, Any]] = []
+        for fil in all_filaments:
+            mfr_id_fdb = _resolve_mfr_id(fil)
+            if not mfr_id_fdb or mfr_id_fdb not in mfr_id_set:
+                continue
+
+            # Material auflösen
+            mat_id_fdb = fil.get("material_id")
+            mat_nested = fil.get("material")
+            if not mat_id_fdb and isinstance(mat_nested, dict):
+                mat_id_fdb = mat_nested.get("id")
+
+            material_key = mat_map.get(mat_id_fdb, "PLA")
+            if material_key == "PLA" and isinstance(mat_nested, dict):
+                material_key = (
+                    mat_nested.get("key") or mat_nested.get("name") or "PLA"
+                ).upper()
+
+            fil["_material_key"] = material_key
+
+            # Duplikat-Check
+            designation = (fil.get("designation") or "").strip()
+            mfr_name = fdb_mfr_id_to_name.get(mfr_id_fdb, "")
+            key = (mfr_name.lower(), designation.lower(), material_key.lower())
+            fil["_exists"] = key in existing_fil_keys
+
+            filtered_filaments.append(fil)
+
+        colors = self._extract_colors(filtered_filaments)
+
+        return FilamentsByManufacturer(
+            filaments=filtered_filaments,
+            colors=colors,
+        )
+
+    # ------------------------------------------------------------------ #
+    #  Vorschau (komplett — wird intern von execute() genutzt)
     # ------------------------------------------------------------------ #
 
     async def preview(self) -> ImportPreview:
