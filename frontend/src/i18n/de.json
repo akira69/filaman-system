@@ -955,6 +955,10 @@
     "showChanges": "Änderungen anzeigen",
     "fieldName": "Feld",
     "currentValue": "Aktuell",
-    "newValue": "Neu"
+    "newValue": "Neu",
+    "fuzzyMatch": "ähnlich",
+    "fuzzyMatchHint": "Dieses Filament könnte Ihrem vorhandenen Filament \"{name}\" entsprechen. Klicken Sie ✕, um es als neu zu importieren.",
+    "fuzzyReject": "Kein Treffer — als neu importieren",
+    "fuzzyHintBox": "Einige Filamente wurden als ähnlich zu bereits vorhandenen erkannt. Sie sind mit \"ähnlich\" und dem zugeordneten Namen markiert. Falls die Zuordnung falsch ist, klicken Sie ✕, um das Filament stattdessen als neu zu importieren."
   }
 }

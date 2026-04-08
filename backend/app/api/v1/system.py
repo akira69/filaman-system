@@ -985,6 +985,9 @@ class FilamentDBImportRequest(BaseModel):
         None  # FDB-IDs, None = alle der gewaehlten Hersteller
     )
     update_filament_ids: list[int] | None = None  # FDB-IDs zum Aktualisieren
+    skip_fuzzy_ids: list[int] | None = (
+        None  # FDB-IDs, fuer die Fuzzy-Matching uebersprungen wird
+    )
 
 
 class FilamentDBPreviewResponse(BaseModel):
@@ -1177,6 +1180,7 @@ async def filamentdb_execute(
             manufacturer_ids=body.manufacturer_ids,
             filament_ids=body.filament_ids,
             update_filament_ids=body.update_filament_ids,
+            skip_fuzzy_ids=body.skip_fuzzy_ids,
         )
         return result
     except FilamentDBImportError as e:

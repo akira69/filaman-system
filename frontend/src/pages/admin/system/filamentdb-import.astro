@@ -108,6 +108,8 @@ import Layout from '../../../layouts/Layout.astro'
     const selectedMfrIds = new Set<number>()
     /** Set of selected FDB filament IDs */
     const selectedFilIds = new Set<number>()
+    /** Set of FDB filament IDs where user rejected the fuzzy match */
+    const rejectedFuzzyIds = new Set<number>()
     /** Active material filter (empty = all) */
     const activeMaterials = new Set<string>()
     /** Manufacturer search term */
@@ -414,6 +416,7 @@ import Layout from '../../../layouts/Layout.astro'
       if (selectedMfrIds.size === 0) {
         filamentData = null
         selectedFilIds.clear()
+        rejectedFuzzyIds.clear()
         container.style.display = 'none'
         hint.style.display = 'block'
         disableStep('step-filaments')
@@ -451,6 +454,7 @@ import Layout from '../../../layouts/Layout.astro'
         filamentLoading = false
 
         selectedFilIds.clear()
+        rejectedFuzzyIds.clear()
 
         renderFilamentList()
         updateSummary()
@@ -498,6 +502,15 @@ import Layout from '../../../layouts/Layout.astro'
       })
 
       let html = ''
+
+      // Hinweis zu Fuzzy-Matches anzeigen wenn welche vorhanden
+      const hasFuzzyMatches = filaments.some((f: any) => f._match_type === 'fuzzy' && !rejectedFuzzyIds.has(f.id))
+      if (hasFuzzyMatches) {
+        html += `<div style="padding: 10px 14px; margin-bottom: 12px; border-radius: var(--radius-sm); background: rgba(var(--warning-rgb, 200,150,0), 0.08); border: 1px solid rgba(var(--warning-rgb, 200,150,0), 0.25); font-size: 0.85rem; color: var(--text);">
+          ${escapeHtml(t('filamentdb.fuzzyHintBox'))}
+        </div>`
+      }
+
       for (const mfrId of sortedMfrIds) {
         const mfr = mfrMap.get(mfrId)
         const fils = grouped.get(mfrId) || []
@@ -520,9 +533,15 @@ import Layout from '../../../layouts/Layout.astro'
 
         for (const f of fils) {
           const checked = selectedFilIds.has(f.id) ? 'checked' : ''
-          const existsBadge = f._exists
-            ? `<span style="display: inline-block; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text-muted); margin-left: 8px;">${escapeHtml(t('filamentdb.alreadyExists'))}</span>`
-            : ''
+          const isRejectedFuzzy = rejectedFuzzyIds.has(f.id)
+          const effectiveExists = f._exists && !isRejectedFuzzy
+          const isFuzzyMatch = f._match_type === 'fuzzy' && !isRejectedFuzzy
+          let existsBadge = ''
+          if (effectiveExists && isFuzzyMatch) {
+            existsBadge = `<span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: rgba(var(--warning-rgb, 200,150,0), 0.1); border: 1px solid rgba(var(--warning-rgb, 200,150,0), 0.3); color: var(--warning, #c89600); margin-left: 8px;" title="${escapeHtml(t('filamentdb.fuzzyMatchHint').replace('{name}', f._matched_name || ''))}">${escapeHtml(t('filamentdb.fuzzyMatch'))}: ${escapeHtml(f._matched_name || '?')} <span style="opacity:0.7">(${Math.round((f._match_score || 0) * 100)}%)</span><button class="fuzzy-reject-btn" data-id="${f.id}" style="background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 0 2px; line-height: 1; color: var(--text-muted);" title="${escapeHtml(t('filamentdb.fuzzyReject'))}">✕</button></span>`
+          } else if (effectiveExists) {
+            existsBadge = `<span style="display: inline-block; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text-muted); margin-left: 8px;">${escapeHtml(t('filamentdb.alreadyExists'))}</span>`
+          }
           const noSpoolBadge = !f.spool_profile
             ? `<span style="display: inline-block; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text-muted); margin-left: 4px;">${escapeHtml(t('filamentdb.noSpoolData'))}</span>`
             : ''
@@ -532,7 +551,7 @@ import Layout from '../../../layouts/Layout.astro'
           const colorSwatches = renderColorSwatches(f)
 
           html += `
-            <label style="display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--border); cursor: pointer;${f._exists ? ' opacity: 0.7;' : ''}">
+            <label style="display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--border); cursor: pointer;${effectiveExists ? ' opacity: 0.7;' : ''}">
               <input type="checkbox" class="fil-cb" data-id="${f.id}" data-mfr="${mfrId}" ${checked} style="flex-shrink: 0;" />
               <div style="flex: 1; min-width: 0;">
                 <div style="font-size: 0.85rem;">
@@ -559,6 +578,18 @@ import Layout from '../../../layouts/Layout.astro'
           const id = Number(input.dataset.id)
           if (input.checked) selectedFilIds.add(id)
           else selectedFilIds.delete(id)
+          updateSummary()
+        })
+      })
+
+      // Fuzzy-Reject buttons
+      container.querySelectorAll('.fuzzy-reject-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          const id = Number((e.currentTarget as HTMLElement).dataset.id)
+          rejectedFuzzyIds.add(id)
+          renderFilamentList()
           updateSummary()
         })
       })
@@ -628,7 +659,7 @@ import Layout from '../../../layouts/Layout.astro'
       // Existierende Filamente in der Auswahl finden
       const existingFdbIds: number[] = []
       for (const f of filamentData.filaments) {
-        if (f._exists && f.id && selectedFilIds.has(f.id)) {
+        if (f._exists && f.id && selectedFilIds.has(f.id) && !rejectedFuzzyIds.has(f.id)) {
           existingFdbIds.push(f.id)
         }
       }
@@ -870,6 +901,11 @@ import Layout from '../../../layouts/Layout.astro'
         // Update-IDs mitsenden wenn vorhanden
         if (updateFilIds.size > 0) {
           requestBody.update_filament_ids = [...updateFilIds]
+        }
+
+        // Abgelehnte Fuzzy-Matches mitsenden
+        if (rejectedFuzzyIds.size > 0) {
+          requestBody.skip_fuzzy_ids = [...rejectedFuzzyIds]
         }
 
         const response = await fetch('/api/v1/admin/system/filamentdb-import/execute', {

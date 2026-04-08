@@ -1,7 +1,8 @@
 """FilamentDB-Import-Service: Daten aus der FilamentDB importieren."""
 
 import logging
-from collections import Counter
+import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -29,6 +30,54 @@ if not _UPLOADS_BASE.is_dir():
     _UPLOADS_BASE = PROJECT_ROOT / "data" / "uploads"
 
 LOGO_DIR = _UPLOADS_BASE / "manufacturer-logos"
+
+# Schwellwert fuer Fuzzy-Matching (75%)
+FUZZY_THRESHOLD = 0.75
+
+# Synonyme fuer Normalisierung (werden auf die kanonische Form gemappt)
+_SYNONYMS: dict[str, str] = {
+    "+": "plus",
+}
+
+
+def _normalize_designation(name: str) -> str:
+    """Normalisiert eine Filament-Bezeichnung fuer Fuzzy-Matching.
+
+    - Lowercase
+    - Klammern werden zu Leerzeichen (Inhalt bleibt erhalten)
+    - Sonderzeichen (_, -, /, ,) → Leerzeichen
+    - Whitespace normalisieren
+    """
+    s = name.lower().strip()
+    s = re.sub(r"[()[\]{}<>]", " ", s)
+    s = re.sub(r"[_,\-/]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _tokenize(name: str) -> set[str]:
+    """Tokenisiert und vereinheitlicht Synonyme."""
+    tokens: set[str] = set()
+    for tok in _normalize_designation(name).split():
+        tokens.add(_SYNONYMS.get(tok, tok))
+    return tokens
+
+
+def _fuzzy_match_score(a: str, b: str) -> float:
+    """Symmetrischer Token-Overlap Score.
+
+    Gibt den hoeheren Wert aus beiden Richtungen zurueck:
+      max(|A∩B|/|A|, |A∩B|/|B|)
+
+    So matchen sowohl "Feuerrot" vs "Rot (Feuerrot)" als auch
+    "PLA Rot (Feuerrot)" vs "PLA Rot".
+    """
+    tokens_a = _tokenize(a)
+    tokens_b = _tokenize(b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+    overlap = len(tokens_a & tokens_b)
+    return max(overlap / len(tokens_a), overlap / len(tokens_b))
 
 
 def _resolve_mfr_id(fil: dict[str, Any]) -> int | None:
@@ -327,7 +376,7 @@ class FilamentDBImportService:
             if fdb_id:
                 fdb_mfr_id_to_name[fdb_id] = (mfr.get("name") or "").strip()
 
-        # Duplikat-Abgleich: Filaments
+        # Duplikat-Abgleich: Filaments (exakt + fuzzy)
         existing_fil_result = await self.db.execute(
             select(
                 Filament.designation,
@@ -335,14 +384,15 @@ class FilamentDBImportService:
                 Manufacturer.name,
             ).join(Manufacturer, Filament.manufacturer_id == Manufacturer.id)
         )
-        existing_fil_keys: set[tuple[str, str, str]] = {
-            (
-                (row[2] or "").lower(),
-                (row[0] or "").lower(),
-                (row[1] or "").lower(),
-            )
-            for row in existing_fil_result.all()
-        }
+        existing_fil_keys: set[tuple[str, str, str]] = set()
+        # Index fuer Fuzzy-Lookup: (mfr_name_lower, material_lower) -> [designation, ...]
+        existing_by_mfr_mat: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for row in existing_fil_result.all():
+            mfr = (row[2] or "").lower()
+            desig = (row[0] or "").lower()
+            mat = (row[1] or "").lower()
+            existing_fil_keys.add((mfr, desig, mat))
+            existing_by_mfr_mat[(mfr, mat)].append(row[0] or "")
 
         # Filamente filtern und anreichern
         filtered_filaments: list[dict[str, Any]] = []
@@ -365,11 +415,34 @@ class FilamentDBImportService:
 
             fil["_material_key"] = material_key
 
-            # Duplikat-Check
+            # Duplikat-Check: exakt, dann fuzzy
             designation = (fil.get("designation") or "").strip()
             mfr_name = fdb_mfr_id_to_name.get(mfr_id_fdb, "")
             key = (mfr_name.lower(), designation.lower(), material_key.lower())
-            fil["_exists"] = key in existing_fil_keys
+
+            if key in existing_fil_keys:
+                fil["_exists"] = True
+                fil["_match_type"] = "exact"
+            else:
+                # Fuzzy-Fallback: alle lokalen Filamente desselben Herstellers+Materials
+                candidates = existing_by_mfr_mat.get(
+                    (mfr_name.lower(), material_key.lower()), []
+                )
+                best_score = 0.0
+                best_name: str | None = None
+                for local_desig in candidates:
+                    score = _fuzzy_match_score(local_desig, designation)
+                    if score > best_score:
+                        best_score = score
+                        best_name = local_desig
+
+                if best_score >= FUZZY_THRESHOLD and best_name is not None:
+                    fil["_exists"] = True
+                    fil["_match_type"] = "fuzzy"
+                    fil["_matched_name"] = best_name
+                    fil["_match_score"] = round(best_score, 2)
+                else:
+                    fil["_exists"] = False
 
             filtered_filaments.append(fil)
 
@@ -471,14 +544,16 @@ class FilamentDBImportService:
             )
             all_local = all_local_result.scalars().all()
             local_index: dict[tuple[str, str, str], Filament] = {}
+            # Index fuer Fuzzy-Lookup: (mfr_lower, mat_lower) -> [(designation, Filament)]
+            local_by_mfr_mat: dict[tuple[str, str], list[tuple[str, Filament]]] = (
+                defaultdict(list)
+            )
             for lf in all_local:
                 mfr_name = (lf.manufacturer.name if lf.manufacturer else "").lower()
-                key = (
-                    mfr_name,
-                    (lf.designation or "").lower(),
-                    (lf.material_type or "").lower(),
-                )
-                local_index[key] = lf
+                desig = (lf.designation or "").lower()
+                mat = (lf.material_type or "").lower()
+                local_index[(mfr_name, desig, mat)] = lf
+                local_by_mfr_mat[(mfr_name, mat)].append((lf.designation or "", lf))
 
             for fdb_id in missing_ids:
                 fdb_f = fdb_fils.get(fdb_id)
@@ -497,9 +572,24 @@ class FilamentDBImportService:
                         mat_nested.get("key") or mat_nested.get("name") or "PLA"
                     ).lower()
 
+                # Exakter Match
                 matched = local_index.get((mfr_name, designation, material))
                 if matched:
                     local_by_fdb_id[fdb_id] = matched
+                    continue
+
+                # Fuzzy-Fallback
+                fdb_desig_raw = (fdb_f.get("designation") or "").strip()
+                candidates = local_by_mfr_mat.get((mfr_name, material), [])
+                best_score = 0.0
+                best_fil: Filament | None = None
+                for local_desig, local_fil in candidates:
+                    score = _fuzzy_match_score(local_desig, fdb_desig_raw)
+                    if score > best_score:
+                        best_score = score
+                        best_fil = local_fil
+                if best_score >= FUZZY_THRESHOLD and best_fil is not None:
+                    local_by_fdb_id[fdb_id] = best_fil
 
         # Diff erstellen
         results: list[dict[str, Any]] = []
@@ -743,6 +833,7 @@ class FilamentDBImportService:
         manufacturer_ids: list[int] | None = None,
         filament_ids: list[int] | None = None,
         update_filament_ids: list[int] | None = None,
+        skip_fuzzy_ids: list[int] | None = None,
     ) -> ImportResult:
         """Import aus der FilamentDB ausfuehren.
 
@@ -754,6 +845,8 @@ class FilamentDBImportService:
                           ``None`` importiert alle Filamente der gewaehlten Hersteller.
             update_filament_ids: FilamentDB-IDs existierender Filamente,
                                  die aktualisiert werden sollen.
+            skip_fuzzy_ids: FilamentDB-IDs, fuer die Fuzzy-Matching
+                            uebersprungen wird (User hat Match abgelehnt).
         """
         result = ImportResult()
         preview = await self.preview()
@@ -815,6 +908,7 @@ class FilamentDBImportService:
             spool_detail_target,
             result,
             update_filament_ids=update_filament_ids,
+            skip_fuzzy_ids=skip_fuzzy_ids,
         )
 
         # 4. SpoolProfile auf Manufacturer-Ebene (wenn gewuenscht)
@@ -942,10 +1036,12 @@ class FilamentDBImportService:
         spool_detail_target: Literal["filament", "manufacturer", "both"],
         result: ImportResult,
         update_filament_ids: list[int] | None = None,
+        skip_fuzzy_ids: list[int] | None = None,
     ) -> dict[int, int]:
         """Filamente importieren. Gibt FilamentDB-ID -> FilaMan-ID."""
         fil_map: dict[int, int] = {}
         update_id_set = set(update_filament_ids) if update_filament_ids else set()
+        skip_fuzzy_set = set(skip_fuzzy_ids) if skip_fuzzy_ids else set()
 
         for fil_data in filaments:
             if not isinstance(fil_data, dict):
@@ -987,7 +1083,7 @@ class FilamentDBImportService:
             if not designation:
                 designation = f"{material_key} (FilamentDB #{fdb_id})"
 
-            # Duplicate-Check: manufacturer_id + designation + material_type
+            # Duplicate-Check: exakt, dann fuzzy
             existing = await self.db.execute(
                 select(Filament).where(
                     (Filament.manufacturer_id == filaman_mfr_id)
@@ -996,6 +1092,25 @@ class FilamentDBImportService:
                 )
             )
             existing_fil = existing.scalar_one_or_none()
+
+            # Fuzzy-Fallback wenn kein exakter Match
+            if not existing_fil and fdb_id not in skip_fuzzy_set:
+                fuzzy_candidates_result = await self.db.execute(
+                    select(Filament).where(
+                        (Filament.manufacturer_id == filaman_mfr_id)
+                        & (func.lower(Filament.material_type) == material_key.lower())
+                    )
+                )
+                best_score = 0.0
+                best_candidate: Filament | None = None
+                for candidate in fuzzy_candidates_result.scalars().all():
+                    score = _fuzzy_match_score(candidate.designation or "", designation)
+                    if score > best_score:
+                        best_score = score
+                        best_candidate = candidate
+                if best_score >= FUZZY_THRESHOLD and best_candidate is not None:
+                    existing_fil = best_candidate
+
             if existing_fil:
                 if fdb_id:
                     fil_map[fdb_id] = existing_fil.id
