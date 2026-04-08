@@ -711,14 +711,56 @@ async def uninstall_plugin(
     response_cache.delete("plugin_nav")
 
 
-@router.patch("/plugins/{plugin_key}/active", response_model=PluginResponse)
+class PluginToggleResponse(BaseModel):
+    plugin: PluginResponse
+    affected_printers: int = 0
+
+
+@router.get("/plugins/{plugin_key}/affected-printers")
+async def get_affected_printers(
+    plugin_key: str,
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Anzahl aktiver Drucker zurueckgeben, die von diesem Plugin abhaengen."""
+    service = PluginInstallService(db)
+    plugin = await service.get_plugin(plugin_key)
+    if not plugin:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "not_found",
+                "message": f"Plugin '{plugin_key}' nicht gefunden",
+            },
+        )
+
+    if not plugin.driver_key:
+        return {"count": 0, "printers": []}
+
+    result = await db.execute(
+        select(Printer.id, Printer.name).where(
+            Printer.driver_key == plugin.driver_key,
+            Printer.is_active == True,
+            Printer.deleted_at.is_(None),
+        )
+    )
+    rows = result.all()
+    return {
+        "count": len(rows),
+        "printers": [{"id": r.id, "name": r.name} for r in rows],
+    }
+
+
+@router.patch("/plugins/{plugin_key}/active", response_model=PluginToggleResponse)
 async def toggle_plugin_active(
     plugin_key: str,
     body: PluginToggleRequest,
     db: DBSession,
     principal=RequirePermission("admin:plugins_manage"),
 ):
-    """Plugin aktivieren oder deaktivieren."""
+    """Plugin aktivieren oder deaktivieren — Treiber werden gestoppt/gestartet."""
+    from app.plugins.manager import plugin_manager
+
     service = PluginInstallService(db)
     try:
         plugin = await service.set_active(plugin_key, body.is_active)
@@ -730,8 +772,36 @@ async def toggle_plugin_active(
                 "message": str(e),
             },
         )
+
+    affected = 0
+
+    if plugin.driver_key:
+        if not body.is_active:
+            # Deaktivierung: alle laufenden Treiber dieses Plugins stoppen
+            for pid, drv in list(plugin_manager.drivers.items()):
+                if getattr(drv, "driver_key", None) == plugin.driver_key:
+                    await plugin_manager.stop_printer(pid)
+                    affected += 1
+        else:
+            # Aktivierung: aktive Drucker dieses Plugins starten
+            result = await db.execute(
+                select(Printer).where(
+                    Printer.driver_key == plugin.driver_key,
+                    Printer.is_active == True,
+                    Printer.deleted_at.is_(None),
+                )
+            )
+            for p in result.scalars().all():
+                if p.id not in plugin_manager.drivers:
+                    started = await plugin_manager.start_printer(p)
+                    if started:
+                        affected += 1
+
     response_cache.delete("plugin_nav")
-    return plugin
+    return PluginToggleResponse(
+        plugin=PluginResponse.model_validate(plugin),
+        affected_printers=affected,
+    )
 
 
 @router.get("/plugins/{plugin_key}", response_model=PluginResponse)

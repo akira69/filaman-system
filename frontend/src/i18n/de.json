@@ -607,6 +607,7 @@
     "pluginFailedLoad": "Plugins konnten nicht geladen werden",
     "pluginActivate": "Plugin aktivieren",
     "pluginDeactivate": "Plugin deaktivieren",
+    "pluginDeactivateConfirm": "Dieses Plugin wirklich deaktivieren? {count} aktive(r) Drucker wird/werden gestoppt.",
     "pluginToggleFailed": "Plugin-Status konnte nicht ge\u00e4ndert werden",
     "pluginFromRegistry": "Aus Plugin-Registry installieren",
     "pluginSelectFromRegistry": "Plugin ausw\u00e4hlen",

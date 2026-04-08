@@ -605,6 +605,7 @@
     "pluginFailedLoad": "Failed to load plugins",
     "pluginActivate": "Activate plugin",
     "pluginDeactivate": "Deactivate plugin",
+    "pluginDeactivateConfirm": "Really deactivate this plugin? {count} active printer(s) will be stopped.",
     "pluginToggleFailed": "Failed to change plugin status",
     "pluginFromRegistry": "Install from Plugin Registry",
     "pluginSelectFromRegistry": "Select a plugin",

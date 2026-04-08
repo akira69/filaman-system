@@ -46,6 +46,24 @@ import Layout from '../../layouts/Layout.astro'
       opacity: 0.5;
       cursor: not-allowed;
     }
+    /* Spinner neben Toggle */
+    .toggle-spinner {
+      display: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: toggle-spin 0.6s linear infinite;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .toggle-spinner.visible {
+      display: inline-block;
+    }
+    @keyframes toggle-spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
   <div style="margin-bottom: 24px;">
     <a href="/admin" style="color: var(--accent); text-decoration: none;">&larr; <span data-i18n="admin.backToAdmin">Back to Admin</span></a>
@@ -233,10 +251,13 @@ import Layout from '../../layouts/Layout.astro'
           </td>
           <td style="color: var(--text-muted);">${escapeHtml(p.author || '-')}</td>
           <td>
-            <label class="fm-toggle" title="${p.is_active ? t('admin.pluginDeactivate') : t('admin.pluginActivate')}">
-              <input type="checkbox" class="toggle-active" data-key="${escapeHtml(p.plugin_key)}" ${p.is_active ? 'checked' : ''} />
-              <span class="fm-toggle-slider"></span>
-            </label>
+            <div style="display: flex; align-items: center;">
+              <label class="fm-toggle" title="${p.is_active ? t('admin.pluginDeactivate') : t('admin.pluginActivate')}">
+                <input type="checkbox" class="toggle-active" data-key="${escapeHtml(p.plugin_key)}" ${p.is_active ? 'checked' : ''} />
+                <span class="fm-toggle-slider"></span>
+              </label>
+              <span class="toggle-spinner" data-spinner-key="${escapeHtml(p.plugin_key)}"></span>
+            </div>
           </td>
           <td style="text-align: right; white-space: nowrap;">
             ${updateMap[p.plugin_key] ? `<button data-key="${escapeHtml(p.plugin_key)}" class="btn-update fm-btn fm-btn-primary" style="font-size: 0.8rem; padding: 4px 12px; margin-right: 12px;">${t('admin.pluginUpdateTo').replace('{version}', updateMap[p.plugin_key].version)}</button>` : ''}
@@ -332,9 +353,38 @@ import Layout from '../../layouts/Layout.astro'
           const checkbox = e.currentTarget as HTMLInputElement
           const key = checkbox.dataset.key!
           const newState = checkbox.checked
-          
-          // Deaktivieren waehrend der Anfrage
+          const spinner = document.querySelector(`.toggle-spinner[data-spinner-key="${key}"]`) as HTMLElement
+
+          // Bei Deaktivierung: pruefen ob Drucker betroffen sind
+          if (!newState) {
+            try {
+              const infoResp = await fetch(`/api/v1/admin/system/plugins/${key}/affected-printers`, {
+                credentials: 'include',
+                signal: getAbortSignal(),
+              })
+              if (infoResp.ok) {
+                const info = await infoResp.json()
+                if (info.count > 0) {
+                  const msg = t('admin.pluginDeactivateConfirm').replace('{count}', info.count)
+                  const confirmed = await (window as any).__fmConfirm(msg, {
+                    title: t('admin.pluginDeactivate'),
+                    isDanger: true,
+                  })
+                  if (!confirmed) {
+                    checkbox.checked = true
+                    return
+                  }
+                }
+              }
+            } catch (err: any) {
+              if (isAbortError(err)) return
+              // Bei Fehler trotzdem fortfahren (Vorschau ist optional)
+            }
+          }
+
+          // Spinner anzeigen + Toggle deaktivieren
           checkbox.disabled = true
+          if (spinner) spinner.classList.add('visible')
           
           try {
             const response = await fetch(`/api/v1/admin/system/plugins/${key}/active`, {
@@ -368,6 +418,7 @@ import Layout from '../../layouts/Layout.astro'
             await (window as any).__fmAlert(err.message || t('admin.pluginToggleFailed'))
           } finally {
             checkbox.disabled = false
+            if (spinner) spinner.classList.remove('visible')
           }
         })
       })

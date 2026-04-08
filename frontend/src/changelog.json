@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Plugins können jetzt vollständig aktiviert/deaktiviert werden — zugehörige Drucker werden automatisch gestoppt bzw. gestartet" }
+        ],
+        "en": [
+          { "type": "feature", "text": "Plugins can now be fully activated/deactivated — associated printers are automatically stopped or started" }
+        ]
+      }
+    },
+    {
       "version": "1.1.25",
       "date": "",
       "changes": {
