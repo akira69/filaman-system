@@ -6,11 +6,13 @@
       "changes": {
         "de": [
           { "type": "removed", "text": "Das SpoolmanDB-Plugin wird beim Update automatisch entfernt, da es nicht mehr benötigt wird" },
-          { "type": "feature", "text": "Beim Wiederherstellen eines Backups werden installierte Plugins automatisch aus der Registry heruntergeladen und installiert" }
+          { "type": "feature", "text": "Beim Wiederherstellen eines Backups werden installierte Plugins automatisch aus der Registry heruntergeladen und installiert" },
+          { "type": "fix", "text": "Das Restgewicht neuer Spulen wird jetzt automatisch aus Gesamtgewicht minus Leergewicht berechnet, wenn kein Verbrauch vorliegt" }
         ],
         "en": [
           { "type": "removed", "text": "The SpoolmanDB plugin is now automatically removed during update as it is no longer needed" },
-          { "type": "feature", "text": "When restoring a backup, installed plugins are now automatically downloaded and reinstalled from the registry" }
+          { "type": "feature", "text": "When restoring a backup, installed plugins are now automatically downloaded and reinstalled from the registry" },
+          { "type": "fix", "text": "Remaining weight of new spools is now automatically calculated from total weight minus empty spool weight when no usage exists" }
         ]
       }
     },

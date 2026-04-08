@@ -554,7 +554,17 @@ class SpoolService:
         )
         events = result.scalars().all()
 
+        # Start with net material weight if weight data is available,
+        # so spools with no events get the correct initial remaining value
         remaining: float | None = None
+        if (
+            spool.initial_total_weight_g is not None
+            and spool.empty_spool_weight_g is not None
+        ):
+            remaining = max(
+                spool.initial_total_weight_g - spool.empty_spool_weight_g, 0
+            )
+
         last_plausible_remaining: float | None = spool.remaining_weight_g
         blocked_event_id: int | None = None
 

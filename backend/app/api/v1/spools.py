@@ -315,6 +315,14 @@ async def create_spool(
     if spool_data.get("spool_material") is None:
         spool_data["spool_material"] = filament.spool_material
 
+    # Calculate remaining_weight_g from initial_total_weight_g - empty_spool_weight_g
+    # when no explicit value was provided (new spool with no usage yet)
+    if spool_data.get("remaining_weight_g") is None:
+        itw = spool_data.get("initial_total_weight_g")
+        esw = spool_data.get("empty_spool_weight_g")
+        if itw is not None and esw is not None:
+            spool_data["remaining_weight_g"] = max(itw - esw, 0)
+
     if "status_id" not in spool_data or spool_data["status_id"] is None:
         spool_data["status_id"] = status_obj.id
 
@@ -395,6 +403,15 @@ async def create_spools_bulk(
         )
     if spool_data.get("spool_material") is None:
         spool_data["spool_material"] = filament.spool_material
+
+    # Calculate remaining_weight_g from initial_total_weight_g - empty_spool_weight_g
+    # when no explicit value was provided (new spool with no usage yet)
+    if spool_data.get("remaining_weight_g") is None:
+        itw = spool_data.get("initial_total_weight_g")
+        esw = spool_data.get("empty_spool_weight_g")
+        if itw is not None and esw is not None:
+            spool_data["remaining_weight_g"] = max(itw - esw, 0)
+
     if "status_id" not in spool_data or spool_data["status_id"] is None:
         spool_data["status_id"] = status_obj.id
 

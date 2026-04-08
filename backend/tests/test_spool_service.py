@@ -22,6 +22,7 @@ async def _create_test_spool(
     status_key: str = "new",
     remaining_weight_g: float | None = 750.0,
     empty_spool_weight_g: float | None = None,
+    initial_total_weight_g: float | None = None,
     filament_default_spool_weight_g: float | None = 250.0,
     rfid_uid: str | None = None,
     external_id: str | None = None,
@@ -49,6 +50,7 @@ async def _create_test_spool(
         status_id=status.id,
         remaining_weight_g=remaining_weight_g,
         empty_spool_weight_g=empty_spool_weight_g,
+        initial_total_weight_g=initial_total_weight_g,
         rfid_uid=rfid_uid,
         external_id=external_id,
     )
@@ -640,3 +642,42 @@ class TestSpoolServiceRebuildRemainingWeight:
         refreshed = await service.get_spool(spool.id)
         assert refreshed is not None
         assert refreshed.remaining_weight_g == 300.0
+
+    @pytest.mark.asyncio
+    async def test_rebuild_no_events_uses_initial_weight(self, db_session):
+        """When there are no events, remaining should be initial_total_weight_g - empty_spool_weight_g."""
+        service = SpoolService(db_session)
+        spool = await _create_test_spool(
+            db_session,
+            remaining_weight_g=999.0,
+            initial_total_weight_g=1000.0,
+            empty_spool_weight_g=250.0,
+            status_key="new",
+        )
+
+        remaining = await service.rebuild_remaining_weight(spool)
+
+        assert remaining == 750.0
+        refreshed = await service.get_spool(spool.id)
+        assert refreshed is not None
+        assert refreshed.remaining_weight_g == 750.0
+
+    @pytest.mark.asyncio
+    async def test_rebuild_no_events_missing_weight_data(self, db_session):
+        """When there are no events and weight data is missing, remaining should be None."""
+        service = SpoolService(db_session)
+        spool = await _create_test_spool(
+            db_session,
+            remaining_weight_g=500.0,
+            initial_total_weight_g=None,
+            empty_spool_weight_g=None,
+            filament_default_spool_weight_g=None,
+            status_key="new",
+        )
+
+        remaining = await service.rebuild_remaining_weight(spool)
+
+        assert remaining is None
+        refreshed = await service.get_spool(spool.id)
+        assert refreshed is not None
+        assert refreshed.remaining_weight_g is None
