@@ -42,6 +42,46 @@ export async function checkFilamentDbActive(): Promise<boolean> {
   return _pluginActivePromise
 }
 
+// ── Fuzzy token matching ────────────────────────────────────────────
+
+const _SYNONYMS: Record<string, string> = { '+': 'plus' }
+
+function _normalize(name: string): string {
+  let s = name.toLowerCase().trim()
+  s = s.replace(/[()[\]{}<>]/g, ' ')
+  s = s.replace(/[_,\-/]/g, ' ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s
+}
+
+function _tokenize(name: string): Set<string> {
+  const tokens = new Set<string>()
+  for (const tok of _normalize(name).split(' ')) {
+    if (tok) tokens.add(_SYNONYMS[tok] ?? tok)
+  }
+  return tokens
+}
+
+/**
+ * Compute a fuzzy token-overlap score between two strings.
+ * Uses the same algorithm as the backend import service:
+ * normalize → tokenize → symmetric max(|A∩B|/|A|, |A∩B|/|B|).
+ *
+ * Returns a value between 0.0 (no overlap) and 1.0 (perfect match).
+ */
+export function fuzzyTokenScore(a: string, b: string): number {
+  const tokensA = _tokenize(a)
+  const tokensB = _tokenize(b)
+  if (tokensA.size === 0 || tokensB.size === 0) return 0
+  let overlap = 0
+  for (const t of tokensA) {
+    if (tokensB.has(t)) overlap++
+  }
+  return Math.max(overlap / tokensA.size, overlap / tokensB.size)
+}
+
+// ── Lookup component ────────────────────────────────────────────────
+
 export interface LookupOptions<T = any> {
   /** Container element to inject the dropdown into */
   container: HTMLElement
@@ -61,6 +101,13 @@ export interface LookupOptions<T = any> {
   debounceMs?: number
   /** Additional query params */
   extraParams?: Record<string, string | number>
+  /** Initial search query — triggers a search immediately after creation */
+  initialQuery?: string
+  /**
+   * Fuzzy scoring function. When provided, results are sorted by score
+   * (descending) and the best match (score >= 0.75) is visually highlighted.
+   */
+  fuzzyScore?: (item: T) => number
 }
 
 export interface LookupInstance {
@@ -68,6 +115,8 @@ export interface LookupInstance {
   destroy: () => void
   /** Reset to initial state */
   reset: () => void
+  /** Programmatically trigger a search */
+  search: (query: string) => void
 }
 
 export function createFilamentDbLookup<T = any>(opts: LookupOptions<T>): LookupInstance {
@@ -81,6 +130,8 @@ export function createFilamentDbLookup<T = any>(opts: LookupOptions<T>): LookupI
     minChars = 2,
     debounceMs = 300,
     extraParams = {},
+    initialQuery,
+    fuzzyScore,
   } = opts
 
   // ── Build DOM ──────────────────────────────────────────────────
@@ -102,7 +153,7 @@ export function createFilamentDbLookup<T = any>(opts: LookupOptions<T>): LookupI
   const input = wrapper.querySelector<HTMLInputElement>('.fdb-lookup-input')!
   const spinner = wrapper.querySelector<HTMLElement>('.fdb-lookup-spinner')!
   const dropdown = wrapper.querySelector<HTMLElement>('.fdb-lookup-dropdown')!
-  const results = wrapper.querySelector<HTMLElement>('.fdb-lookup-results')!
+  const resultsEl = wrapper.querySelector<HTMLElement>('.fdb-lookup-results')!
   const hint = wrapper.querySelector<HTMLElement>('.fdb-lookup-hint')!
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -131,20 +182,41 @@ export function createFilamentDbLookup<T = any>(opts: LookupOptions<T>): LookupI
 
     try {
       const data = await request<any>(`${endpoint}?${params.toString()}`)
-      currentItems = extractItems(data)
+      let items = extractItems(data)
 
-      if (currentItems.length === 0) {
-        results.innerHTML = `<div class="fdb-lookup-empty">${t('filamentdbLookup.noResults')}</div>`
-      } else {
-        results.innerHTML = currentItems
-          .map((item, idx) => `<div class="fdb-lookup-item" data-index="${idx}">${renderItem(item)}</div>`)
+      // Sort by fuzzy score if a scoring function is provided
+      if (fuzzyScore && items.length > 0) {
+        const scored = items.map(item => ({ item, score: fuzzyScore(item) }))
+        scored.sort((a, b) => b.score - a.score)
+        items = scored.map(s => s.item)
+        currentItems = items
+
+        // Find best match index (score >= 0.75)
+        const bestScore = scored[0].score
+        const bestIdx = bestScore >= 0.75 ? 0 : -1
+
+        resultsEl.innerHTML = items
+          .map((item, idx) => {
+            const cls = idx === bestIdx ? 'fdb-lookup-item fdb-lookup-item--best-match' : 'fdb-lookup-item'
+            return `<div class="${cls}" data-index="${idx}">${renderItem(item)}</div>`
+          })
           .join('')
+      } else {
+        currentItems = items
+
+        if (items.length === 0) {
+          resultsEl.innerHTML = `<div class="fdb-lookup-empty">${t('filamentdbLookup.noResults')}</div>`
+        } else {
+          resultsEl.innerHTML = items
+            .map((item, idx) => `<div class="fdb-lookup-item" data-index="${idx}">${renderItem(item)}</div>`)
+            .join('')
+        }
       }
 
       dropdown.style.display = ''
     } catch (err: any) {
       if (err?.name === 'AbortError') return
-      results.innerHTML = `<div class="fdb-lookup-empty">${t('filamentdbLookup.connectionError')}</div>`
+      resultsEl.innerHTML = `<div class="fdb-lookup-empty">${t('filamentdbLookup.connectionError')}</div>`
       dropdown.style.display = ''
     } finally {
       spinner.style.display = 'none'
@@ -207,9 +279,17 @@ export function createFilamentDbLookup<T = any>(opts: LookupOptions<T>): LookupI
 
   input.addEventListener('input', onInput)
   input.addEventListener('focus', onFocus)
-  results.addEventListener('click', onResultClick)
+  resultsEl.addEventListener('click', onResultClick)
   document.addEventListener('click', onClickOutside)
   input.addEventListener('keydown', onKeydown)
+
+  // ── Initial search ─────────────────────────────────────────────
+
+  if (initialQuery) {
+    input.value = initialQuery
+    // Small delay to let the DOM settle
+    setTimeout(() => doSearch(initialQuery), 50)
+  }
 
   // ── Public API ─────────────────────────────────────────────────
 
@@ -218,7 +298,7 @@ export function createFilamentDbLookup<T = any>(opts: LookupOptions<T>): LookupI
     if (abortController) abortController.abort()
     input.removeEventListener('input', onInput)
     input.removeEventListener('focus', onFocus)
-    results.removeEventListener('click', onResultClick)
+    resultsEl.removeEventListener('click', onResultClick)
     document.removeEventListener('click', onClickOutside)
     input.removeEventListener('keydown', onKeydown)
     wrapper.remove()
@@ -231,5 +311,10 @@ export function createFilamentDbLookup<T = any>(opts: LookupOptions<T>): LookupI
     currentItems = []
   }
 
-  return { destroy, reset }
+  function search(query: string) {
+    input.value = query
+    doSearch(query)
+  }
+
+  return { destroy, reset, search }
 }

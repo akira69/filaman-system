@@ -915,6 +915,12 @@ html.sidebar-collapsed .fm-logo-text {
   background: var(--hover-bg);
 }
 
+.fdb-lookup-item--best-match {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-left: 3px solid var(--accent);
+  padding-left: 9px;
+}
+
 .fdb-lookup-item-name {
   font-weight: 500;
   color: var(--text);

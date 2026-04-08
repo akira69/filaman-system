@@ -366,7 +366,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
     import { t, initI18n } from '../../../lib/i18n'
     import { cachedFetchAllPages, cachedFetch, fetchSequential, invalidateCachePrefix, CACHE_KEYS } from '../../../lib/cache'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
-    import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive } from '../../../lib/filamentdb-lookup'
+    import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive, fuzzyTokenScore } from '../../../lib/filamentdb-lookup'
     await initI18n()
 
     const filamentDbActive = await checkFilamentDbActive()
@@ -670,12 +670,17 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
         if (filLookup) { filLookup.destroy(); filLookup = null }
 
         const mfrName = getSelectedManufacturerName()
+        const currentDesignation = (document.getElementById('designation') as HTMLInputElement).value.trim()
         filLookup = createFilamentDbLookup({
           container: filLookupContainer,
           endpoint: '/filamentdb/filaments',
           placeholder: t('filamentdbLookup.searchFilament'),
           extraParams: { manufacturer_name: mfrName },
           minChars: 0,
+          initialQuery: currentDesignation || undefined,
+          fuzzyScore: currentDesignation
+            ? (item: any) => fuzzyTokenScore(item.name || item.designation || '', currentDesignation)
+            : undefined,
           renderItem: (item: any) => {
             const mat = item.material?.key || ''
             const colors = (item.colors || [])
