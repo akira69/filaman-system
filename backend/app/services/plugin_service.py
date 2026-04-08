@@ -52,7 +52,16 @@ MAX_ZIP_SIZE = 10 * 1024 * 1024
 
 # Erlaubte Dateiendungen
 ALLOWED_EXTENSIONS = {
-    ".py", ".json", ".md", ".txt", ".cfg", ".ini", ".yaml", ".yml", ".toml", ".html",
+    ".py",
+    ".json",
+    ".md",
+    ".txt",
+    ".cfg",
+    ".ini",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".html",
 }
 
 # Pflichtfelder im Manifest (Basisfelder, gelten fuer alle Plugin-Typen)
@@ -174,7 +183,9 @@ class PluginInstallService:
                 existing.show_in_nav = manifest.get("show_in_nav", False)
                 await self.db.commit()
                 await self.db.refresh(existing)
-                logger.info(f"Plugin '{plugin_key}' auf v{manifest['version']} aktualisiert")
+                logger.info(
+                    f"Plugin '{plugin_key}' auf v{manifest['version']} aktualisiert"
+                )
                 return existing, True
             else:
                 plugin = InstalledPlugin(
@@ -215,6 +226,13 @@ class PluginInstallService:
             raise PluginInstallError(
                 f"Plugin '{plugin_key}' nicht gefunden",
                 "not_found",
+            )
+
+        # Builtin-Plugins (installed_by is None) duerfen nicht deinstalliert werden
+        if plugin.installed_by is None:
+            raise PluginInstallError(
+                f"Plugin '{plugin_key}' ist ein eingebautes Plugin und kann nicht deinstalliert werden",
+                "builtin_protected",
             )
 
         # Plugin-Verzeichnis entfernen
@@ -276,9 +294,7 @@ class PluginInstallService:
     def _validate_zip(self, zip_data: bytes) -> None:
         """Pruefen, ob die Daten ein gueltiges ZIP-Archiv sind."""
         try:
-            with zipfile.ZipFile(
-                __import__("io").BytesIO(zip_data), "r"
-            ) as zf:
+            with zipfile.ZipFile(__import__("io").BytesIO(zip_data), "r") as zf:
                 # Test auf Korruption
                 bad = zf.testzip()
                 if bad is not None:
@@ -314,7 +330,8 @@ class PluginInstallService:
 
         # Pruefen ob ein einziges Unterverzeichnis vorhanden ist
         entries = [
-            e for e in os.listdir(tmpdir)
+            e
+            for e in os.listdir(tmpdir)
             if not e.startswith(".") and not e == "__MACOSX"
         ]
 
@@ -324,7 +341,9 @@ class PluginInstallService:
         # Dateien liegen direkt im Root
         return Path(tmpdir)
 
-    def _validate_structure(self, plugin_dir: Path, plugin_type: str = "driver") -> None:
+    def _validate_structure(
+        self, plugin_dir: Path, plugin_type: str = "driver"
+    ) -> None:
         """Pruefen, ob die Pflichtdateien vorhanden sind."""
         required_files = ["plugin.json", "__init__.py"]
 
@@ -501,7 +520,10 @@ class PluginInstallService:
                 for item in node.body:
                     if isinstance(item, ast.Assign):
                         for target in item.targets:
-                            if isinstance(target, ast.Name) and target.id == "driver_key":
+                            if (
+                                isinstance(target, ast.Name)
+                                and target.id == "driver_key"
+                            ):
                                 driver_key_found = True
 
         if not driver_key_found:
@@ -529,7 +551,9 @@ class PluginInstallService:
 
         return existing
 
-    async def _install_dependencies(self, dependencies: list[str], plugin_key: str) -> None:
+    async def _install_dependencies(
+        self, dependencies: list[str], plugin_key: str
+    ) -> None:
         """Python-Pakete installieren (versucht uv, dann pip)."""
         logger.info(f"Installiere Abhaengigkeiten fuer '{plugin_key}': {dependencies}")
 
@@ -537,8 +561,20 @@ class PluginInstallService:
         commands: list[list[str]] = []
         uv_path = shutil.which("uv")
         if uv_path:
-            commands.append([uv_path, "pip", "install", "--python", sys.executable, "--quiet", *dependencies])
-        commands.append([sys.executable, "-m", "pip", "install", "--quiet", *dependencies])
+            commands.append(
+                [
+                    uv_path,
+                    "pip",
+                    "install",
+                    "--python",
+                    sys.executable,
+                    "--quiet",
+                    *dependencies,
+                ]
+            )
+        commands.append(
+            [sys.executable, "-m", "pip", "install", "--quiet", *dependencies]
+        )
 
         last_error = ""
         for cmd in commands:
@@ -548,14 +584,20 @@ class PluginInstallService:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=120
+                )
 
                 if process.returncode == 0:
-                    logger.info(f"Abhaengigkeiten fuer '{plugin_key}' erfolgreich installiert")
+                    logger.info(
+                        f"Abhaengigkeiten fuer '{plugin_key}' erfolgreich installiert"
+                    )
                     return
 
                 last_error = stderr.decode().strip() if stderr else "Unbekannter Fehler"
-                logger.warning(f"Dependency install fehlgeschlagen mit {cmd[0]}: {last_error}")
+                logger.warning(
+                    f"Dependency install fehlgeschlagen mit {cmd[0]}: {last_error}"
+                )
             except FileNotFoundError:
                 last_error = f"{cmd[0]} nicht gefunden"
                 logger.warning(last_error)
@@ -570,6 +612,7 @@ class PluginInstallService:
             f"Abhaengigkeiten konnten nicht installiert werden: {last_error}",
             "dependency_install_failed",
         )
+
     # ------------------------------------------------------------------ #
     #  Eingebaute Plugins registrieren
     # ------------------------------------------------------------------ #
@@ -584,6 +627,7 @@ class PluginInstallService:
         plugin_type: str,
         page_url: str | None = None,
         homepage: str | None = None,
+        show_in_nav: bool = False,
     ) -> InstalledPlugin:
         """Ein eingebautes Plugin registrieren (kein ZIP noetig).
 
@@ -602,6 +646,7 @@ class PluginInstallService:
             existing.plugin_type = plugin_type
             existing.page_url = page_url
             existing.homepage = homepage
+            existing.show_in_nav = show_in_nav
             await self.db.commit()
             await self.db.refresh(existing)
             return existing
@@ -615,6 +660,7 @@ class PluginInstallService:
             plugin_type=plugin_type,
             page_url=page_url,
             homepage=homepage,
+            show_in_nav=show_in_nav,
             is_active=True,
         )
         self.db.add(plugin)

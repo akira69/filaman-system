@@ -226,11 +226,12 @@ import Layout from '../../layouts/Layout.astro'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
-    import { createFilamentDbLookup, type LookupInstance } from '../../lib/filamentdb-lookup'
+    import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive } from '../../lib/filamentdb-lookup'
     await initI18n()
     await initCurrency()
 
     let mfrLookup: LookupInstance | null = null
+    const filamentDbActive = await checkFilamentDbActive()
 
     let manufacturers: any[] = []
     let sortKey: string | null = 'name'
@@ -636,8 +637,8 @@ import Layout from '../../layouts/Layout.astro'
         modeToggle.style.display = 'none'
         dbLookup.style.display = 'none'
       } else {
-        // Create mode: show toggle
-        modeToggle.style.display = 'flex'
+        // Create mode: show toggle only if FilamentDB plugin is active
+        modeToggle.style.display = filamentDbActive ? 'flex' : 'none'
         const manualRadio = modeToggle.querySelector('input[value="manual"]') as HTMLInputElement
         manualRadio.checked = true
         dbLookup.style.display = 'none'

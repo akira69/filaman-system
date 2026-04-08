@@ -1023,12 +1023,31 @@ class FilamentDBImportResultResponse(BaseModel):
     warnings: list[str]
 
 
+async def _require_filamentdb_active(db) -> None:
+    """Pruefen ob das FilamentDB-Plugin aktiv ist, sonst 503."""
+    result = await db.execute(
+        select(InstalledPlugin).where(
+            InstalledPlugin.plugin_key == "filamentdb_import",
+        )
+    )
+    plugin = result.scalar_one_or_none()
+    if not plugin or not plugin.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "plugin_disabled",
+                "message": "FilamentDB plugin is disabled",
+            },
+        )
+
+
 @router.post("/filamentdb-import/test-connection")
 async def filamentdb_test_connection(
     db: DBSession,
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Verbindung zur FilamentDB testen."""
+    await _require_filamentdb_active(db)
     service = FilamentDBImportService(db)
     try:
         result = await service.test_connection()
@@ -1046,6 +1065,7 @@ async def filamentdb_preview(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Vorschau der zu importierenden FilamentDB-Daten (nur Hersteller + Materialien)."""
+    await _require_filamentdb_active(db)
     service = FilamentDBImportService(db)
     try:
         preview = await service.preview_manufacturers()
@@ -1086,6 +1106,7 @@ async def filamentdb_filaments(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Filamente + Farben fuer ausgewaehlte Hersteller laden."""
+    await _require_filamentdb_active(db)
     service = FilamentDBImportService(db)
     try:
         result = await service.fetch_filaments(body.manufacturer_ids)
@@ -1125,6 +1146,7 @@ async def filamentdb_diff(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Existierende Filamente mit FilamentDB-Daten vergleichen."""
+    await _require_filamentdb_active(db)
     service = FilamentDBImportService(db)
     try:
         diff = await service.diff_filaments(body.filament_ids)
@@ -1162,6 +1184,7 @@ async def filamentdb_execute(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """FilamentDB-Import ausfuehren."""
+    await _require_filamentdb_active(db)
     # Validate spool_detail_target
     valid_targets = ("filament", "manufacturer", "both")
     if body.spool_detail_target not in valid_targets:

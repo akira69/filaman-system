@@ -346,8 +346,10 @@ import Layout from '../../layouts/Layout.astro'
     import { t, initI18n } from '../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { cachedFetchAllPages, invalidateCachePrefix, CACHE_KEYS } from '../../lib/cache'
-    import { createFilamentDbLookup, type LookupInstance } from '../../lib/filamentdb-lookup'
+    import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive } from '../../lib/filamentdb-lookup'
     await initI18n()
+
+    const filamentDbActive = await checkFilamentDbActive()
 
     const CUSTOM_TYPE_VALUE = '__custom__'
 
@@ -481,7 +483,7 @@ import Layout from '../../layouts/Layout.astro'
     // Show/hide the FilamentDB button when manufacturer changes
     manufacturerSelect.addEventListener('change', () => {
       const hasManufacturer = !!manufacturerSelect.value
-      filFdbSection.style.display = hasManufacturer ? '' : 'none'
+      filFdbSection.style.display = (hasManufacturer && filamentDbActive) ? '' : 'none'
       // Close lookup area if manufacturer is deselected
       if (!hasManufacturer) {
         filFdbLookupArea.style.display = 'none'

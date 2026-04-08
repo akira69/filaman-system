@@ -11,7 +11,10 @@
           { "type": "feature", "text": "FilamentDB Import: Vorhandene Filamente können nun mit aktuellen Daten aus der FilamentDB aktualisiert werden — Änderungen werden vorher als Diff angezeigt" },
           { "type": "fix", "text": "Farbvorschau im FilamentDB Import zeigt Farben jetzt korrekt an" },
           { "type": "feature", "text": "FilamentDB Import: Bereits vorhandene Filamente werden nun auch bei leicht abweichenden Namen erkannt (z.B. \"PLA Rot\" vs. \"PLA Rot (Feuerrot)\")" },
-          { "type": "feature", "text": "Hersteller, Filamente und Spulen können nun direkt aus der FilaManDB Community-Datenbank erstellt werden — Daten werden automatisch vorausgefüllt, fehlende Hersteller und Farben werden automatisch angelegt" }
+          { "type": "feature", "text": "Hersteller, Filamente und Spulen können nun direkt aus der FilaManDB Community-Datenbank erstellt werden — Daten werden automatisch vorausgefüllt, fehlende Hersteller und Farben werden automatisch angelegt" },
+          { "type": "feature", "text": "FilaManDB-Plugin wird nun in der Sidebar-Navigation angezeigt, wenn aktiviert" },
+          { "type": "feature", "text": "FilaManDB-Buttons (Aus FilaManDB laden) werden nur noch angezeigt, wenn das FilamentDB-Plugin aktiviert ist" },
+          { "type": "feature", "text": "Eingebaute Plugins können nicht mehr deinstalliert werden" }
         ],
         "en": [
           { "type": "feature", "text": "Plugins can now be fully activated/deactivated — associated printers are automatically stopped or started" },
@@ -20,7 +23,10 @@
           { "type": "feature", "text": "FilamentDB Import: Existing filaments can now be updated with current data from FilamentDB — changes are shown as a diff before applying" },
           { "type": "fix", "text": "Color preview in FilamentDB Import now displays colors correctly" },
           { "type": "feature", "text": "FilamentDB Import: Existing filaments are now also detected when names differ slightly (e.g. \"PLA Red\" vs. \"PLA Red (Fire Red)\")" },
-          { "type": "feature", "text": "Manufacturers, filaments and spools can now be created directly from the FilaManDB community database — data is auto-filled, missing manufacturers and colors are created automatically" }
+          { "type": "feature", "text": "Manufacturers, filaments and spools can now be created directly from the FilaManDB community database — data is auto-filled, missing manufacturers and colors are created automatically" },
+          { "type": "feature", "text": "FilaManDB plugin is now shown in the sidebar navigation when active" },
+          { "type": "feature", "text": "FilaManDB buttons (Load from FilaManDB) are now only shown when the FilamentDB plugin is active" },
+          { "type": "feature", "text": "Built-in plugins can no longer be uninstalled" }
         ]
       }
     },

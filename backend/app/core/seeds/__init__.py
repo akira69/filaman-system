@@ -398,6 +398,7 @@ BUILTIN_PLUGINS = [
         "author": "FilaMan",
         "plugin_type": "import",
         "page_url": "/admin/system/filamentdb-import",
+        "show_in_nav": True,
     },
 ]
 

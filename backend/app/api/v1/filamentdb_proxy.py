@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from app.api.deps import DBSession, PrincipalDep
 from app.core.config import settings
 from app.models import Color, FilamentColor, Manufacturer
+from app.models.plugin import InstalledPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,18 @@ router = APIRouter(prefix="/filamentdb", tags=["FilamentDB Proxy"])
 
 _TIMEOUT = 15.0  # seconds
 _BASE_URL = property(lambda _: settings.filamentdb_url.rstrip("/"))
+
+
+@router.get("/status")
+async def filamentdb_status(db: DBSession, _principal: PrincipalDep):
+    """Check if the FilamentDB plugin is active."""
+    result = await db.execute(
+        select(InstalledPlugin).where(
+            InstalledPlugin.plugin_key == "filamentdb_import",
+        )
+    )
+    plugin = result.scalar_one_or_none()
+    return {"active": plugin is not None and plugin.is_active}
 
 
 def _api_url(path: str) -> str:

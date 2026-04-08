@@ -250,8 +250,10 @@ const filamentId = Astro.url.searchParams.get('filament_id')
     import { t, initI18n } from '../../lib/i18n'
     import { cachedFetchAllPages, fetchSequential, CACHE_KEYS } from '../../lib/cache'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
-    import { createFilamentDbLookup, type LookupInstance } from '../../lib/filamentdb-lookup'
+    import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive } from '../../lib/filamentdb-lookup'
     await initI18n()
+
+    const filamentDbActive = await checkFilamentDbActive()
 
     // Set default purchase_date to today
     const purchaseDateInput = document.getElementById('purchase_date') as HTMLInputElement
@@ -344,6 +346,11 @@ const filamentId = Astro.url.searchParams.get('filament_id')
     const spoolProfileContainer = document.getElementById('spool-profile-lookup-container')!
     const spoolProfileToast = document.getElementById('spool-profile-lookup-toast')!
     let spoolProfileLookupOpen = false
+
+    // Hide spool profile lookup button if FilamentDB plugin is inactive
+    if (!filamentDbActive) {
+      btnSpoolProfileLookup.style.display = 'none'
+    }
 
     btnSpoolProfileLookup.addEventListener('click', () => {
       spoolProfileLookupOpen = !spoolProfileLookupOpen

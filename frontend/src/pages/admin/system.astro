@@ -263,7 +263,7 @@ import Layout from '../../layouts/Layout.astro'
             ${updateMap[p.plugin_key] ? `<button data-key="${escapeHtml(p.plugin_key)}" class="btn-update fm-btn fm-btn-primary" style="font-size: 0.8rem; padding: 4px 12px; margin-right: 12px;">${t('admin.pluginUpdateTo').replace('{version}', updateMap[p.plugin_key].version)}</button>` : ''}
             <button data-key="${escapeHtml(p.plugin_key)}" class="btn-detail" style="color: var(--accent); background: none; border: none; cursor: pointer; margin-right: 12px;">${t('admin.pluginDetails')}</button>
             ${p.page_url ? `<a href="${escapeHtml(p.page_url)}" class="fm-btn fm-btn-primary" style="font-size: 0.8rem; padding: 4px 12px; margin-right: 12px;">${t('common.open')}</a>` : ''}
-            <button data-key="${escapeHtml(p.plugin_key)}" data-name="${escapeHtml(p.name)}" class="btn-uninstall" style="color: var(--error-text); background: none; border: none; cursor: pointer;">${t('admin.uninstallPlugin')}</button>
+            ${p.installed_by != null ? `<button data-key="${escapeHtml(p.plugin_key)}" data-name="${escapeHtml(p.name)}" class="btn-uninstall" style="color: var(--error-text); background: none; border: none; cursor: pointer;">${t('admin.uninstallPlugin')}</button>` : ''}
           </td>
         </tr>
       `}).join('')
