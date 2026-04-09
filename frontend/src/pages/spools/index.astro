@@ -211,8 +211,7 @@ import Layout from '../../layouts/Layout.astro'
 
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
-    import { fetchAllPages } from '../../lib/api'
-    import { cachedFetchAllPages, fetchSequential, CACHE_KEYS } from '../../lib/cache'
+    import { fetchSequential } from '../../lib/cache'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
@@ -228,8 +227,6 @@ import Layout from '../../layouts/Layout.astro'
     })()
     let statuses: any[] = []
     let locations: any[] = []
-    let filaments: any[] = []
-    let filamentMap = new Map<number, any>()
     let manufacturers: any[] = []
     let allSpools: any[] = []
     let filteredSpools: any[] = []
@@ -317,8 +314,8 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function getFilamentForSpool(spool: any): any {
-      // Prefer embedded filament from API response; fall back to filamentMap for filter-loaded data
-      return spool.filament || filamentMap.get(spool.filament_id) || null
+      // Use embedded filament from API response
+      return spool.filament || null
     }
 
     function getManufacturerName(spool: any): string {
@@ -333,7 +330,7 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function getSortValue(item: any, key: string): any {
-      if (key === 'filament_id') return getFilamentName(item.filament_id)
+      if (key === 'filament_id') return getFilamentName(item)
       if (key === 'status_id') return getStatusLabel(item.status_id)
       if (key === 'location_id') return getLocationName(item.location_id)
       if (key === 'manufacturer') return getManufacturerName(item)
@@ -433,45 +430,15 @@ import Layout from '../../layouts/Layout.astro'
       }
     }
 
-    function populateFilterDropdowns() {
-      const mfSelect = document.getElementById('filter-manufacturer') as HTMLSelectElement
-      const mfMap = new Map<string, string>()
-      filaments.forEach(f => {
-        if (f.manufacturer?.id && f.manufacturer?.name) {
-          mfMap.set(String(f.manufacturer.id), f.manufacturer.name)
-        }
-      })
-      const sortedMfs = [...mfMap.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-      sortedMfs.forEach(([id, name]) => {
-        const opt = document.createElement('option')
-        opt.value = id
-        opt.textContent = name
-        mfSelect.appendChild(opt)
-      })
-      if (filterManufacturerId) mfSelect.value = filterManufacturerId
-      else if (savedFilterState?.manufacturer) mfSelect.value = savedFilterState.manufacturer
-
-      const matSelect = document.getElementById('filter-material') as HTMLSelectElement
-      const materials = new Set<string>()
-      filaments.forEach(f => { if (f.material_type) materials.add(f.material_type) })
-      const sortedMats = [...materials].sort()
-      sortedMats.forEach(mat => {
-        const opt = document.createElement('option')
-        opt.value = mat
-        opt.textContent = mat
-        matSelect.appendChild(opt)
-      })
-      if (filterMaterial) matSelect.value = filterMaterial
-      else if (savedFilterState?.material) matSelect.value = savedFilterState.material
-    }
-    
     async function loadFilters() {
       try {
-        // Sequential fetching mit Caching für bessere SQLite-Performance
-        const [statusesRes, locationsData, filamentsData] = await fetchSequential([
-          () => fetch('/api/v1/spools/statuses', { credentials: 'include', signal: getAbortSignal() }).catch(() => null),
-          () => cachedFetchAllPages(CACHE_KEYS.LOCATIONS, '/api/v1/locations').catch(() => null),
-          () => cachedFetchAllPages(CACHE_KEYS.FILAMENTS, '/api/v1/filaments').catch(() => null),
+        const signal = getAbortSignal()
+        // Sequential fetching for SQLite compatibility; lightweight API calls instead of loading all filaments
+        const [statusesRes, locationsRes, manufacturersRes, typesRes] = await fetchSequential([
+          () => fetch('/api/v1/spools/statuses', { credentials: 'include', signal }).catch(() => null),
+          () => fetch('/api/v1/locations?page=1&page_size=200', { credentials: 'include', signal }).catch(() => null),
+          () => fetch('/api/v1/manufacturers?page=1&page_size=200', { credentials: 'include', signal }).catch(() => null),
+          () => fetch('/api/v1/filaments/types', { credentials: 'include', signal }).catch(() => null),
         ] as const)
 
         if (statusesRes?.ok) {
@@ -488,8 +455,9 @@ import Layout from '../../layouts/Layout.astro'
           if (savedFilterState?.status) select.value = savedFilterState.status
         }
         
-        if (locationsData) {
-          locations = locationsData.items
+        if (locationsRes?.ok) {
+          const locationsData = await locationsRes.json()
+          locations = locationsData.items || locationsData
           const select = document.getElementById('filter-location') as HTMLSelectElement
           locations.forEach((l: any) => {
             const opt = document.createElement('option')
@@ -500,13 +468,36 @@ import Layout from '../../layouts/Layout.astro'
           if (filterLocationId) select.value = filterLocationId
           else if (savedFilterState?.location) select.value = savedFilterState.location
         }
-        
-        if (filamentsData) {
-          filaments = filamentsData.items
-          filamentMap = new Map(filaments.map(f => [f.id, f]))
-        }
 
-        populateFilterDropdowns()
+        // Manufacturers dropdown
+        const mfSelect = document.getElementById('filter-manufacturer') as HTMLSelectElement
+        if (manufacturersRes?.ok) {
+          const mfData = await manufacturersRes.json()
+          const mfs = (mfData.items || mfData) as any[]
+          const sortedMfs = [...mfs].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+          sortedMfs.forEach(m => {
+            const opt = document.createElement('option')
+            opt.value = String(m.id)
+            opt.textContent = m.name
+            mfSelect.appendChild(opt)
+          })
+        }
+        if (filterManufacturerId) mfSelect.value = filterManufacturerId
+        else if (savedFilterState?.manufacturer) mfSelect.value = savedFilterState.manufacturer
+
+        // Material types dropdown
+        const matSelect = document.getElementById('filter-material') as HTMLSelectElement
+        if (typesRes?.ok) {
+          const types = await typesRes.json() as string[]
+          types.forEach(type => {
+            const opt = document.createElement('option')
+            opt.value = type
+            opt.textContent = type
+            matSelect.appendChild(opt)
+          })
+        }
+        if (filterMaterial) matSelect.value = filterMaterial
+        else if (savedFilterState?.material) matSelect.value = savedFilterState.material
       } catch (error) {
         if (isAbortError(error)) return
         console.error('Failed to load filters:', error)
@@ -603,9 +594,9 @@ import Layout from '../../layouts/Layout.astro'
       }
     }
     
-    function getFilamentName(filamentId: number): string {
-      const f = filamentMap.get(filamentId)
-      return f ? `${f.designation} (${f.material_type})` : `#${filamentId}`
+    function getFilamentName(spool: any): string {
+      const f = getFilamentForSpool(spool)
+      return f ? `${f.designation} (${f.material_type})` : `#${spool.filament_id}`
     }
 
     function getStatusLabel(statusId: number): string {
@@ -678,7 +669,7 @@ import Layout from '../../layouts/Layout.astro'
         <tr class="${selectedSpoolIds.has(s.id) ? 'bulk-selected' : ''}" style="cursor: pointer;" onclick="window.location='/spools/${s.id}'">
           <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-spool-id="${s.id}" ${selectedSpoolIds.has(s.id) ? 'checked' : ''} onchange="window.__toggleSpoolSelection(${s.id}, this.checked)" /></td>
           <td class="col-id" style="padding: 12px; font-weight: 500;">${t('spools.spoolId', { id: s.id })}</td>
-          <td style="padding: 12px;">${colorDots} ${getFilamentName(s.filament_id)}</td>
+          <td style="padding: 12px;">${colorDots} ${getFilamentName(s)}</td>
           <td class="col-manufacturer" style="padding: 12px; color: var(--text-muted);">${getManufacturerName(s)}</td>
           <td class="col-material" style="padding: 12px; color: var(--text-muted);">${getMaterialType(s)}</td>
           <td class="col-status" style="padding: 12px;">${getStatusLabel(s.status_id)}</td>
