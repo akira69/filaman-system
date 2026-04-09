@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select, literal_column
+from sqlalchemy import delete, func, or_, select, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -524,26 +524,66 @@ async def list_filaments(
     page_size: int = Query(50, ge=1, le=200),
     type: str | None = None,
     manufacturer_id: int | None = None,
+    search: str | None = Query(None, max_length=200),
+    sort_by: str = Query(
+        "designation",
+        pattern="^(id|designation|material_type|diameter_mm|price|manufacturer_color_name|density_g_cm3|raw_material_weight_g|finish_type|material_subgroup|manufacturer)$",
+    ),
+    sort_order: str = Query("asc", pattern="^(asc|desc)$"),
 ):
+    # -- Build filter conditions (shared between data query and count query) --
+    conditions = []
+    needs_manufacturer_join = False
+
+    if type:
+        conditions.append(Filament.material_type == type)
+    if manufacturer_id:
+        conditions.append(Filament.manufacturer_id == manufacturer_id)
+
+    if search:
+        search_term = f"%{search}%"
+        conditions.append(
+            or_(
+                Filament.designation.ilike(search_term),
+                Filament.material_type.ilike(search_term),
+                Filament.manufacturer_color_name.ilike(search_term),
+                Manufacturer.name.ilike(search_term),
+            )
+        )
+        needs_manufacturer_join = True
+
+    # -- Data query --
     query = select(Filament).options(
         selectinload(Filament.manufacturer),
         selectinload(Filament.filament_colors).selectinload(FilamentColor.color),
     )
+    if needs_manufacturer_join:
+        query = query.join(
+            Manufacturer, Filament.manufacturer_id == Manufacturer.id, isouter=True
+        )
 
+    for cond in conditions:
+        query = query.where(cond)
+
+    # Sorting — resolve virtual sort keys to joined columns
+    if sort_by == "manufacturer":
+        sort_column = Manufacturer.name
+        needs_manufacturer_join = True
+    else:
+        sort_column = getattr(Filament, sort_by, Filament.designation)
+    order = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+
+    query = query.order_by(order).offset((page - 1) * page_size).limit(page_size)
+
+    # -- Count query (same filters, no eager loading / pagination) --
     count_query = select(func.count()).select_from(Filament)
+    if needs_manufacturer_join:
+        count_query = count_query.join(
+            Manufacturer, Filament.manufacturer_id == Manufacturer.id, isouter=True
+        )
 
-    if type:
-        query = query.where(Filament.material_type == type)
-        count_query = count_query.where(Filament.material_type == type)
-    if manufacturer_id:
-        query = query.where(Filament.manufacturer_id == manufacturer_id)
-        count_query = count_query.where(Filament.manufacturer_id == manufacturer_id)
-
-    query = (
-        query.order_by(Filament.designation)
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
+    for cond in conditions:
+        count_query = count_query.where(cond)
 
     result = await db.execute(query)
     count_result = await db.execute(count_query)
@@ -551,7 +591,7 @@ async def list_filaments(
     items = result.scalars().unique().all()
     total = count_result.scalar() or 0
 
-    # Compute spool counts for the fetched filaments (excluding soft-deleted spools)
+    # Compute spool counts for the fetched filaments (excluding archived spools)
     filament_ids = [f.id for f in items]
     spool_counts: dict[int, int] = {}
     if filament_ids:

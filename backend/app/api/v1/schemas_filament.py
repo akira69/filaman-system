@@ -23,7 +23,10 @@ class ManufacturerUpdate(BaseModel):
     custom_fields: dict[str, Any] | None = None
 
 
-class ManufacturerResponse(BaseModel):
+class ManufacturerSummaryResponse(BaseModel):
+    """Lightweight manufacturer representation for nested responses (e.g. in FilamentDetailResponse).
+    Omits computed aggregate fields that are only meaningful in dedicated manufacturer endpoints."""
+
     id: int
     name: str
     url: str | None
@@ -33,12 +36,6 @@ class ManufacturerResponse(BaseModel):
     spool_width_mm: float | None = None
     spool_material: str | None = None
     custom_fields: dict[str, Any] | None
-    filament_count: int = 0
-    spool_count: int = 0
-    archived_spool_count: int = 0
-    total_price_available: float = 0.0
-    total_price_all: float = 0.0
-    materials: list[str] = []
 
     @computed_field
     @property
@@ -49,6 +46,15 @@ class ManufacturerResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ManufacturerResponse(ManufacturerSummaryResponse):
+    filament_count: int = 0
+    spool_count: int = 0
+    archived_spool_count: int = 0
+    total_price_available: float = 0.0
+    total_price_all: float = 0.0
+    materials: list[str] = []
 
 
 class ColorCreate(BaseModel):
@@ -172,7 +178,7 @@ class FilamentResponse(BaseModel):
 
 
 class FilamentDetailResponse(FilamentResponse):
-    manufacturer: ManufacturerResponse | None = None
+    manufacturer: ManufacturerSummaryResponse | None = None
     spool_count: int = 0
     colors: list[FilamentColorResponse] = []
 
