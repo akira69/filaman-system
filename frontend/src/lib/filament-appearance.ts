@@ -14,7 +14,7 @@ function normalizeDisplayHex(value?: string | null): string | null {
 
   if (/^[0-9a-fA-F]{4}$/.test(raw)) {
     return `#${raw
-      .slice(1)
+      .slice(0, 3)
       .split("")
       .map((ch) => ch + ch)
       .join("")
