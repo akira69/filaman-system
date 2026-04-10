@@ -568,7 +568,19 @@
     "totalSpentAllTime": "Gesamtausgaben (historisch)",
     "colTotalPrice": "Gesamtwert",
     "colArchived": "Archiviert",
-    "colSpoolWeight": "Spulengewicht"
+    "colSpoolWeight": "Spulengewicht",
+    "logoSection": "Logo",
+    "uploadLogoFromUrl": "Logo von URL importieren",
+    "logoUrlPlaceholder": "z.B. https://example.com/logo.png",
+    "uploadLogo": "Logo-Datei hochladen",
+    "uploadLogoFileButton": "Logo-Datei wählen",
+    "logoFilePath": "Gespeicherter Dateipfad",
+    "clearLogo": "Logo entfernen",
+    "noLogoConfigured": "Kein Logo konfiguriert",
+    "pendingUploadSelected": "Ausgewählte Datei: {name}",
+    "logoWillBeCleared": "Das aktuelle Logo wird beim Speichern entfernt.",
+    "logoUrlWillBeImported": "Diese Logo-URL wird beim Speichern importiert.",
+    "failedLogoUpload": "Herstellerlogo konnte nicht aktualisiert werden"
   },
   "admin": {
     "title": "Admin",
