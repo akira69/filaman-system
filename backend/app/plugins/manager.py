@@ -14,6 +14,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.cache import response_cache
 from app.core.database import async_session_maker
 from app.models import Printer
+from app.models.plugin import InstalledPlugin
 from app.models.filament import Filament
 from app.models.spool import Spool
 from app.models.printer import PrinterSlot, PrinterSlotAssignment
@@ -353,6 +354,15 @@ class PluginManager:
     async def start_all(self) -> None:
         await self._ensure_all_plugin_dependencies()
         async with async_session_maker() as db:
+            # Deaktivierte Plugins ermitteln (driver_key)
+            disabled_result = await db.execute(
+                select(InstalledPlugin.driver_key).where(
+                    InstalledPlugin.is_active.is_(False),
+                    InstalledPlugin.driver_key.isnot(None),
+                )
+            )
+            disabled_drivers = {r for r in disabled_result.scalars().all()}
+
             result = await db.execute(
                 select(Printer).where(
                     Printer.is_active == True,
@@ -362,6 +372,11 @@ class PluginManager:
             printers = result.scalars().all()
 
             for printer in printers:
+                if printer.driver_key in disabled_drivers:
+                    logger.info(
+                        f"Skipping printer {printer.id}: plugin '{printer.driver_key}' is deactivated"
+                    )
+                    continue
                 await self.start_printer(printer)
 
     async def stop_all(self) -> None:

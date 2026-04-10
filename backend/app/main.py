@@ -16,7 +16,7 @@ from sqlalchemy import text
 from app.api.auth import router as auth_router
 from app.api.auth_oidc import router as auth_oidc_router
 from app.api.v1.router import api_router, mount_deferred_plugin_routers
-from app.core.config import settings
+from app.core.config import settings, MANUFACTURER_LOGO_DIR
 from app.core.database import async_session_maker
 from app.core.logging_config import setup_logging
 from app.core.middleware import AuthMiddleware, CsrfMiddleware, RequestIdMiddleware
@@ -92,6 +92,7 @@ async def _driver_watchdog() -> None:
 async def _watchdog_health_check() -> None:
     """Primary worker: restart dead drivers and start missing ones."""
     from app.models.printer import Printer
+    from app.models.plugin import InstalledPlugin
     from sqlalchemy import select
 
     health = plugin_manager.get_health()
@@ -100,6 +101,16 @@ async def _watchdog_health_check() -> None:
     # can return accurate status to the frontend.
     if health:
         shared_health_store.publish(health)
+
+    # Deaktivierte Plugins ermitteln
+    async with async_session_maker() as db:
+        disabled_result = await db.execute(
+            select(InstalledPlugin.driver_key).where(
+                InstalledPlugin.is_active.is_(False),
+                InstalledPlugin.driver_key.isnot(None),
+            )
+        )
+        disabled_drivers = {r for r in disabled_result.scalars().all()}
 
     # 1. Restart drivers that report running=False
     for printer_id, status in list(health.items()):
@@ -119,6 +130,11 @@ async def _watchdog_health_check() -> None:
                 )
                 printer = result.scalar_one_or_none()
             if printer:
+                if printer.driver_key in disabled_drivers:
+                    logger.info(
+                        f"Watchdog: skipping printer {printer_id}: plugin '{printer.driver_key}' is deactivated"
+                    )
+                    continue
                 started = await plugin_manager.start_printer(printer)
                 if started:
                     logger.info(f"Watchdog: restarted driver for printer {printer_id}")
@@ -139,6 +155,8 @@ async def _watchdog_health_check() -> None:
 
     for printer in active_printers:
         if printer.id not in plugin_manager.drivers:
+            if printer.driver_key in disabled_drivers:
+                continue
             logger.info(
                 f"Watchdog: no driver for active printer {printer.id}, starting"
             )
@@ -177,6 +195,9 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting FilaMan backend...")
     logger.info(f"Using database URL: {settings.database_url}")
+
+    # Ensure persistent directories exist
+    MANUFACTURER_LOGO_DIR.mkdir(parents=True, exist_ok=True)
 
     # Skip migrations in app context if configured (e.g. in Docker where entrypoint handles it)
     if os.getenv("RUN_MIGRATIONS_IN_APP", "true").lower() == "true":
@@ -356,6 +377,8 @@ mount_deferred_plugin_routers(app)
 @app.get("/plugin-page/{plugin_slug:path}")
 async def serve_plugin_page(plugin_slug: str):
     from fastapi import HTTPException
+    from app.models.plugin import InstalledPlugin
+    from sqlalchemy import select
 
     if not PLUGINS_DIR.is_dir():
         raise HTTPException(status_code=404, detail="Plugin page not found")
@@ -370,7 +393,20 @@ async def serve_plugin_page(plugin_slug: str):
         try:
             meta = _json.loads(manifest.read_text(encoding="utf-8"))
             if meta.get("page_url", "").strip() == f"/plugin-page/{plugin_slug}":
+                # Pruefen ob das Plugin aktiviert ist
+                plugin_key = meta.get("plugin_key", entry.name)
+                async with async_session_maker() as db:
+                    result = await db.execute(
+                        select(InstalledPlugin.is_active).where(
+                            InstalledPlugin.plugin_key == plugin_key
+                        )
+                    )
+                    is_active = result.scalar_one_or_none()
+                if is_active is False:
+                    raise HTTPException(status_code=404, detail="Plugin is deactivated")
                 return FileResponse(str(page_file))
+        except HTTPException:
+            raise
         except Exception:
             continue
 
@@ -409,9 +445,25 @@ async def health_ready():
     }
 
 
-if not settings.debug:
-    from fastapi.staticfiles import StaticFiles
+# ---------------------------------------------------------------------------
+# Uploads directory – serves manufacturer logos and other user-uploaded assets.
+# In Docker the canonical location is /app/data/uploads; during local
+# development we fall back to <PROJECT_ROOT>/data/uploads.
+# ---------------------------------------------------------------------------
+from fastapi.staticfiles import StaticFiles as _StaticFiles  # noqa: E402
 
+_uploads_dir = Path("/app/data/uploads")
+if not _uploads_dir.is_dir():
+    from app.core.config import PROJECT_ROOT
+
+    _uploads_dir = PROJECT_ROOT / "data" / "uploads"
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+(_uploads_dir / "manufacturer-logos").mkdir(exist_ok=True)
+
+app.mount("/uploads", _StaticFiles(directory=str(_uploads_dir)), name="uploads")
+logger.info("Serving uploads from '%s'", _uploads_dir)
+
+if not settings.debug:
     static_files_path = "/app/static"
     if not os.path.exists(static_files_path) or not os.path.isdir(static_files_path):
         logger.warning(
@@ -520,5 +572,5 @@ if not settings.debug:
             )
 
         app.mount(
-            "/", StaticFiles(directory=static_files_path, html=True), name="static"
+            "/", _StaticFiles(directory=static_files_path, html=True), name="static"
         )

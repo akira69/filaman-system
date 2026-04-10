@@ -1,0 +1,1039 @@
+---
+import Layout from '../../../layouts/Layout.astro'
+---
+
+<Layout title="FilaMan - FilamentDB Import">
+  <div style="margin-bottom: 24px;">
+    <a href="/admin/system" style="color: var(--accent); text-decoration: none;">&larr; <span data-i18n="admin.backToSystem">Back to System</span></a>
+  </div>
+  
+  <h1 style="font-size: 1.8rem; font-weight: 700; margin: 0 0 8px; font-family: var(--font-serif);" data-i18n="filamentdb.title">FilamentDB Import</h1>
+  <p style="color: var(--text-muted); margin-bottom: 24px;" data-i18n="filamentdb.subtitle">Import manufacturers, filaments and spool details from the FilamentDB community database.</p>
+
+  <!-- Step 1: Preview & Manufacturer Selection -->
+  <div class="fm-card" style="margin-bottom: 24px; padding: 24px;" id="step-manufacturers">
+    <h2 style="font-size: 1.1rem; font-weight: 600; margin: 0 0 16px;">
+      <span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.85rem; margin-right: 10px;">1</span>
+      <span data-i18n="filamentdb.stepManufacturers">Manufacturers</span>
+    </h2>
+    <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;" data-i18n="filamentdb.previewDesc">Load the data from FilamentDB and select which manufacturers to import.</p>
+    <button id="btn-preview" class="fm-btn fm-btn-outline" data-i18n="filamentdb.loadPreview">Load Preview</button>
+    <div id="preview-result" style="margin-top: 16px; display: none;"></div>
+  </div>
+
+  <!-- Step 2: Filament Selection -->
+  <div class="fm-card" style="margin-bottom: 24px; padding: 24px; opacity: 0.5; pointer-events: none;" id="step-filaments">
+    <h2 style="font-size: 1.1rem; font-weight: 600; margin: 0 0 16px;">
+      <span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.85rem; margin-right: 10px;">2</span>
+      <span data-i18n="filamentdb.stepFilaments">Filaments</span>
+    </h2>
+    <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;" data-i18n="filamentdb.selectFilamentsDesc">Fine-tune your selection — deselect individual filaments you don't need.</p>
+    <div id="filament-list" style="display: none;"></div>
+    <div id="no-mfr-hint" style="color: var(--text-muted); font-size: 0.9rem; font-style: italic;" data-i18n="filamentdb.noManufacturersSelected">Select at least one manufacturer in step 1.</div>
+  </div>
+
+  <!-- Step 3: Settings & Import -->
+  <div class="fm-card" style="margin-bottom: 24px; padding: 24px; opacity: 0.5; pointer-events: none;" id="step-import">
+    <h2 style="font-size: 1.1rem; font-weight: 600; margin: 0 0 16px;">
+      <span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.85rem; margin-right: 10px;">3</span>
+      <span data-i18n="filamentdb.stepImport">Settings &amp; Import</span>
+    </h2>
+
+    <!-- Spool Detail Target -->
+    <div style="margin-bottom: 20px;">
+      <h3 style="font-size: 0.95rem; font-weight: 600; margin: 0 0 6px;" data-i18n="filamentdb.spoolDetailTarget">Spool Detail Target</h3>
+      <p style="color: var(--text-muted); margin-bottom: 12px; font-size: 0.85rem;" data-i18n="filamentdb.spoolDetailDesc">Choose where to apply spool profile data (empty weight, diameter, width, material).</p>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; background: var(--bg-soft);">
+          <input type="radio" name="spool-detail-target" value="filament" checked style="margin-top: 3px;" />
+          <div>
+            <div style="font-weight: 600; font-size: 0.9rem;" data-i18n="filamentdb.targetFilament">Filament only</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);" data-i18n="filamentdb.targetFilamentDesc">Apply spool profile data to each filament individually</div>
+          </div>
+        </label>
+        <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; background: var(--bg-soft);">
+          <input type="radio" name="spool-detail-target" value="manufacturer" style="margin-top: 3px;" />
+          <div>
+            <div style="font-weight: 600; font-size: 0.9rem;" data-i18n="filamentdb.targetManufacturer">Manufacturer only</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);" data-i18n="filamentdb.targetManufacturerDesc">Apply the most common spool profile per manufacturer</div>
+          </div>
+        </label>
+        <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; background: var(--bg-soft);">
+          <input type="radio" name="spool-detail-target" value="both" style="margin-top: 3px;" />
+          <div>
+            <div style="font-weight: 600; font-size: 0.9rem;" data-i18n="filamentdb.targetBoth">Both</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);" data-i18n="filamentdb.targetBothDesc">Apply to both filament and manufacturer level</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div id="import-summary" style="padding: 12px 16px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid var(--border); margin-bottom: 16px;">
+      <strong data-i18n="filamentdb.importSummary">Import Summary</strong>
+      <div id="summary-text" style="font-size: 0.9rem; color: var(--text-muted); margin-top: 4px;"></div>
+    </div>
+
+    <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;" data-i18n="filamentdb.importDesc">Start the import. Existing data will not be overwritten.</p>
+
+    <!-- Diff-Bereich fuer existierende Filamente -->
+    <div id="diff-section" style="display: none; margin-bottom: 16px;">
+      <div id="diff-loading" style="padding: 16px; text-align: center; color: var(--text-muted); display: none;">
+        <div style="margin-bottom: 8px;" data-i18n="filamentdb.loadingDiff">Checking for changes...</div>
+        <div style="width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto;"></div>
+      </div>
+      <div id="diff-content"></div>
+    </div>
+
+    <button id="btn-import" class="fm-btn fm-btn-primary" data-i18n="filamentdb.checkImport">Check</button>
+    <div id="import-progress" style="margin-top: 16px; display: none;">
+      <div style="background: var(--bg-soft); border-radius: 999px; overflow: hidden; height: 8px;">
+        <div id="import-bar" style="background: var(--accent); height: 100%; width: 0%; transition: width 0.5s;"></div>
+      </div>
+      <p id="import-status" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 6px; text-align: center;" data-i18n="filamentdb.importing">Importing...</p>
+    </div>
+    <div id="import-result" style="margin-top: 16px; display: none;"></div>
+  </div>
+
+  <script>
+    import { t, initI18n } from '../../../lib/i18n'
+    import { getAbortSignal, isAbortError } from '../../../lib/abort'
+    import { checkFilamentDbActive } from '../../../lib/filamentdb-lookup'
+    await initI18n()
+
+    // Check if plugin is active — redirect to system page if disabled
+    const pluginActive = await checkFilamentDbActive()
+    if (!pluginActive) {
+      window.location.href = '/admin/system'
+      throw new Error('Plugin disabled')  // Stop further script execution
+    }
+
+    // ---- State ----
+    let previewData: any = null
+    /** Filament data loaded on-demand for selected manufacturers */
+    let filamentData: any = null
+    /** Set of selected FDB manufacturer IDs */
+    const selectedMfrIds = new Set<number>()
+    /** Set of selected FDB filament IDs */
+    const selectedFilIds = new Set<number>()
+    /** Set of FDB filament IDs where user rejected the fuzzy match */
+    const rejectedFuzzyIds = new Set<number>()
+    /** Active material filter (empty = all) */
+    const activeMaterials = new Set<string>()
+    /** Manufacturer search term */
+    let mfrSearchTerm = ''
+    /** Debounce timer for filament loading */
+    let filamentDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    /** AbortController for filament fetch */
+    let filamentAbortCtrl: AbortController | null = null
+    /** Track whether filaments are currently loading */
+    let filamentLoading = false
+
+    // ---- Helpers ----
+    function getCsrfToken(): string {
+      const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
+      return match ? decodeURIComponent(match[1]) : ''
+    }
+
+    function escapeHtml(str: string): string {
+      const div = document.createElement('div')
+      div.textContent = str
+      return div.innerHTML
+    }
+
+    function enableStep(id: string) {
+      const el = document.getElementById(id)!
+      el.style.opacity = '1'
+      el.style.pointerEvents = 'auto'
+    }
+
+    function disableStep(id: string) {
+      const el = document.getElementById(id)!
+      el.style.opacity = '0.5'
+      el.style.pointerEvents = 'none'
+    }
+
+    function getSelectedTarget(): string {
+      const checked = document.querySelector('input[name="spool-detail-target"]:checked') as HTMLInputElement | null
+      return checked?.value ?? 'filament'
+    }
+
+    /** Collect all unique material types from preview data */
+    function getAllMaterials(): string[] {
+      if (!previewData) return []
+      const mats = new Set<string>()
+      for (const m of previewData.materials ?? []) {
+        const k = (m.key || m.name || '').toUpperCase()
+        if (k) mats.add(k)
+      }
+      return [...mats].sort()
+    }
+
+    /** Get FDB manufacturer ID for a filament dict */
+    function filMfrId(f: any): number | null {
+      return f.manufacturer_id ?? f.manufacturer?.id ?? null
+    }
+
+    /** Check if a manufacturer passes the material filter */
+    function mfrPassesMaterialFilter(mfr: any): boolean {
+      if (activeMaterials.size === 0) return true
+      const types: string[] = mfr._material_types ?? []
+      return types.some(t => activeMaterials.has(t))
+    }
+
+    /** Check if a filament passes the material filter */
+    function filPassesMaterialFilter(f: any): boolean {
+      if (activeMaterials.size === 0) return true
+      const k = (f._material_key || '').toUpperCase()
+      return activeMaterials.has(k)
+    }
+
+    // ================================================================
+    //  Step 1: Load Preview + Manufacturer Selection
+    // ================================================================
+
+    document.getElementById('btn-preview')?.addEventListener('click', async () => {
+      const resultDiv = document.getElementById('preview-result')!
+      const btn = document.getElementById('btn-preview') as HTMLButtonElement
+
+      btn.disabled = true
+      btn.textContent = t('filamentdb.loadingPreview')
+      resultDiv.style.display = 'none'
+
+      try {
+        const response = await fetch('/api/v1/admin/system/filamentdb-import/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          signal: getAbortSignal(),
+        })
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.detail?.message || t('filamentdb.previewFailed'))
+        }
+
+        previewData = await response.json()
+        resultDiv.style.display = 'block'
+
+        // Default: kein Hersteller ausgewählt
+        selectedMfrIds.clear()
+
+        renderStep1()
+        updateSummary()
+        // Step 2 + 3 bleiben disabled bis Filamente geladen
+        disableStep('step-filaments')
+        disableStep('step-import')
+
+      } catch (err: any) {
+        if (isAbortError(err)) return
+        resultDiv.style.display = 'block'
+        resultDiv.innerHTML = `<div style="padding: 10px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid var(--error-text); color: var(--error-text);">${escapeHtml(err.message)}</div>`
+        disableStep('step-filaments')
+        disableStep('step-import')
+      } finally {
+        btn.disabled = false
+        btn.textContent = t('filamentdb.loadPreview')
+      }
+    })
+
+    function renderStep1() {
+      const resultDiv = document.getElementById('preview-result')!
+      const s = previewData.summary
+      const materials = getAllMaterials()
+
+      // Summary table
+      let html = `
+        <div class="fm-card" style="padding: 0; margin-bottom: 16px;">
+          <table class="fm-table">
+            <thead style="background: var(--bg-soft);">
+              <tr>
+                <th>${escapeHtml(t('filamentdb.dataType'))}</th>
+                <th style="text-align: right;">${escapeHtml(t('filamentdb.count'))}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>${escapeHtml(t('filamentdb.previewManufacturers'))}</td><td style="text-align: right; font-weight: 600;">${s.manufacturers}</td></tr>
+              <tr><td>${escapeHtml(t('filamentdb.previewFilaments'))}</td><td style="text-align: right; font-weight: 600;">${s.filaments}</td></tr>
+              <tr><td>${escapeHtml(t('filamentdb.previewMaterials'))}</td><td style="text-align: right; font-weight: 600;">${s.materials}</td></tr>
+              <tr><td>${escapeHtml(t('filamentdb.previewColors'))}</td><td style="text-align: right; font-weight: 600;">${s.colors}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      `
+
+      // Material filter
+      if (materials.length > 1) {
+        html += `
+          <div style="margin-bottom: 16px;">
+            <h3 style="font-size: 0.95rem; font-weight: 600; margin: 0 0 6px;">${escapeHtml(t('filamentdb.materialFilter'))}</h3>
+            <p style="color: var(--text-muted); margin-bottom: 8px; font-size: 0.85rem;">${escapeHtml(t('filamentdb.materialFilterDesc'))}</p>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;" id="material-filter">
+              ${materials.map(m => `
+                <label style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.8rem; cursor: pointer; background: var(--bg-soft);">
+                  <input type="checkbox" value="${escapeHtml(m)}" class="mat-filter-cb" ${activeMaterials.size === 0 || activeMaterials.has(m) ? '' : ''} />
+                  ${escapeHtml(m)}
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        `
+      }
+
+      // Manufacturer selection
+      html += `
+        <div>
+          <h3 style="font-size: 0.95rem; font-weight: 600; margin: 0 0 6px;">${escapeHtml(t('filamentdb.selectManufacturers'))}</h3>
+          <p style="color: var(--text-muted); margin-bottom: 8px; font-size: 0.85rem;">${escapeHtml(t('filamentdb.selectManufacturersDesc'))}</p>
+          <div style="margin-bottom: 10px;">
+            <input type="search" id="mfr-search" placeholder="${escapeHtml(t('filamentdb.searchManufacturers'))}" value="${escapeHtml(mfrSearchTerm)}" style="width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-soft); color: var(--text); font-size: 0.9rem; outline: none;" />
+          </div>
+          <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+            <button class="fm-btn fm-btn-outline" style="font-size: 0.8rem; padding: 4px 12px;" id="btn-sel-all">${escapeHtml(t('filamentdb.selectAll'))}</button>
+            <button class="fm-btn fm-btn-outline" style="font-size: 0.8rem; padding: 4px 12px;" id="btn-sel-new">${escapeHtml(t('filamentdb.selectAllNew'))}</button>
+            <button class="fm-btn fm-btn-outline" style="font-size: 0.8rem; padding: 4px 12px;" id="btn-sel-none">${escapeHtml(t('filamentdb.deselectAll'))}</button>
+            <span style="font-size: 0.85rem; color: var(--text-muted); align-self: center; margin-left: auto;" id="mfr-count"></span>
+          </div>
+          <div id="mfr-list" style="max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm);"></div>
+        </div>
+      `
+
+      resultDiv.innerHTML = html
+      renderMfrList()
+      updateMfrCount()
+
+      // Wire events
+      resultDiv.querySelectorAll('.mat-filter-cb').forEach(cb => {
+        cb.addEventListener('change', onMaterialFilterChange)
+      })
+      document.getElementById('btn-sel-all')?.addEventListener('click', () => { selectMfrs('all'); })
+      document.getElementById('btn-sel-new')?.addEventListener('click', () => { selectMfrs('new'); })
+      document.getElementById('btn-sel-none')?.addEventListener('click', () => { selectMfrs('none'); })
+      document.getElementById('mfr-search')?.addEventListener('input', (e) => {
+        mfrSearchTerm = (e.target as HTMLInputElement).value
+        renderMfrList()
+      })
+    }
+
+    function renderMfrList() {
+      const container = document.getElementById('mfr-list')
+      if (!container || !previewData) return
+
+      const manufacturers: any[] = previewData.manufacturers
+      const searchLower = mfrSearchTerm.toLowerCase().trim()
+      const sorted = [...manufacturers]
+        .filter(m => {
+          if (!mfrPassesMaterialFilter(m)) return false
+          if (searchLower && !(m.name || '').toLowerCase().includes(searchLower)) return false
+          return true
+        })
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+
+      let rows = ''
+      for (const m of sorted) {
+        const id = m.id
+        const checked = selectedMfrIds.has(id) ? 'checked' : ''
+        const existsBadge = m._exists
+          ? `<span style="display: inline-block; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text-muted); margin-left: 8px;">${escapeHtml(t('filamentdb.alreadyExists'))}</span>`
+          : ''
+        const matTags = (m._material_types || []).slice(0, 5).map((mt: string) =>
+          `<span style="display: inline-block; font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; background: var(--accent-bg, rgba(var(--accent-rgb, 100,100,255), 0.1)); color: var(--accent); margin-right: 3px;">${escapeHtml(mt)}</span>`
+        ).join('')
+        const filCount = t('filamentdb.filamentCount').replace('{count}', String(m._filament_count || 0))
+
+        rows += `
+          <label style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer;${m._exists ? ' opacity: 0.7;' : ''}">
+            <input type="checkbox" class="mfr-cb" data-id="${id}" ${checked} style="flex-shrink: 0;" />
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 500; font-size: 0.9rem;">
+                ${escapeHtml(m.name || '-')}${existsBadge}
+              </div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 2px;">
+                <span>${escapeHtml(filCount)}</span>
+                ${matTags}
+              </div>
+            </div>
+          </label>
+        `
+      }
+
+      container.innerHTML = rows || `<div style="padding: 16px; color: var(--text-muted); text-align: center;">No manufacturers match the filter.</div>`
+
+      // Wire checkbox events
+      container.querySelectorAll('.mfr-cb').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const input = e.target as HTMLInputElement
+          const id = Number(input.dataset.id)
+          if (input.checked) selectedMfrIds.add(id)
+          else selectedMfrIds.delete(id)
+          updateMfrCount()
+          scheduleFilamentLoad()
+        })
+      })
+    }
+
+    function updateMfrCount() {
+      const el = document.getElementById('mfr-count')
+      if (el) el.textContent = t('filamentdb.selectedCount').replace('{count}', String(selectedMfrIds.size))
+    }
+
+    function selectMfrs(mode: 'all' | 'new' | 'none') {
+      selectedMfrIds.clear()
+      if (mode !== 'none') {
+        for (const m of previewData.manufacturers) {
+          if (!mfrPassesMaterialFilter(m)) continue
+          if (mfrSearchTerm) {
+            const searchLower = mfrSearchTerm.toLowerCase().trim()
+            if (!(m.name || '').toLowerCase().includes(searchLower)) continue
+          }
+          if (mode === 'all' || (mode === 'new' && !m._exists)) {
+            if (m.id) selectedMfrIds.add(m.id)
+          }
+        }
+      }
+      renderMfrList()
+      updateMfrCount()
+      scheduleFilamentLoad()
+    }
+
+    function onMaterialFilterChange() {
+      activeMaterials.clear()
+      document.querySelectorAll('.mat-filter-cb:checked').forEach(cb => {
+        activeMaterials.add((cb as HTMLInputElement).value)
+      })
+      renderMfrList()
+      updateMfrCount()
+      // Filamente neu laden wenn welche selektiert sind
+      if (selectedMfrIds.size > 0) scheduleFilamentLoad()
+    }
+
+    // ================================================================
+    //  Step 2: Filament Loading (on-demand with debounce)
+    // ================================================================
+
+    function scheduleFilamentLoad() {
+      // Debounce: warte 500ms nach der letzten Hersteller-Aenderung
+      if (filamentDebounceTimer) clearTimeout(filamentDebounceTimer)
+      filamentDebounceTimer = setTimeout(() => loadFilamentsForSelected(), 500)
+    }
+
+    async function loadFilamentsForSelected() {
+      const container = document.getElementById('filament-list')!
+      const hint = document.getElementById('no-mfr-hint')!
+
+      if (selectedMfrIds.size === 0) {
+        filamentData = null
+        selectedFilIds.clear()
+        rejectedFuzzyIds.clear()
+        container.style.display = 'none'
+        hint.style.display = 'block'
+        disableStep('step-filaments')
+        disableStep('step-import')
+        updateSummary()
+        return
+      }
+
+      // Vorherigen Request abbrechen
+      if (filamentAbortCtrl) filamentAbortCtrl.abort()
+      filamentAbortCtrl = new AbortController()
+
+      // Loading-State anzeigen
+      filamentLoading = true
+      enableStep('step-filaments')
+      container.style.display = 'block'
+      hint.style.display = 'none'
+      container.innerHTML = `<div style="padding: 24px; text-align: center; color: var(--text-muted);"><div style="margin-bottom: 8px;">${escapeHtml(t('filamentdb.loadingFilaments'))}</div><div style="width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto;"></div></div>`
+
+      try {
+        const response = await fetch('/api/v1/admin/system/filamentdb-import/filaments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({ manufacturer_ids: [...selectedMfrIds] }),
+          signal: filamentAbortCtrl.signal,
+        })
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.detail?.message || t('filamentdb.previewFailed'))
+        }
+
+        filamentData = await response.json()
+        filamentLoading = false
+
+        selectedFilIds.clear()
+        rejectedFuzzyIds.clear()
+
+        renderFilamentList()
+        updateSummary()
+        resetImportButton()
+        enableStep('step-import')
+
+      } catch (err: any) {
+        if (err.name === 'AbortError') return  // Neuer Request laeuft bereits
+        filamentLoading = false
+        container.innerHTML = `<div style="padding: 12px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid var(--error-text); color: var(--error-text);">${escapeHtml(err.message)}</div>`
+        disableStep('step-import')
+      }
+    }
+
+    function rebuildStep2() {
+      if (!filamentData) return
+      renderFilamentList()
+    }
+
+    function renderFilamentList() {
+      const container = document.getElementById('filament-list')!
+      if (!filamentData) return
+
+      const filaments: any[] = filamentData.filaments
+      // Group by manufacturer
+      const mfrMap = new Map<number, any>()
+      for (const m of previewData.manufacturers) {
+        if (m.id && selectedMfrIds.has(m.id)) mfrMap.set(m.id, m)
+      }
+
+      // Group filaments
+      const grouped = new Map<number, any[]>()
+      for (const f of filaments) {
+        const mId = filMfrId(f)
+        if (!mId || !selectedMfrIds.has(mId)) continue
+        if (!filPassesMaterialFilter(f)) continue
+        if (!grouped.has(mId)) grouped.set(mId, [])
+        grouped.get(mId)!.push(f)
+      }
+
+      // Sort manufacturers by name
+      const sortedMfrIds = [...grouped.keys()].sort((a, b) => {
+        const na = mfrMap.get(a)?.name || ''
+        const nb = mfrMap.get(b)?.name || ''
+        return na.localeCompare(nb)
+      })
+
+      let html = ''
+
+      // Hinweis zu Fuzzy-Matches anzeigen wenn welche vorhanden
+      const hasFuzzyMatches = filaments.some((f: any) => f._match_type === 'fuzzy' && !rejectedFuzzyIds.has(f.id))
+      if (hasFuzzyMatches) {
+        html += `<div style="padding: 10px 14px; margin-bottom: 12px; border-radius: var(--radius-sm); background: rgba(var(--warning-rgb, 200,150,0), 0.08); border: 1px solid rgba(var(--warning-rgb, 200,150,0), 0.25); font-size: 0.85rem; color: var(--text);">
+          ${escapeHtml(t('filamentdb.fuzzyHintBox'))}
+        </div>`
+      }
+
+      for (const mfrId of sortedMfrIds) {
+        const mfr = mfrMap.get(mfrId)
+        const fils = grouped.get(mfrId) || []
+        if (fils.length === 0) continue
+
+        const selectedInGroup = fils.filter(f => selectedFilIds.has(f.id)).length
+
+        html += `
+          <div style="margin-bottom: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--bg-soft); border-bottom: 1px solid var(--border);">
+              <strong style="font-size: 0.9rem;">${escapeHtml(mfr?.name || '?')}</strong>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <span style="font-size: 0.8rem; color: var(--text-muted);">${selectedInGroup}/${fils.length}</span>
+                <button class="fm-btn fm-btn-outline fil-sel-all" data-mfr="${mfrId}" style="font-size: 0.7rem; padding: 2px 8px;">${escapeHtml(t('filamentdb.selectAll'))}</button>
+                <button class="fm-btn fm-btn-outline fil-sel-none" data-mfr="${mfrId}" style="font-size: 0.7rem; padding: 2px 8px;">${escapeHtml(t('filamentdb.deselectAll'))}</button>
+              </div>
+            </div>
+            <div style="max-height: 300px; overflow-y: auto;">
+        `
+
+        for (const f of fils) {
+          const checked = selectedFilIds.has(f.id) ? 'checked' : ''
+          const isRejectedFuzzy = rejectedFuzzyIds.has(f.id)
+          const effectiveExists = f._exists && !isRejectedFuzzy
+          const isFuzzyMatch = f._match_type === 'fuzzy' && !isRejectedFuzzy
+          let existsBadge = ''
+          if (effectiveExists && isFuzzyMatch) {
+            existsBadge = `<span style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: rgba(var(--warning-rgb, 200,150,0), 0.1); border: 1px solid rgba(var(--warning-rgb, 200,150,0), 0.3); color: var(--warning, #c89600); margin-left: 8px;" title="${escapeHtml(t('filamentdb.fuzzyMatchHint').replace('{name}', f._matched_name || ''))}">${escapeHtml(t('filamentdb.fuzzyMatch'))}: ${escapeHtml(f._matched_name || '?')} <span style="opacity:0.7">(${Math.round((f._match_score || 0) * 100)}%)</span><button class="fuzzy-reject-btn" data-id="${f.id}" style="background: none; border: none; cursor: pointer; font-size: 0.85rem; padding: 0 2px; line-height: 1; color: var(--text-muted);" title="${escapeHtml(t('filamentdb.fuzzyReject'))}">✕</button></span>`
+          } else if (effectiveExists) {
+            existsBadge = `<span style="display: inline-block; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text-muted); margin-left: 8px;">${escapeHtml(t('filamentdb.alreadyExists'))}</span>`
+          }
+          const noSpoolBadge = !f.spool_profile
+            ? `<span style="display: inline-block; font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text-muted); margin-left: 4px;">${escapeHtml(t('filamentdb.noSpoolData'))}</span>`
+            : ''
+          const matKey = f._material_key || ''
+          const designation = f.designation || f.name || '-'
+          const colorCount = f.colors?.length ?? (f.hex_color ? 1 : 0)
+          const colorSwatches = renderColorSwatches(f)
+
+          html += `
+            <label style="display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--border); cursor: pointer;${effectiveExists ? ' opacity: 0.7;' : ''}">
+              <input type="checkbox" class="fil-cb" data-id="${f.id}" data-mfr="${mfrId}" ${checked} style="flex-shrink: 0;" />
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 0.85rem;">
+                   ${escapeHtml(designation)}${existsBadge}${noSpoolBadge}
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; gap: 8px; align-items: center; margin-top: 1px;">
+                  <span style="font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; background: var(--accent-bg, rgba(var(--accent-rgb, 100,100,255), 0.1)); color: var(--accent);">${escapeHtml(matKey)}</span>
+                  ${colorSwatches}
+                </div>
+              </div>
+            </label>
+          `
+        }
+
+        html += `</div></div>`
+      }
+
+      container.innerHTML = html || `<div style="padding: 16px; color: var(--text-muted); text-align: center;">No filaments for selected manufacturers.</div>`
+
+      // Wire events
+      container.querySelectorAll('.fil-cb').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const input = e.target as HTMLInputElement
+          const id = Number(input.dataset.id)
+          if (input.checked) selectedFilIds.add(id)
+          else selectedFilIds.delete(id)
+          updateSummary()
+          resetImportButton()
+        })
+      })
+
+      // Fuzzy-Reject buttons
+      container.querySelectorAll('.fuzzy-reject-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          const id = Number((e.currentTarget as HTMLElement).dataset.id)
+          rejectedFuzzyIds.add(id)
+          renderFilamentList()
+          updateSummary()
+          resetImportButton()
+        })
+      })
+
+      container.querySelectorAll('.fil-sel-all').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault()
+          const mfrId = Number((e.currentTarget as HTMLElement).dataset.mfr)
+          for (const f of filamentData.filaments) {
+            if (filMfrId(f) === mfrId && filPassesMaterialFilter(f) && f.id) selectedFilIds.add(f.id)
+          }
+          renderFilamentList()
+          updateSummary()
+          resetImportButton()
+        })
+      })
+
+      container.querySelectorAll('.fil-sel-none').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault()
+          const mfrId = Number((e.currentTarget as HTMLElement).dataset.mfr)
+          for (const f of filamentData.filaments) {
+            if (filMfrId(f) === mfrId && f.id) selectedFilIds.delete(f.id)
+          }
+          renderFilamentList()
+          updateSummary()
+          resetImportButton()
+        })
+      })
+    }
+
+    function renderColorSwatches(f: any): string {
+      const cols: { hex: string }[] = []
+      const filColors = f.colors || []
+      if (filColors.length) {
+        for (const c of filColors.slice(0, 5)) {
+          if (c.hex_code) cols.push({ hex: c.hex_code })
+        }
+      } else if (f.hex_color) {
+        cols.push({ hex: f.hex_color })
+      }
+      if (cols.length === 0) return ''
+      return cols.map(c =>
+        `<span style="display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: ${escapeHtml(c.hex)}; border: 1px solid var(--border);"></span>`
+      ).join('')
+    }
+
+    // ================================================================
+    //  Summary
+    // ================================================================
+
+    function updateSummary() {
+      const el = document.getElementById('summary-text')
+      if (!el) return
+      el.textContent = t('filamentdb.importSummaryText')
+        .replace('{manufacturers}', String(selectedMfrIds.size))
+        .replace('{filaments}', String(selectedFilIds.size))
+    }
+
+    // ================================================================
+    //  Step 3: Import (with Diff support for existing filaments)
+    // ================================================================
+
+    const updateFilIds = new Set<number>()
+    /** Tracks whether the pre-import check has been done */
+    let importChecked = false
+
+    /** Reset the import button back to "Check" phase */
+    function resetImportButton() {
+      importChecked = false
+      const btn = document.getElementById('btn-import') as HTMLButtonElement | null
+      if (btn) {
+        btn.textContent = t('filamentdb.checkImport')
+        btn.disabled = false
+      }
+      // Diff-Bereich verstecken
+      const diffSection = document.getElementById('diff-section')
+      if (diffSection) diffSection.style.display = 'none'
+      updateFilIds.clear()
+    }
+
+    async function checkForExistingFilaments(): Promise<boolean> {
+      if (!filamentData) return false
+
+      // Existierende Filamente in der Auswahl finden
+      const existingFdbIds: number[] = []
+      for (const f of filamentData.filaments) {
+        if (f._exists && f.id && selectedFilIds.has(f.id) && !rejectedFuzzyIds.has(f.id)) {
+          existingFdbIds.push(f.id)
+        }
+      }
+
+      if (existingFdbIds.length === 0) {
+        // Kein Diff noetig, Diff-Bereich verstecken
+        const section = document.getElementById('diff-section')!
+        section.style.display = 'none'
+        updateFilIds.clear()
+        return true
+      }
+
+      // Diff laden
+      const section = document.getElementById('diff-section')!
+      const loading = document.getElementById('diff-loading')!
+      const content = document.getElementById('diff-content')!
+      section.style.display = 'block'
+      loading.style.display = 'block'
+      content.innerHTML = ''
+
+      try {
+        const response = await fetch('/api/v1/admin/system/filamentdb-import/diff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({ filament_ids: existingFdbIds }),
+          signal: getAbortSignal(),
+        })
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.detail?.message || 'Diff failed')
+        }
+
+        const diffData = await response.json()
+        loading.style.display = 'none'
+
+        if (!diffData.results || diffData.results.length === 0) {
+          content.innerHTML = `<div style="padding: 12px; color: var(--text-muted); font-size: 0.9rem;">${escapeHtml(t('filamentdb.noChanges'))}</div>`
+          return true
+        }
+
+        renderDiffSection(diffData.results, content)
+        return true
+
+      } catch (err: any) {
+        if (isAbortError(err)) return false
+        loading.style.display = 'none'
+        content.innerHTML = `<div style="padding: 12px; color: var(--error-text); font-size: 0.9rem;">${escapeHtml(err.message)}</div>`
+        return true
+      }
+    }
+
+    function renderDiffSection(results: any[], container: HTMLElement) {
+      updateFilIds.clear()
+
+      const withChanges = results.filter((r: any) => !r.identical && !r.not_found)
+      const identical = results.filter((r: any) => r.identical && !r.not_found)
+
+      let html = `
+        <div style="border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bg-soft); border-bottom: 1px solid var(--border);">
+            <strong style="font-size: 0.95rem;">${escapeHtml(t('filamentdb.updateExisting'))}
+              <span style="font-size: 0.8rem; font-weight: 400; color: var(--text-muted); margin-left: 6px;">(${withChanges.length} ${escapeHtml(t('filamentdb.differences'))}, ${identical.length} ${escapeHtml(t('filamentdb.identical'))})</span>
+            </strong>
+            <div style="display: flex; gap: 6px;">
+              <button class="fm-btn fm-btn-outline" id="diff-sel-all" style="font-size: 0.7rem; padding: 2px 8px;">${escapeHtml(t('filamentdb.selectAll'))}</button>
+              <button class="fm-btn fm-btn-outline" id="diff-sel-none" style="font-size: 0.7rem; padding: 2px 8px;">${escapeHtml(t('filamentdb.deselectAll'))}</button>
+            </div>
+          </div>
+          <div style="max-height: 400px; overflow-y: auto;">
+      `
+
+      // Filamente mit Aenderungen
+      for (const r of withChanges) {
+        html += renderDiffItem(r, true)
+      }
+
+      // Identische Filamente
+      if (identical.length > 0) {
+        html += `
+          <details style="border-top: 1px solid var(--border);">
+            <summary style="padding: 8px 14px; cursor: pointer; font-size: 0.85rem; color: var(--text-muted); background: var(--bg-soft);">
+              ${identical.length} ${escapeHtml(t('filamentdb.identical'))}
+            </summary>
+        `
+        for (const r of identical) {
+          html += renderDiffItem(r, false)
+        }
+        html += '</details>'
+      }
+
+      html += '</div></div>'
+
+      if (withChanges.length === 0) {
+        html = `<div style="padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); font-size: 0.9rem;">
+          ${escapeHtml(t('filamentdb.noChanges'))} (${identical.length} ${escapeHtml(t('filamentdb.identical'))})
+        </div>`
+      }
+
+      container.innerHTML = html
+
+      // Events
+      container.querySelectorAll('.diff-cb').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const input = e.target as HTMLInputElement
+          const id = Number(input.dataset.fdbId)
+          if (input.checked) updateFilIds.add(id)
+          else updateFilIds.delete(id)
+        })
+      })
+
+      document.getElementById('diff-sel-all')?.addEventListener('click', () => {
+        container.querySelectorAll('.diff-cb').forEach(cb => {
+          const input = cb as HTMLInputElement
+          input.checked = true
+          updateFilIds.add(Number(input.dataset.fdbId))
+        })
+      })
+
+      document.getElementById('diff-sel-none')?.addEventListener('click', () => {
+        container.querySelectorAll('.diff-cb').forEach(cb => {
+          (cb as HTMLInputElement).checked = false
+        })
+        updateFilIds.clear()
+      })
+    }
+
+    function renderDiffItem(r: any, hasChanges: boolean): string {
+      let html = `
+        <div style="padding: 8px 14px; border-bottom: 1px solid var(--border);">
+          <div style="display: flex; align-items: center; gap: 10px;">
+      `
+
+      if (hasChanges) {
+        html += `<input type="checkbox" class="diff-cb" data-fdb-id="${r.fdb_id}" style="flex-shrink: 0;" />`
+      }
+
+      html += `
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 0.85rem; font-weight: 500;">
+                ${escapeHtml(r.designation)}
+                <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 6px;">${escapeHtml(r.manufacturer_name)}</span>
+              </div>
+            </div>
+      `
+
+      if (!hasChanges) {
+        html += `<span style="font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: var(--bg-soft); border: 1px solid var(--border); color: var(--text-muted);">${escapeHtml(t('filamentdb.identical'))}</span>`
+      } else {
+        html += `<span style="font-size: 0.7rem; padding: 1px 7px; border-radius: 999px; background: rgba(var(--accent-rgb, 100,100,255), 0.1); border: 1px solid var(--accent); color: var(--accent);">${r.changes.length} ${escapeHtml(t('filamentdb.differences'))}</span>`
+      }
+
+      html += '</div>'
+
+      if (hasChanges && r.changes.length > 0) {
+        html += `
+          <details style="margin-top: 6px; margin-left: 28px;">
+            <summary style="cursor: pointer; font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(t('filamentdb.showChanges'))}</summary>
+            <table style="width: 100%; font-size: 0.8rem; margin-top: 6px; border-collapse: collapse;">
+              <thead>
+                <tr style="color: var(--text-muted);">
+                  <th style="text-align: left; padding: 3px 8px; font-weight: 500;">${escapeHtml(t('filamentdb.fieldName'))}</th>
+                  <th style="text-align: left; padding: 3px 8px; font-weight: 500;">${escapeHtml(t('filamentdb.currentValue'))}</th>
+                  <th style="text-align: left; padding: 3px 8px; font-weight: 500;">${escapeHtml(t('filamentdb.newValue'))}</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${r.changes.map((c: any) => `
+                  <tr style="border-top: 1px solid var(--border);">
+                    <td style="padding: 3px 8px; color: var(--text-muted);">${escapeHtml(c.field)}</td>
+                    <td style="padding: 3px 8px; color: var(--error-text);">${c.old != null ? escapeHtml(String(c.old)) : '<em style="opacity: 0.5;">-</em>'}</td>
+                    <td style="padding: 3px 8px; color: var(--accent-2, green);">${c.new != null ? escapeHtml(String(c.new)) : '<em style="opacity: 0.5;">-</em>'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </details>
+        `
+      }
+
+      html += '</div>'
+      return html
+    }
+
+    document.getElementById('btn-import')?.addEventListener('click', async () => {
+      const resultDiv = document.getElementById('import-result')!
+      const progressDiv = document.getElementById('import-progress')!
+      const progressBar = document.getElementById('import-bar') as HTMLElement
+      const statusText = document.getElementById('import-status')!
+      const btn = document.getElementById('btn-import') as HTMLButtonElement
+
+      if (selectedMfrIds.size === 0 || selectedFilIds.size === 0) return
+
+      // Phase 1: Pruefen
+      if (!importChecked) {
+        btn.disabled = true
+        btn.textContent = t('filamentdb.loadingDiff')
+
+        const diffOk = await checkForExistingFilaments()
+        if (!diffOk) {
+          btn.disabled = false
+          btn.textContent = t('filamentdb.checkImport')
+          return
+        }
+
+        importChecked = true
+        btn.disabled = false
+        btn.textContent = t('filamentdb.startImport')
+        return
+      }
+
+      // Phase 2: Import ausfuehren
+
+      btn.disabled = true
+      btn.textContent = t('filamentdb.importing')
+      progressDiv.style.display = 'block'
+      progressBar.style.width = '20%'
+      resultDiv.style.display = 'none'
+
+      try {
+        progressBar.style.width = '50%'
+        statusText.textContent = t('filamentdb.importing')
+
+        const requestBody: any = {
+          spool_detail_target: getSelectedTarget(),
+          manufacturer_ids: [...selectedMfrIds],
+          filament_ids: [...selectedFilIds],
+        }
+
+        // Update-IDs mitsenden wenn vorhanden
+        if (updateFilIds.size > 0) {
+          requestBody.update_filament_ids = [...updateFilIds]
+        }
+
+        // Abgelehnte Fuzzy-Matches mitsenden
+        if (rejectedFuzzyIds.size > 0) {
+          requestBody.skip_fuzzy_ids = [...rejectedFuzzyIds]
+        }
+
+        const response = await fetch('/api/v1/admin/system/filamentdb-import/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify(requestBody),
+          signal: getAbortSignal(),
+        })
+
+        progressBar.style.width = '90%'
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.detail?.message || t('filamentdb.importFailed'))
+        }
+
+        const result = await response.json()
+        progressBar.style.width = '100%'
+        statusText.textContent = t('filamentdb.importComplete')
+
+        resultDiv.style.display = 'block'
+        resultDiv.innerHTML = renderImportResult(result)
+
+      } catch (err: any) {
+        if (isAbortError(err)) return
+        progressDiv.style.display = 'none'
+        resultDiv.style.display = 'block'
+        resultDiv.innerHTML = `
+          <div style="padding: 12px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid var(--error-text); color: var(--error-text);">
+            <strong>${escapeHtml(t('filamentdb.importFailed'))}</strong><br>
+            ${escapeHtml(err.message)}
+          </div>
+        `
+      } finally {
+        btn.disabled = false
+        btn.textContent = t('filamentdb.startImport')
+      }
+    })
+
+    function renderImportResult(r: any): string {
+      const hasErrors = r.errors && r.errors.length > 0
+      const hasWarnings = r.warnings && r.warnings.length > 0
+
+      let html = `
+        <div style="padding: 16px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid ${hasErrors ? 'var(--error-text)' : 'var(--accent-2)'};">
+          <h3 style="font-size: 1rem; font-weight: 600; margin: 0 0 12px;">${escapeHtml(t('filamentdb.importResults'))}</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;">
+            ${resultCard(t('filamentdb.manufacturers'), r.manufacturers_created, r.manufacturers_skipped)}
+            ${resultCard(t('filamentdb.colors'), r.colors_created, r.colors_skipped)}
+            ${resultCard(t('filamentdb.filaments'), r.filaments_created, r.filaments_skipped, r.filaments_updated)}
+            ${logoCard(r.logos_downloaded, r.logos_failed)}
+          </div>
+      `
+
+      if (hasWarnings) {
+        html += `
+          <details style="margin-top: 16px;">
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--text-muted);">${escapeHtml(t('filamentdb.warnings'))} (${r.warnings.length})</summary>
+            <ul style="margin-top: 8px; padding-left: 20px; font-size: 0.85rem; color: var(--text-muted);">
+              ${r.warnings.map((w: string) => `<li>${escapeHtml(w)}</li>`).join('')}
+            </ul>
+          </details>
+        `
+      }
+
+      if (hasErrors) {
+        html += `
+          <details style="margin-top: 12px;" open>
+            <summary style="cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--error-text);">${escapeHtml(t('filamentdb.errors'))} (${r.errors.length})</summary>
+            <ul style="margin-top: 8px; padding-left: 20px; font-size: 0.85rem; color: var(--error-text);">
+              ${r.errors.map((e: string) => `<li>${escapeHtml(e)}</li>`).join('')}
+            </ul>
+          </details>
+        `
+      }
+
+      html += '</div>'
+      return html
+    }
+
+    function resultCard(label: string, created: number, skipped: number, updated?: number): string {
+      return `
+        <div style="background: var(--card-bg, #fff); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; text-align: center;">
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">${escapeHtml(label)}</div>
+          <div style="font-size: 1.3rem; font-weight: 700; color: var(--accent);">${created}</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t('filamentdb.created'))}</div>
+          ${updated && updated > 0 ? `<div style="font-size: 0.75rem; color: var(--accent-2, green); margin-top: 4px;">${updated} ${escapeHtml(t('filamentdb.updated'))}</div>` : ''}
+          ${skipped > 0 ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">${skipped} ${escapeHtml(t('filamentdb.skipped'))}</div>` : ''}
+        </div>
+      `
+    }
+
+    function logoCard(downloaded: number, failed: number): string {
+      return `
+        <div style="background: var(--card-bg, #fff); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; text-align: center;">
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">${escapeHtml(t('filamentdb.logos'))}</div>
+          <div style="font-size: 1.3rem; font-weight: 700; color: var(--accent);">${downloaded}</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t('filamentdb.downloaded'))}</div>
+          ${failed > 0 ? `<div style="font-size: 0.75rem; color: var(--error-text); margin-top: 4px;">${failed} ${escapeHtml(t('filamentdb.failed'))}</div>` : ''}
+        </div>
+      `
+    }
+  </script>
+  <style>
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</Layout>

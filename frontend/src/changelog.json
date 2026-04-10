@@ -1,6 +1,66 @@
 {
   "versions": [
     {
+      "version": "1.2.2",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "removed", "text": "Das SpoolmanDB-Plugin wird beim Update automatisch entfernt, da es nicht mehr benötigt wird" },
+          { "type": "feature", "text": "Beim Wiederherstellen eines Backups werden installierte Plugins automatisch aus der Registry heruntergeladen und installiert" },
+          { "type": "fix", "text": "Das Restgewicht neuer Spulen wird jetzt automatisch aus Gesamtgewicht minus Leergewicht berechnet, wenn kein Verbrauch vorliegt" },
+          { "type": "improvement", "text": "Spulen- und Filamente-Listen laden jetzt deutlich schneller — Filterung, Sortierung und Suche werden serverseitig verarbeitet" },
+          { "type": "feature", "text": "Neues Label-Design: Hersteller-Logo, Farbbalken mit Hex-Code, optimiertes Layout mit QR-Code und Extra-Feldern" },
+          { "type": "feature", "text": "Label-Logos werden beim Import aus der FilaManDB automatisch heruntergeladen" },
+          { "type": "fix", "text": "FilaManDB-Import schlägt nicht mehr fehl, wenn Filamente mehrere Farben ohne eindeutige Position haben" },
+          { "type": "fix", "text": "Filamente-Liste kann jetzt nach Hersteller sortiert werden, ohne dass ein Fehler auftritt" }
+        ],
+        "en": [
+          { "type": "removed", "text": "The SpoolmanDB plugin is now automatically removed during update as it is no longer needed" },
+          { "type": "feature", "text": "When restoring a backup, installed plugins are now automatically downloaded and reinstalled from the registry" },
+          { "type": "fix", "text": "Remaining weight of new spools is now automatically calculated from total weight minus empty spool weight when no usage exists" },
+          { "type": "improvement", "text": "Spool and filament lists now load significantly faster — filtering, sorting and search are processed server-side" },
+          { "type": "feature", "text": "New label design: manufacturer logo, color swatch with hex code, optimized layout with QR code and extra fields" },
+          { "type": "feature", "text": "Label logos are now automatically downloaded when importing from FilaManDB" },
+          { "type": "fix", "text": "FilaManDB import no longer fails when filaments have multiple colors without unique positions" },
+          { "type": "fix", "text": "Filament list can now be sorted by manufacturer without errors" }
+        ]
+      }
+    },
+    {
+      "version": "1.2.1",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Plugins können jetzt vollständig aktiviert/deaktiviert werden — zugehörige Drucker werden automatisch gestoppt bzw. gestartet" },
+          { "type": "feature", "text": "Neues Builtin-Plugin: FilamentDB Import — Hersteller, Filamente, Farben und Logos aus der FilamentDB Community-Datenbank importieren" },
+          { "type": "feature", "text": "Hersteller-Logos können nun angezeigt werden" },
+          { "type": "feature", "text": "Hersteller-Logos werden beim Filament-Import automatisch heruntergeladen" },
+          { "type": "feature", "text": "Hersteller können nun auch beim Bearbeiten mit Daten aus der FilaManDB aktualisiert werden" },
+          { "type": "feature", "text": "FilamentDB Import: Vorhandene Filamente können nun mit aktuellen Daten aus der FilamentDB aktualisiert werden — Änderungen werden vorher als Diff angezeigt" },
+          { "type": "fix", "text": "Farbvorschau im FilamentDB Import zeigt Farben jetzt korrekt an" },
+          { "type": "feature", "text": "FilamentDB Import: Bereits vorhandene Filamente werden nun auch bei leicht abweichenden Namen erkannt (z.B. \"PLA Rot\" vs. \"PLA Rot (Feuerrot)\")" },
+          { "type": "feature", "text": "Hersteller, Filamente und Spulen können nun direkt aus der FilaManDB Community-Datenbank erstellt werden — Daten werden automatisch vorausgefüllt, fehlende Hersteller und Farben werden automatisch angelegt" },
+          { "type": "feature", "text": "FilaManDB-Plugin wird nun in der Sidebar-Navigation angezeigt, wenn aktiviert" },
+          { "type": "feature", "text": "FilaManDB-Buttons (Aus FilaManDB laden) werden nur noch angezeigt, wenn das FilamentDB-Plugin aktiviert ist" },
+          { "type": "feature", "text": "Eingebaute Plugins können nicht mehr deinstalliert werden" }
+        ],
+        "en": [
+          { "type": "feature", "text": "Plugins can now be fully activated/deactivated — associated printers are automatically stopped or started" },
+          { "type": "feature", "text": "New builtin plugin: FilamentDB Import — import manufacturers, filaments, colors and logos from the FilamentDB community database" },
+          { "type": "feature", "text": "Manufacturer logos can now be displayed" },
+          { "type": "feature", "text": "Manufacturer logos are automatically downloaded during filament import" },
+          { "type": "feature", "text": "Manufacturers can now also be updated with data from FilaManDB when editing" },
+          { "type": "feature", "text": "FilamentDB Import: Existing filaments can now be updated with current data from FilamentDB — changes are shown as a diff before applying" },
+          { "type": "fix", "text": "Color preview in FilamentDB Import now displays colors correctly" },
+          { "type": "feature", "text": "FilamentDB Import: Existing filaments are now also detected when names differ slightly (e.g. \"PLA Red\" vs. \"PLA Red (Fire Red)\")" },
+          { "type": "feature", "text": "Manufacturers, filaments and spools can now be created directly from the FilaManDB community database — data is auto-filled, missing manufacturers and colors are created automatically" },
+          { "type": "feature", "text": "FilaManDB plugin is now shown in the sidebar navigation when active" },
+          { "type": "feature", "text": "FilaManDB buttons (Load from FilaManDB) are now only shown when the FilamentDB plugin is active" },
+          { "type": "feature", "text": "Built-in plugins can no longer be uninstalled" }
+        ]
+      }
+    },
+    {
       "version": "1.1.25",
       "date": "",
       "changes": {

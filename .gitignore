@@ -83,3 +83,5 @@ backend/app/plugins/*/
 _video
 package.json
 package-lock.json
+filaman.db*
+uploads/

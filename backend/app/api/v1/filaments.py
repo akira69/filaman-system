@@ -1,7 +1,11 @@
+import logging
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, select, literal_column
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from sqlalchemy import delete, func, or_, select, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,8 +30,11 @@ from app.api.v1.schemas_filament import (
     ManufacturerResponse,
     ManufacturerUpdate,
 )
+from app.core.config import settings, MANUFACTURER_LOGO_DIR
 from app.core.event_bus import event_bus
 from app.models import Color, Filament, FilamentColor, Manufacturer, Spool, SpoolStatus
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/manufacturers", tags=["manufacturers"])
 
@@ -176,6 +183,131 @@ async def get_manufacturer(
     return manufacturer
 
 
+# ── Logo endpoints ─────────────────────────────────────────────────
+
+
+@router.get("/{manufacturer_id}/logo")
+async def get_manufacturer_logo(manufacturer_id: int, _principal: PrincipalDep):
+    """Serve the manufacturer's brand logo from persistent storage."""
+    logo_path = MANUFACTURER_LOGO_DIR / f"{manufacturer_id}.png"
+    if not logo_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Logo not found"},
+        )
+    return FileResponse(
+        logo_path,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/{manufacturer_id}/label-logo")
+async def get_manufacturer_label_logo(manufacturer_id: int, _principal: PrincipalDep):
+    """Serve the manufacturer's label-optimised logo (grayscale) from persistent storage."""
+    logo_path = MANUFACTURER_LOGO_DIR / f"{manufacturer_id}_label.png"
+    if not logo_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Label logo not found"},
+        )
+    return FileResponse(
+        logo_path,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+class DownloadLogoRequest(BaseModel):
+    slug: str
+    has_label_logo: bool = False
+
+
+@router.post("/{manufacturer_id}/download-logo")
+async def download_manufacturer_logo(
+    manufacturer_id: int,
+    data: DownloadLogoRequest,
+    db: DBSession,
+    principal=RequirePermission("manufacturers:update"),
+):
+    """Download a manufacturer's brand logo(s) from the FilamentDB and store locally."""
+    result = await db.execute(
+        select(Manufacturer).where(Manufacturer.id == manufacturer_id)
+    )
+    manufacturer = result.scalar_one_or_none()
+    if not manufacturer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Manufacturer not found"},
+        )
+
+    MANUFACTURER_LOGO_DIR.mkdir(parents=True, exist_ok=True)
+    base_url = settings.filamentdb_url.rstrip("/")
+
+    # Download web logo
+    logo_url = f"{base_url}/uploads/logos/web/{data.slug}.png"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(logo_url)
+            resp.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.HTTPError) as exc:
+        logger.warning(
+            "Failed to download logo for manufacturer %s (slug=%s): %s",
+            manufacturer_id,
+            data.slug,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "logo_download_failed",
+                "message": "Could not download logo from FilamentDB",
+            },
+        )
+
+    # Save web logo to persistent storage
+    logo_path = MANUFACTURER_LOGO_DIR / f"{manufacturer_id}.png"
+    logo_path.write_bytes(resp.content)
+    manufacturer.logo_file = f"{manufacturer_id}.png"
+
+    # Download label logo (grayscale, for label printing) — non-critical
+    if data.has_label_logo:
+        label_logo_url = f"{base_url}/uploads/logos/label/{data.slug}.png"
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                label_resp = await client.get(label_logo_url)
+                label_resp.raise_for_status()
+            label_path = MANUFACTURER_LOGO_DIR / f"{manufacturer_id}_label.png"
+            label_path.write_bytes(label_resp.content)
+            manufacturer.label_logo_file = f"{manufacturer_id}_label.png"
+            logger.info(
+                "Downloaded label logo for manufacturer '%s' (id=%s, slug=%s)",
+                manufacturer.name,
+                manufacturer_id,
+                data.slug,
+            )
+        except (httpx.HTTPStatusError, httpx.HTTPError) as exc:
+            logger.warning(
+                "Failed to download label logo for manufacturer %s (slug=%s): %s",
+                manufacturer_id,
+                data.slug,
+                exc,
+            )
+
+    await db.commit()
+    await db.refresh(manufacturer)
+    await event_bus.publish({"event": "manufacturers_changed"})
+
+    logger.info(
+        "Downloaded logo for manufacturer '%s' (id=%s) from FilamentDB slug '%s'",
+        manufacturer.name,
+        manufacturer_id,
+        data.slug,
+    )
+
+    return {"ok": True, "logo_url": f"/api/v1/manufacturers/{manufacturer_id}/logo"}
+
+
 @router.patch("/{manufacturer_id}", response_model=ManufacturerResponse)
 async def update_manufacturer(
     manufacturer_id: int,
@@ -269,6 +401,25 @@ async def delete_manufacturer(
     await db.delete(manufacturer)
     await db.commit()
     await event_bus.publish({"event": "manufacturers_changed"})
+
+    # Clean up logo files from persistent storage
+    for logo_filename in (f"{manufacturer_id}.png", f"{manufacturer_id}_label.png"):
+        logo_path = MANUFACTURER_LOGO_DIR / logo_filename
+        if logo_path.is_file():
+            try:
+                logo_path.unlink()
+                logger.info(
+                    "Deleted logo file %s for manufacturer %s",
+                    logo_filename,
+                    manufacturer_id,
+                )
+            except OSError as exc:
+                logger.warning(
+                    "Could not delete logo file %s for manufacturer %s: %s",
+                    logo_filename,
+                    manufacturer_id,
+                    exc,
+                )
 
 
 router_colors = APIRouter(prefix="/colors", tags=["colors"])
@@ -420,26 +571,66 @@ async def list_filaments(
     page_size: int = Query(50, ge=1, le=200),
     type: str | None = None,
     manufacturer_id: int | None = None,
+    search: str | None = Query(None, max_length=200),
+    sort_by: str = Query(
+        "designation",
+        pattern="^(id|designation|material_type|diameter_mm|price|manufacturer_color_name|density_g_cm3|raw_material_weight_g|finish_type|material_subgroup|manufacturer)$",
+    ),
+    sort_order: str = Query("asc", pattern="^(asc|desc)$"),
 ):
+    # -- Build filter conditions (shared between data query and count query) --
+    conditions = []
+    needs_manufacturer_join = False
+
+    if type:
+        conditions.append(Filament.material_type == type)
+    if manufacturer_id:
+        conditions.append(Filament.manufacturer_id == manufacturer_id)
+
+    if search:
+        search_term = f"%{search}%"
+        conditions.append(
+            or_(
+                Filament.designation.ilike(search_term),
+                Filament.material_type.ilike(search_term),
+                Filament.manufacturer_color_name.ilike(search_term),
+                Manufacturer.name.ilike(search_term),
+            )
+        )
+        needs_manufacturer_join = True
+
+    # Sorting — resolve virtual sort keys to joined columns
+    if sort_by == "manufacturer":
+        sort_column = Manufacturer.name
+        needs_manufacturer_join = True
+    else:
+        sort_column = getattr(Filament, sort_by, Filament.designation)
+    order = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+
+    # -- Data query --
     query = select(Filament).options(
         selectinload(Filament.manufacturer),
         selectinload(Filament.filament_colors).selectinload(FilamentColor.color),
     )
+    if needs_manufacturer_join:
+        query = query.join(
+            Manufacturer, Filament.manufacturer_id == Manufacturer.id, isouter=True
+        )
 
+    for cond in conditions:
+        query = query.where(cond)
+
+    query = query.order_by(order).offset((page - 1) * page_size).limit(page_size)
+
+    # -- Count query (same filters, no eager loading / pagination) --
     count_query = select(func.count()).select_from(Filament)
+    if needs_manufacturer_join:
+        count_query = count_query.join(
+            Manufacturer, Filament.manufacturer_id == Manufacturer.id, isouter=True
+        )
 
-    if type:
-        query = query.where(Filament.material_type == type)
-        count_query = count_query.where(Filament.material_type == type)
-    if manufacturer_id:
-        query = query.where(Filament.manufacturer_id == manufacturer_id)
-        count_query = count_query.where(Filament.manufacturer_id == manufacturer_id)
-
-    query = (
-        query.order_by(Filament.designation)
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
+    for cond in conditions:
+        count_query = count_query.where(cond)
 
     result = await db.execute(query)
     count_result = await db.execute(count_query)
@@ -447,7 +638,7 @@ async def list_filaments(
     items = result.scalars().unique().all()
     total = count_result.scalar() or 0
 
-    # Compute spool counts for the fetched filaments (excluding soft-deleted spools)
+    # Compute spool counts for the fetched filaments (excluding archived spools)
     filament_ids = [f.id for f in items]
     spool_counts: dict[int, int] = {}
     if filament_ids:

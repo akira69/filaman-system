@@ -11,7 +11,6 @@ ENV_PATH = PROJECT_ROOT / ".env"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=ENV_PATH,
-
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
@@ -53,5 +52,27 @@ class Settings(BaseSettings):
     # User-installed plugins directory (auto-detected if empty)
     plugins_dir: str = ""
 
+    # FilamentDB community database URL for lookup/autocomplete
+    filamentdb_url: str = "https://db.filaman.app"
+
 
 settings = Settings()
+
+
+def _resolve_data_dir() -> Path:
+    """Resolve the persistent data directory.
+
+    Priority:
+    1. /app/data (Docker volume — auto-detected)
+    2. PROJECT_ROOT/data (local dev fallback)
+    """
+    docker_data = Path("/app/data")
+    if docker_data.is_dir():
+        return docker_data
+    local_data = PROJECT_ROOT / "data"
+    local_data.mkdir(parents=True, exist_ok=True)
+    return local_data
+
+
+DATA_DIR = _resolve_data_dir()
+MANUFACTURER_LOGO_DIR = DATA_DIR / "logos" / "manufacturers"

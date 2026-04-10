@@ -71,7 +71,16 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
 
       <!-- Spool Properties -->
       <div class="fm-card" style="padding: 16px; margin-top: 8px;">
-        <h3 class="fm-label" style="font-size: 1rem; margin-bottom: 16px; margin-top: 0; color: var(--text);" data-i18n="common.spoolDefaultSettings">Spool Properties</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 class="fm-label" style="font-size: 1rem; margin: 0; color: var(--text);" data-i18n="common.spoolDefaultSettings">Spool Properties</h3>
+          <button type="button" id="btn-spool-profile-lookup" class="fm-btn fm-btn-outline" style="font-size: 0.75rem; padding: 4px 10px;">
+            <span data-i18n="filamentdbLookup.loadFromDb">Load from FilaManDB</span>
+          </button>
+        </div>
+        <div id="spool-profile-lookup-section" style="display: none; margin-bottom: 16px;">
+          <div id="spool-profile-lookup-container"></div>
+          <div id="spool-profile-lookup-toast" class="fdb-toast" style="display: none;"></div>
+        </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
             <div>
               <label for="empty_spool_weight_g" class="fm-label" data-i18n="spools.emptySpoolWeight">Empty Spool Weight (g)</label>
@@ -258,7 +267,10 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
     import { t, initI18n } from '../../../lib/i18n'
     import { cachedFetchAllPages, cachedFetch, fetchSequential, invalidateCachePrefix, CACHE_KEYS } from '../../../lib/cache'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
+    import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive } from '../../../lib/filamentdb-lookup'
     await initI18n()
+
+    const filamentDbActive = await checkFilamentDbActive()
 
     const pathParts = window.location.pathname.split('/').filter(Boolean)
     const spoolId = pathParts[pathParts.length - 2]
@@ -425,6 +437,66 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
       const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
       return match ? decodeURIComponent(match[1]) : ''
     }
+
+    // ── Spool Profile Lookup ──
+    let spoolProfileLookup: LookupInstance | null = null
+    const btnSpoolProfileLookup = document.getElementById('btn-spool-profile-lookup')!
+    const spoolProfileSection = document.getElementById('spool-profile-lookup-section')!
+    const spoolProfileContainer = document.getElementById('spool-profile-lookup-container')!
+    const spoolProfileToast = document.getElementById('spool-profile-lookup-toast')!
+    let spoolProfileLookupOpen = false
+
+    // Hide spool profile lookup button if FilamentDB plugin is inactive
+    if (!filamentDbActive) {
+      btnSpoolProfileLookup.style.display = 'none'
+    }
+
+    btnSpoolProfileLookup.addEventListener('click', () => {
+      spoolProfileLookupOpen = !spoolProfileLookupOpen
+      if (spoolProfileLookupOpen) {
+        spoolProfileSection.style.display = ''
+        if (!spoolProfileLookup) {
+          spoolProfileLookup = createFilamentDbLookup({
+            container: spoolProfileContainer,
+            endpoint: '/filamentdb/spool-profiles',
+            placeholder: t('filamentdbLookup.searchSpoolProfile'),
+            renderItem: (item: any) => {
+              const weight = item.empty_weight_g ? `${item.empty_weight_g}g` : ''
+              const material = item.spool_material || ''
+              const diameter = item.outer_diameter_mm ? `${item.outer_diameter_mm}mm` : ''
+              const details = [weight, material, diameter].filter(Boolean).join(' · ')
+              const imageHtml = item.image_file
+                ? `<img class="fdb-lookup-item-image" src="/api/v1/filamentdb/spool-profile-image?image_file=${encodeURIComponent(item.image_file)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display=''" /><span class="fdb-lookup-item-image-placeholder" style="display:none">&#x1F4E6;</span>`
+                : `<span class="fdb-lookup-item-image-placeholder">&#x1F4E6;</span>`
+              return `<div class="fdb-lookup-item-with-image">${imageHtml}<div class="fdb-lookup-item-text"><div class="fdb-lookup-item-name">${item.name || '?'}</div><div class="fdb-lookup-item-sub">${details}</div></div></div>`
+            },
+            onSelect: (item: any) => {
+              // Fill spool property fields
+              if (item.empty_weight_g != null) {
+                (document.getElementById('empty_spool_weight_g') as HTMLInputElement).value = String(item.empty_weight_g)
+              }
+              if (item.spool_material) {
+                (document.getElementById('spool_material') as HTMLSelectElement).value = item.spool_material
+              }
+              if (item.outer_diameter_mm != null) {
+                (document.getElementById('spool_outer_diameter_mm') as HTMLInputElement).value = String(item.outer_diameter_mm)
+              }
+              if (item.width_mm != null) {
+                (document.getElementById('spool_width_mm') as HTMLInputElement).value = String(item.width_mm)
+              }
+              spoolProfileToast.className = 'fdb-toast fdb-toast-success'
+              spoolProfileToast.textContent = t('filamentdbLookup.spoolProfileLoaded')
+              spoolProfileToast.style.display = ''
+            },
+          })
+        } else {
+          spoolProfileLookup.reset()
+        }
+      } else {
+        spoolProfileSection.style.display = 'none'
+        spoolProfileToast.style.display = 'none'
+      }
+    })
 
     async function loadFilaments() {
       try {

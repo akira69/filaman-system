@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class ManufacturerCreate(BaseModel):
@@ -23,24 +23,46 @@ class ManufacturerUpdate(BaseModel):
     custom_fields: dict[str, Any] | None = None
 
 
-class ManufacturerResponse(BaseModel):
+class ManufacturerSummaryResponse(BaseModel):
+    """Lightweight manufacturer representation for nested responses (e.g. in FilamentDetailResponse).
+    Omits computed aggregate fields that are only meaningful in dedicated manufacturer endpoints."""
+
     id: int
     name: str
     url: str | None
+    logo_file: str | None = None
+    label_logo_file: str | None = None
     empty_spool_weight_g: float | None = None
     spool_outer_diameter_mm: float | None = None
     spool_width_mm: float | None = None
     spool_material: str | None = None
     custom_fields: dict[str, Any] | None
+
+    @computed_field
+    @property
+    def logo_url(self) -> str | None:
+        if self.logo_file:
+            return f"/api/v1/manufacturers/{self.id}/logo"
+        return None
+
+    @computed_field
+    @property
+    def label_logo_url(self) -> str | None:
+        if self.label_logo_file:
+            return f"/api/v1/manufacturers/{self.id}/label-logo"
+        return None
+
+    class Config:
+        from_attributes = True
+
+
+class ManufacturerResponse(ManufacturerSummaryResponse):
     filament_count: int = 0
     spool_count: int = 0
     archived_spool_count: int = 0
     total_price_available: float = 0.0
     total_price_all: float = 0.0
     materials: list[str] = []
-
-    class Config:
-        from_attributes = True
 
 
 class ColorCreate(BaseModel):
@@ -63,12 +85,12 @@ class ColorResponse(BaseModel):
     usage_count: int = 0
 
     class Config:
-
         from_attributes = True
 
 
 class FilamentColorEntry(BaseModel):
     """A single color assignment for a filament (used in create/replace)."""
+
     color_id: int
     position: int = 1
     display_name_override: str | None = None
@@ -76,6 +98,7 @@ class FilamentColorEntry(BaseModel):
 
 class FilamentColorResponse(BaseModel):
     """Color entry as returned by the API."""
+
     id: int
     color_id: int
     position: int
@@ -88,6 +111,7 @@ class FilamentColorResponse(BaseModel):
 
 class FilamentColorsReplace(BaseModel):
     """Body for PUT /filaments/{id}/colors."""
+
     color_mode: str = Field(..., pattern="^(single|multi)$")
     multi_color_style: str | None = Field(None, pattern="^(striped|gradient)$")
     colors: list[FilamentColorEntry] = []
@@ -162,7 +186,7 @@ class FilamentResponse(BaseModel):
 
 
 class FilamentDetailResponse(FilamentResponse):
-    manufacturer: ManufacturerResponse | None = None
+    manufacturer: ManufacturerSummaryResponse | None = None
     spool_count: int = 0
     colors: list[FilamentColorResponse] = []
 

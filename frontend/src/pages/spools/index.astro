@@ -211,8 +211,7 @@ import Layout from '../../layouts/Layout.astro'
 
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
-    import { fetchAllPages } from '../../lib/api'
-    import { cachedFetchAllPages, fetchSequential, CACHE_KEYS } from '../../lib/cache'
+    import { fetchSequential } from '../../lib/cache'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
@@ -228,10 +227,10 @@ import Layout from '../../layouts/Layout.astro'
     })()
     let statuses: any[] = []
     let locations: any[] = []
-    let filaments: any[] = []
     let manufacturers: any[] = []
     let allSpools: any[] = []
     let filteredSpools: any[] = []
+    let totalSpools = 0
     let activeDevices: any[] = []
     let sortKey: string | null = null
     let sortDirection: 'asc' | 'desc' | null = null
@@ -294,7 +293,7 @@ import Layout from '../../layouts/Layout.astro'
           sortDirection = 'asc'
         }
         updateSortIndicators()
-        applyFiltersAndRender()
+        loadSpools()
         // Save sort state to localStorage
         if (sortKey && sortDirection) {
           localStorage.setItem('filaman-sort-spools', JSON.stringify({ key: sortKey, direction: sortDirection }))
@@ -315,7 +314,8 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function getFilamentForSpool(spool: any): any {
-      return filaments.find(f => f.id === spool.filament_id) || null
+      // Use embedded filament from API response
+      return spool.filament || null
     }
 
     function getManufacturerName(spool: any): string {
@@ -330,7 +330,7 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function getSortValue(item: any, key: string): any {
-      if (key === 'filament_id') return getFilamentName(item.filament_id)
+      if (key === 'filament_id') return getFilamentName(item)
       if (key === 'status_id') return getStatusLabel(item.status_id)
       if (key === 'location_id') return getLocationName(item.location_id)
       if (key === 'manufacturer') return getManufacturerName(item)
@@ -405,78 +405,40 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function applyFiltersAndRender() {
-      filteredSpools = filterSpools(allSpools)
       if (isInitialLoad) {
         isInitialLoad = false
-        const totalPages = Math.ceil(filteredSpools.length / pageSize) || 1
-        if (currentPage > totalPages) currentPage = 1
       } else {
         currentPage = 1
       }
       localStorage.setItem('filaman-page-spools', String(currentPage))
-      // Save filter state to localStorage
-      const fv = getFilterValues()
-      localStorage.setItem('filaman-filters-spools', JSON.stringify({
-        status: fv.statusId, location: fv.locationId, manufacturer: fv.manufacturerId, material: fv.material, group: fv.groupBy
-      }))
-      renderPage()
+      loadSpools()
     }
 
     function renderPage() {
       const { groupBy } = getFilterValues()
-      const sorted = sortSpools(filteredSpools)
 
       if (groupBy) {
+        // Group-by mode: client-side sort (data already filtered by backend)
+        const sorted = sortSpools(allSpools)
         renderGroupedSpools(sorted)
         document.getElementById('pagination-top')!.innerHTML = ''
-        document.getElementById('pagination')!.innerHTML = `<div style="font-size: 0.85rem; color: var(--text-muted);">${t('spools.spoolCount', { count: filteredSpools.length })}</div>`
+        document.getElementById('pagination')!.innerHTML = `<div style="font-size: 0.85rem; color: var(--text-muted);">${t('spools.spoolCount', { count: totalSpools })}</div>`
       } else {
-        const startIdx = (currentPage - 1) * pageSize
-        const pageItems = sorted.slice(startIdx, startIdx + pageSize)
-        renderSpools(pageItems)
-        renderPagination(filteredSpools.length, currentPage)
+        // Normal mode: data already filtered, sorted and paginated by backend
+        renderSpools(allSpools)
+        renderPagination(totalSpools, currentPage)
       }
     }
 
-    function populateFilterDropdowns() {
-      const mfSelect = document.getElementById('filter-manufacturer') as HTMLSelectElement
-      const mfMap = new Map<string, string>()
-      filaments.forEach(f => {
-        if (f.manufacturer?.id && f.manufacturer?.name) {
-          mfMap.set(String(f.manufacturer.id), f.manufacturer.name)
-        }
-      })
-      const sortedMfs = [...mfMap.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-      sortedMfs.forEach(([id, name]) => {
-        const opt = document.createElement('option')
-        opt.value = id
-        opt.textContent = name
-        mfSelect.appendChild(opt)
-      })
-      if (filterManufacturerId) mfSelect.value = filterManufacturerId
-      else if (savedFilterState?.manufacturer) mfSelect.value = savedFilterState.manufacturer
-
-      const matSelect = document.getElementById('filter-material') as HTMLSelectElement
-      const materials = new Set<string>()
-      filaments.forEach(f => { if (f.material_type) materials.add(f.material_type) })
-      const sortedMats = [...materials].sort()
-      sortedMats.forEach(mat => {
-        const opt = document.createElement('option')
-        opt.value = mat
-        opt.textContent = mat
-        matSelect.appendChild(opt)
-      })
-      if (filterMaterial) matSelect.value = filterMaterial
-      else if (savedFilterState?.material) matSelect.value = savedFilterState.material
-    }
-    
     async function loadFilters() {
       try {
-        // Sequential fetching mit Caching für bessere SQLite-Performance
-        const [statusesRes, locationsData, filamentsData] = await fetchSequential([
-          () => fetch('/api/v1/spools/statuses', { credentials: 'include', signal: getAbortSignal() }).catch(() => null),
-          () => cachedFetchAllPages(CACHE_KEYS.LOCATIONS, '/api/v1/locations').catch(() => null),
-          () => cachedFetchAllPages(CACHE_KEYS.FILAMENTS, '/api/v1/filaments').catch(() => null),
+        const signal = getAbortSignal()
+        // Sequential fetching for SQLite compatibility; lightweight API calls instead of loading all filaments
+        const [statusesRes, locationsRes, manufacturersRes, typesRes] = await fetchSequential([
+          () => fetch('/api/v1/spools/statuses', { credentials: 'include', signal }).catch(() => null),
+          () => fetch('/api/v1/locations?page=1&page_size=200', { credentials: 'include', signal }).catch(() => null),
+          () => fetch('/api/v1/manufacturers?page=1&page_size=200', { credentials: 'include', signal }).catch(() => null),
+          () => fetch('/api/v1/filaments/types', { credentials: 'include', signal }).catch(() => null),
         ] as const)
 
         if (statusesRes?.ok) {
@@ -493,8 +455,9 @@ import Layout from '../../layouts/Layout.astro'
           if (savedFilterState?.status) select.value = savedFilterState.status
         }
         
-        if (locationsData) {
-          locations = locationsData.items
+        if (locationsRes?.ok) {
+          const locationsData = await locationsRes.json()
+          locations = locationsData.items || locationsData
           const select = document.getElementById('filter-location') as HTMLSelectElement
           locations.forEach((l: any) => {
             const opt = document.createElement('option')
@@ -505,12 +468,36 @@ import Layout from '../../layouts/Layout.astro'
           if (filterLocationId) select.value = filterLocationId
           else if (savedFilterState?.location) select.value = savedFilterState.location
         }
-        
-        if (filamentsData) {
-          filaments = filamentsData.items
-        }
 
-        populateFilterDropdowns()
+        // Manufacturers dropdown
+        const mfSelect = document.getElementById('filter-manufacturer') as HTMLSelectElement
+        if (manufacturersRes?.ok) {
+          const mfData = await manufacturersRes.json()
+          const mfs = (mfData.items || mfData) as any[]
+          const sortedMfs = [...mfs].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+          sortedMfs.forEach(m => {
+            const opt = document.createElement('option')
+            opt.value = String(m.id)
+            opt.textContent = m.name
+            mfSelect.appendChild(opt)
+          })
+        }
+        if (filterManufacturerId) mfSelect.value = filterManufacturerId
+        else if (savedFilterState?.manufacturer) mfSelect.value = savedFilterState.manufacturer
+
+        // Material types dropdown
+        const matSelect = document.getElementById('filter-material') as HTMLSelectElement
+        if (typesRes?.ok) {
+          const types = await typesRes.json() as string[]
+          types.forEach(type => {
+            const opt = document.createElement('option')
+            opt.value = type
+            opt.textContent = type
+            matSelect.appendChild(opt)
+          })
+        }
+        if (filterMaterial) matSelect.value = filterMaterial
+        else if (savedFilterState?.material) matSelect.value = savedFilterState.material
       } catch (error) {
         if (isAbortError(error)) return
         console.error('Failed to load filters:', error)
@@ -518,39 +505,84 @@ import Layout from '../../layouts/Layout.astro'
     }
     
     async function loadSpools() {
-      const { statusId } = getFilterValues()
-      
+      const { search, statusId, locationId, manufacturerId, material, groupBy } = getFilterValues()
+
       // Check if archived status is selected
       const archivedStatus = statuses.find((s: any) => s.key === 'archived')
       const isArchivedSelected = archivedStatus && String(statusId) === String(archivedStatus.id)
-      
-      let url = `/api/v1/spools?page=1&page_size=200`
-      if (statusId) url += `&status_id=${statusId}`
-      if (isArchivedSelected) url += `&include_archived=true`
-      
+
+      // Build query params for backend
+      const params = new URLSearchParams()
+      if (statusId) params.set('status_id', statusId)
+      if (isArchivedSelected) params.set('include_archived', 'true')
+      if (manufacturerId) params.set('manufacturer_id', manufacturerId)
+      if (locationId) params.set('location_id', locationId)
+      if (material) params.set('type', material)
+      if (search) params.set('search', search)
+      if (sortKey && sortDirection) {
+        params.set('sort_by', sortKey)
+        params.set('sort_order', sortDirection)
+      }
+
       try {
         const signal = getAbortSignal()
-        const response = await fetch(url, { credentials: 'include', signal })
-        if (!response.ok) throw new Error('Failed to fetch spools')
-        const data = await response.json()
-        allSpools = data.items
-        if (data.total > 200) {
-          const totalPages = Math.ceil(data.total / 200)
-          const pagePromises = []
-          for (let p = 2; p <= totalPages; p++) {
-            let pUrl = `/api/v1/spools?page=${p}&page_size=200`
-            if (statusId) pUrl += `&status_id=${statusId}`
-            if (isArchivedSelected) pUrl += `&include_archived=true`
-            pagePromises.push(
-              fetch(pUrl, { credentials: 'include', signal })
-                .then(res => res.ok ? res.json() : null)
-                .then(d => d ? d.items : [])
-            )
+
+        if (groupBy) {
+          // Group-by mode: load ALL matching spools (all pages)
+          params.set('page', '1')
+          params.set('page_size', '200')
+          const response = await fetch(`/api/v1/spools?${params}`, { credentials: 'include', signal })
+          if (!response.ok) throw new Error('Failed to fetch spools')
+          const data = await response.json()
+          allSpools = data.items
+          totalSpools = data.total
+          if (data.total > 200) {
+            const totalPages = Math.ceil(data.total / 200)
+            const pagePromises = []
+            for (let p = 2; p <= totalPages; p++) {
+              const pParams = new URLSearchParams(params)
+              pParams.set('page', String(p))
+              pagePromises.push(
+                fetch(`/api/v1/spools?${pParams}`, { credentials: 'include', signal })
+                  .then(res => res.ok ? res.json() : null)
+                  .then(d => d ? d.items : [])
+              )
+            }
+            const additionalPages = await Promise.all(pagePromises)
+            additionalPages.forEach(items => { allSpools = allSpools.concat(items) })
           }
-          const additionalPages = await Promise.all(pagePromises)
-          additionalPages.forEach(items => { allSpools = allSpools.concat(items) })
+        } else {
+          // Normal mode: load only the current page
+          params.set('page', String(currentPage))
+          params.set('page_size', String(pageSize))
+          const response = await fetch(`/api/v1/spools?${params}`, { credentials: 'include', signal })
+          if (!response.ok) throw new Error('Failed to fetch spools')
+          const data = await response.json()
+          allSpools = data.items
+          totalSpools = data.total
+          // Clamp currentPage if it exceeds available pages
+          const maxPage = Math.ceil(totalSpools / pageSize) || 1
+          if (currentPage > maxPage) {
+            currentPage = maxPage
+            localStorage.setItem('filaman-page-spools', String(currentPage))
+            // Re-fetch with corrected page
+            params.set('page', String(currentPage))
+            const retry = await fetch(`/api/v1/spools?${params}`, { credentials: 'include', signal })
+            if (retry.ok) {
+              const retryData = await retry.json()
+              allSpools = retryData.items
+              totalSpools = retryData.total
+            }
+          }
         }
-        applyFiltersAndRender()
+
+        // Save filter state
+        localStorage.setItem('filaman-page-spools', String(currentPage))
+        localStorage.setItem('filaman-filters-spools', JSON.stringify({
+          status: statusId, location: locationId, manufacturer: manufacturerId, material, group: groupBy
+        }))
+
+        renderPage()
       } catch (error) {
         if (isAbortError(error)) return
         console.error('Failed to load spools:', error)
@@ -562,9 +594,9 @@ import Layout from '../../layouts/Layout.astro'
       }
     }
     
-    function getFilamentName(filamentId: number): string {
-      const f = filaments.find(f => f.id === filamentId)
-      return f ? `${f.designation} (${f.material_type})` : `#${filamentId}`
+    function getFilamentName(spool: any): string {
+      const f = getFilamentForSpool(spool)
+      return f ? `${f.designation} (${f.material_type})` : `#${spool.filament_id}`
     }
 
     function getStatusLabel(statusId: number): string {
@@ -637,7 +669,7 @@ import Layout from '../../layouts/Layout.astro'
         <tr class="${selectedSpoolIds.has(s.id) ? 'bulk-selected' : ''}" style="cursor: pointer;" onclick="window.location='/spools/${s.id}'">
           <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-spool-id="${s.id}" ${selectedSpoolIds.has(s.id) ? 'checked' : ''} onchange="window.__toggleSpoolSelection(${s.id}, this.checked)" /></td>
           <td class="col-id" style="padding: 12px; font-weight: 500;">${t('spools.spoolId', { id: s.id })}</td>
-          <td style="padding: 12px;">${colorDots} ${getFilamentName(s.filament_id)}</td>
+          <td style="padding: 12px;">${colorDots} ${getFilamentName(s)}</td>
           <td class="col-manufacturer" style="padding: 12px; color: var(--text-muted);">${getManufacturerName(s)}</td>
           <td class="col-material" style="padding: 12px; color: var(--text-muted);">${getMaterialType(s)}</td>
           <td class="col-status" style="padding: 12px;">${getStatusLabel(s.status_id)}</td>
@@ -819,21 +851,21 @@ import Layout from '../../layouts/Layout.astro'
           link.addEventListener('click', () => {
             currentPage = parseInt((link as HTMLElement).dataset.page!, 10)
             localStorage.setItem('filaman-page-spools', String(currentPage))
-            renderPage()
+            loadSpools()
           })
         })
         container.querySelector('.page-prev')?.addEventListener('click', () => {
           if (page > 1) {
             currentPage = page - 1
             localStorage.setItem('filaman-page-spools', String(currentPage))
-            renderPage()
+            loadSpools()
           }
         })
         container.querySelector('.page-next')?.addEventListener('click', () => {
           if (page < totalPages) {
             currentPage = page + 1
             localStorage.setItem('filaman-page-spools', String(currentPage))
-            renderPage()
+            loadSpools()
           }
         })
         container.querySelectorAll('.page-size-link').forEach(link => {
@@ -844,7 +876,7 @@ import Layout from '../../layouts/Layout.astro'
               localStorage.setItem('filaman-pagesize-spools', String(newSize))
               currentPage = 1
               localStorage.setItem('filaman-page-spools', '1')
-              renderPage()
+              loadSpools()
             }
           })
         })

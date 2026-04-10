@@ -55,9 +55,14 @@ from app.models import (
     UserSession,
 )
 from app.services.plugin_service import PluginInstallError, PluginInstallService
+from app.core.seeds import DEPRECATED_PLUGINS, BUILTIN_PLUGINS
 from app.services.spoolman_import_service import (
     SpoolmanImportError,
     SpoolmanImportService,
+)
+from app.services.filamentdb_import_service import (
+    FilamentDBImportError,
+    FilamentDBImportService,
 )
 
 logger = logging.getLogger(__name__)
@@ -711,14 +716,56 @@ async def uninstall_plugin(
     response_cache.delete("plugin_nav")
 
 
-@router.patch("/plugins/{plugin_key}/active", response_model=PluginResponse)
+class PluginToggleResponse(BaseModel):
+    plugin: PluginResponse
+    affected_printers: int = 0
+
+
+@router.get("/plugins/{plugin_key}/affected-printers")
+async def get_affected_printers(
+    plugin_key: str,
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Anzahl aktiver Drucker zurueckgeben, die von diesem Plugin abhaengen."""
+    service = PluginInstallService(db)
+    plugin = await service.get_plugin(plugin_key)
+    if not plugin:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "not_found",
+                "message": f"Plugin '{plugin_key}' nicht gefunden",
+            },
+        )
+
+    if not plugin.driver_key:
+        return {"count": 0, "printers": []}
+
+    result = await db.execute(
+        select(Printer.id, Printer.name).where(
+            Printer.driver_key == plugin.driver_key,
+            Printer.is_active == True,
+            Printer.deleted_at.is_(None),
+        )
+    )
+    rows = result.all()
+    return {
+        "count": len(rows),
+        "printers": [{"id": r.id, "name": r.name} for r in rows],
+    }
+
+
+@router.patch("/plugins/{plugin_key}/active", response_model=PluginToggleResponse)
 async def toggle_plugin_active(
     plugin_key: str,
     body: PluginToggleRequest,
     db: DBSession,
     principal=RequirePermission("admin:plugins_manage"),
 ):
-    """Plugin aktivieren oder deaktivieren."""
+    """Plugin aktivieren oder deaktivieren — Treiber werden gestoppt/gestartet."""
+    from app.plugins.manager import plugin_manager
+
     service = PluginInstallService(db)
     try:
         plugin = await service.set_active(plugin_key, body.is_active)
@@ -730,8 +777,36 @@ async def toggle_plugin_active(
                 "message": str(e),
             },
         )
+
+    affected = 0
+
+    if plugin.driver_key:
+        if not body.is_active:
+            # Deaktivierung: alle laufenden Treiber dieses Plugins stoppen
+            for pid, drv in list(plugin_manager.drivers.items()):
+                if getattr(drv, "driver_key", None) == plugin.driver_key:
+                    await plugin_manager.stop_printer(pid)
+                    affected += 1
+        else:
+            # Aktivierung: aktive Drucker dieses Plugins starten
+            result = await db.execute(
+                select(Printer).where(
+                    Printer.driver_key == plugin.driver_key,
+                    Printer.is_active == True,
+                    Printer.deleted_at.is_(None),
+                )
+            )
+            for p in result.scalars().all():
+                if p.id not in plugin_manager.drivers:
+                    started = await plugin_manager.start_printer(p)
+                    if started:
+                        affected += 1
+
     response_cache.delete("plugin_nav")
-    return plugin
+    return PluginToggleResponse(
+        plugin=PluginResponse.model_validate(plugin),
+        affected_printers=affected,
+    )
 
 
 @router.get("/plugins/{plugin_key}", response_model=PluginResponse)
@@ -900,6 +975,262 @@ async def spoolman_execute(
 
 
 # ------------------------------------------------------------------ #
+#  FilamentDB Import Endpoints
+# ------------------------------------------------------------------ #
+
+
+class FilamentDBImportRequest(BaseModel):
+    spool_detail_target: str = "filament"  # "filament" | "manufacturer" | "both"
+    manufacturer_ids: list[int] | None = None  # FDB-IDs, None = alle
+    filament_ids: list[int] | None = (
+        None  # FDB-IDs, None = alle der gewaehlten Hersteller
+    )
+    update_filament_ids: list[int] | None = None  # FDB-IDs zum Aktualisieren
+    skip_fuzzy_ids: list[int] | None = (
+        None  # FDB-IDs, fuer die Fuzzy-Matching uebersprungen wird
+    )
+
+
+class FilamentDBPreviewResponse(BaseModel):
+    summary: dict[str, int]
+    manufacturers: list[dict[str, Any]]
+    materials: list[dict[str, Any]]
+
+
+class FilamentDBFilamentsRequest(BaseModel):
+    manufacturer_ids: list[int]
+
+
+class FilamentDBFilamentsResponse(BaseModel):
+    filaments: list[dict[str, Any]]
+    colors: list[dict[str, str]]
+
+
+class FilamentDBDiffRequest(BaseModel):
+    filament_ids: list[int]
+
+
+class FilamentDBImportResultResponse(BaseModel):
+    manufacturers_created: int
+    manufacturers_skipped: int
+    colors_created: int
+    colors_skipped: int
+    filaments_created: int
+    filaments_skipped: int
+    filaments_updated: int
+    logos_downloaded: int
+    logos_failed: int
+    errors: list[str]
+    warnings: list[str]
+
+
+async def _require_filamentdb_active(db) -> None:
+    """Pruefen ob das FilamentDB-Plugin aktiv ist, sonst 503."""
+    result = await db.execute(
+        select(InstalledPlugin).where(
+            InstalledPlugin.plugin_key == "filamentdb_import",
+        )
+    )
+    plugin = result.scalar_one_or_none()
+    if not plugin or not plugin.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "plugin_disabled",
+                "message": "FilamentDB plugin is disabled",
+            },
+        )
+
+
+@router.post("/filamentdb-import/test-connection")
+async def filamentdb_test_connection(
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Verbindung zur FilamentDB testen."""
+    await _require_filamentdb_active(db)
+    service = FilamentDBImportService(db)
+    try:
+        result = await service.test_connection()
+        return result
+    except FilamentDBImportError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": e.code, "message": str(e)},
+        )
+
+
+@router.post("/filamentdb-import/preview")
+async def filamentdb_preview(
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Vorschau der zu importierenden FilamentDB-Daten (nur Hersteller + Materialien)."""
+    await _require_filamentdb_active(db)
+    service = FilamentDBImportService(db)
+    try:
+        preview = await service.preview_manufacturers()
+        return JSONResponse(
+            {
+                "summary": preview.summary,
+                "manufacturers": preview.manufacturers,
+                "materials": preview.materials,
+            }
+        )
+    except FilamentDBImportError as e:
+        logger.warning("FilamentDB Import Error: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": {"code": e.code, "message": str(e)}},
+        )
+    except Exception as e:
+        import traceback
+
+        tb = traceback.format_exc()
+        logger.exception("Unexpected error in FilamentDB preview: %s", tb)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": {
+                    "code": "internal_error",
+                    "message": f"Unerwarteter Fehler: {str(e)}\n\nTraceback:\n{tb}",
+                    "type": type(e).__name__,
+                }
+            },
+        )
+
+
+@router.post("/filamentdb-import/filaments")
+async def filamentdb_filaments(
+    body: FilamentDBFilamentsRequest,
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Filamente + Farben fuer ausgewaehlte Hersteller laden."""
+    await _require_filamentdb_active(db)
+    service = FilamentDBImportService(db)
+    try:
+        result = await service.fetch_filaments(body.manufacturer_ids)
+        return JSONResponse(
+            {
+                "filaments": result.filaments,
+                "colors": result.colors,
+            }
+        )
+    except FilamentDBImportError as e:
+        logger.warning("FilamentDB Filaments Error: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": {"code": e.code, "message": str(e)}},
+        )
+    except Exception as e:
+        import traceback
+
+        tb = traceback.format_exc()
+        logger.exception("Unexpected error in FilamentDB filaments: %s", tb)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": {
+                    "code": "internal_error",
+                    "message": f"Unerwarteter Fehler: {str(e)}\n\nTraceback:\n{tb}",
+                    "type": type(e).__name__,
+                }
+            },
+        )
+
+
+@router.post("/filamentdb-import/diff")
+async def filamentdb_diff(
+    body: FilamentDBDiffRequest,
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Existierende Filamente mit FilamentDB-Daten vergleichen."""
+    await _require_filamentdb_active(db)
+    service = FilamentDBImportService(db)
+    try:
+        diff = await service.diff_filaments(body.filament_ids)
+        return JSONResponse({"results": diff})
+    except FilamentDBImportError as e:
+        logger.warning("FilamentDB Diff Error: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": {"code": e.code, "message": str(e)}},
+        )
+    except Exception as e:
+        import traceback
+
+        tb = traceback.format_exc()
+        logger.exception("Unexpected error in FilamentDB diff: %s", tb)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": {
+                    "code": "internal_error",
+                    "message": f"Unerwarteter Fehler: {str(e)}\n\nTraceback:\n{tb}",
+                    "type": type(e).__name__,
+                }
+            },
+        )
+
+
+@router.post(
+    "/filamentdb-import/execute",
+    response_model=FilamentDBImportResultResponse,
+)
+async def filamentdb_execute(
+    body: FilamentDBImportRequest,
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """FilamentDB-Import ausfuehren."""
+    await _require_filamentdb_active(db)
+    # Validate spool_detail_target
+    valid_targets = ("filament", "manufacturer", "both")
+    if body.spool_detail_target not in valid_targets:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_target",
+                "message": f"spool_detail_target muss einer von {valid_targets} sein",
+            },
+        )
+
+    service = FilamentDBImportService(db)
+    try:
+        result = await service.execute(
+            body.spool_detail_target,
+            manufacturer_ids=body.manufacturer_ids,
+            filament_ids=body.filament_ids,
+            update_filament_ids=body.update_filament_ids,
+            skip_fuzzy_ids=body.skip_fuzzy_ids,
+        )
+        return result
+    except FilamentDBImportError as e:
+        logger.warning("FilamentDB Import Execution Error: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": e.code, "message": str(e)},
+        )
+    except Exception as e:
+        import traceback
+
+        tb = traceback.format_exc()
+        logger.exception("Unexpected error in FilamentDB import execution: %s", tb)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": {
+                    "code": "internal_error",
+                    "message": f"Unerwarteter Fehler beim Import: {str(e)}\n\nTraceback:\n{tb}",
+                    "type": type(e).__name__,
+                }
+            },
+        )
+
+
+# ------------------------------------------------------------------ #
 #  Killswitch – Alle Daten ausser Users/Auth/RBAC loeschen
 # ------------------------------------------------------------------ #
 
@@ -987,10 +1318,16 @@ async def killswitch(
 # ------------------------------------------------------------------ #
 
 
+class BackupPluginInfo(BaseModel):
+    plugin_key: str
+    version: str
+
+
 class BackupMetadata(BaseModel):
     export_date: str
     app_version: str
     schema_version: str | None
+    plugins: list[BackupPluginInfo] | None = None
 
 
 class BackupExportResponse(BaseModel):
@@ -1001,6 +1338,8 @@ class BackupExportResponse(BaseModel):
 class BackupImportResponse(BaseModel):
     message: str
     imported: dict[str, int]
+    plugins_installed: list[str] | None = None
+    plugins_warnings: list[str] | None = None
 
 
 def _serialize_row(row: Any) -> dict[str, Any]:
@@ -1152,10 +1491,24 @@ async def export_backup(
     # Export all data
     data = await _export_all_data(db)
 
+    # Collect non-builtin, non-deprecated plugin info for metadata
+    builtin_keys = {p["plugin_key"] for p in BUILTIN_PLUGINS}
+    deprecated_keys = set(DEPRECATED_PLUGINS)
+    result = await db.execute(
+        select(InstalledPlugin).where(InstalledPlugin.installed_by.isnot(None))
+    )
+    user_plugins = result.scalars().all()
+    backup_plugins = [
+        BackupPluginInfo(plugin_key=p.plugin_key, version=p.version)
+        for p in user_plugins
+        if p.plugin_key not in builtin_keys and p.plugin_key not in deprecated_keys
+    ]
+
     metadata = BackupMetadata(
         export_date=datetime.now(timezone.utc).isoformat(),
         app_version=app_version,
         schema_version=schema_version,
+        plugins=backup_plugins if backup_plugins else None,
     )
 
     logger.info(f"Backup export completed by user {principal.user_id}")
@@ -1462,6 +1815,95 @@ async def _import_all_data(
     return imported
 
 
+async def _reinstall_plugins_from_backup(
+    db: DBSession,
+    plugins: list[BackupPluginInfo],
+) -> tuple[list[str], list[str]]:
+    """Reinstall user-installed plugins from backup via the plugin registry.
+
+    Downloads and installs plugins that were listed in the backup metadata.
+    Skips builtin and deprecated plugins.
+
+    Returns:
+        Tuple of (installed plugin messages, warning messages).
+    """
+    builtin_keys = {p["plugin_key"] for p in BUILTIN_PLUGINS}
+    deprecated_keys = set(DEPRECATED_PLUGINS)
+
+    # Filter to only installable plugins
+    to_install = [
+        p
+        for p in plugins
+        if p.plugin_key not in builtin_keys and p.plugin_key not in deprecated_keys
+    ]
+
+    if not to_install:
+        return [], []
+
+    installed: list[str] = []
+    warnings: list[str] = []
+
+    # Fetch available plugins from registry
+    try:
+        available = await _fetch_available_from_filaman()
+    except Exception as exc:
+        logger.warning("Plugin-Registry nicht erreichbar: %s", exc)
+        for p in to_install:
+            warnings.append(
+                f"Plugin '{p.plugin_key}' konnte nicht installiert werden "
+                f"(Registry nicht erreichbar)"
+            )
+        return installed, warnings
+
+    service = PluginInstallService(db)
+
+    for plugin_info in to_install:
+        key = plugin_info.plugin_key
+        registry_entry = available.get(key)
+
+        if not registry_entry:
+            warnings.append(f"Plugin '{key}' ist nicht in der Registry verfuegbar")
+            continue
+
+        download_url = registry_entry["download_url"]
+
+        # Download ZIP from registry
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                resp = await client.get(download_url)
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            warnings.append(f"Plugin '{key}': Download fehlgeschlagen ({exc})")
+            continue
+
+        zip_data = resp.content
+        if not zip_data:
+            warnings.append(f"Plugin '{key}': Heruntergeladene Datei ist leer")
+            continue
+
+        # Install via existing pipeline (finds DB record from import → upgrade)
+        try:
+            plugin, _ = await service.install_from_zip(
+                zip_data=zip_data,
+                installed_by=None,
+            )
+            installed.append(f"Plugin '{plugin.name}' v{plugin.version} installiert")
+            logger.info(
+                "Backup-Import: Plugin '%s' v%s aus Registry installiert",
+                plugin.name,
+                plugin.version,
+            )
+        except PluginInstallError as exc:
+            warnings.append(f"Plugin '{key}': Installation fehlgeschlagen ({exc})")
+            logger.warning(
+                "Backup-Import: Plugin '%s' konnte nicht installiert werden: %s",
+                key,
+                exc,
+            )
+
+    return installed, warnings
+
+
 @router.post("/backup/import", response_model=BackupImportResponse)
 async def import_backup(
     db: DBSession,
@@ -1546,9 +1988,32 @@ async def import_backup(
 
         response_cache.clear()
 
+        # Step 4: Reinstall user-installed plugins from backup
+        plugins_installed = None
+        plugins_warnings = None
+        backup_metadata = backup_data.get("metadata", {})
+        raw_plugins = backup_metadata.get("plugins")
+        if raw_plugins:
+            plugin_list = [BackupPluginInfo(**p) for p in raw_plugins]
+            plugins_installed, plugins_warnings = await _reinstall_plugins_from_backup(
+                db, plugin_list
+            )
+            if plugins_installed:
+                logger.info(
+                    "Backup-Import: %d Plugin(s) installiert",
+                    len(plugins_installed),
+                )
+            if plugins_warnings:
+                logger.warning(
+                    "Backup-Import: %d Plugin-Warnung(en)",
+                    len(plugins_warnings),
+                )
+
         return BackupImportResponse(
             message=f"Backup imported successfully. Auto-backup created at: {auto_backup_path.name}",
             imported=imported,
+            plugins_installed=plugins_installed or None,
+            plugins_warnings=plugins_warnings or None,
         )
 
     except Exception as exc:

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 
@@ -30,7 +30,15 @@ from app.api.v1.schemas_spool import (
     StatusChangeRequest,
 )
 from app.core.event_bus import event_bus
-from app.models import Filament, FilamentColor, Location, Spool, SpoolEvent, SpoolStatus
+from app.models import (
+    Filament,
+    FilamentColor,
+    Location,
+    Manufacturer,
+    Spool,
+    SpoolEvent,
+    SpoolStatus,
+)
 from app.services.spool_service import SpoolService
 
 router_locations = APIRouter(prefix="/locations", tags=["locations"])
@@ -197,27 +205,84 @@ async def list_spools(
     status_id: int | None = None,
     location_id: int | None = None,
     manufacturer_id: int | None = None,
+    type: str | None = None,
     include_archived: bool = Query(False),
+    search: str | None = Query(None, max_length=200),
+    sort_by: str = Query(
+        "id",
+        pattern="^(id|filament_id|status_id|location_id|remaining_weight_g|purchase_date|purchase_price|last_used_at|created_at|lot_number|initial_total_weight_g|empty_spool_weight_g|manufacturer|material|mfr_color)$",
+    ),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
 ):
-    query = select(Spool)
+    # -- Build filter conditions (shared between data query and count query) --
+    conditions = []
+    needs_filament_join = False
+    needs_status_join = False
+    needs_manufacturer_join = False
 
     if manufacturer_id:
-        query = query.join(Filament).where(Filament.manufacturer_id == manufacturer_id)
+        conditions.append(Filament.manufacturer_id == manufacturer_id)
+        needs_filament_join = True
     if filament_id:
-        query = query.where(Spool.filament_id == filament_id)
+        conditions.append(Spool.filament_id == filament_id)
+    if type:
+        conditions.append(Filament.material_type == type)
+        needs_filament_join = True
 
     if include_archived:
-        # Include all spools (archived and non-archived) - no additional filter
         pass
     elif status_id:
-        # Specific status selected - use that status
-        query = query.where(Spool.status_id == status_id)
+        conditions.append(Spool.status_id == status_id)
     else:
-        # Default: exclude archived spools
-        query = query.join(SpoolStatus).where(SpoolStatus.key != "archived")
+        conditions.append(SpoolStatus.key != "archived")
+        needs_status_join = True
 
     if location_id:
-        query = query.where(Spool.location_id == location_id)
+        conditions.append(Spool.location_id == location_id)
+
+    if search:
+        search_term = f"%{search}%"
+        conditions.append(
+            or_(
+                Filament.designation.ilike(search_term),
+                Filament.material_type.ilike(search_term),
+                Filament.manufacturer_color_name.ilike(search_term),
+                Manufacturer.name.ilike(search_term),
+                Spool.lot_number.ilike(search_term),
+                Spool.rfid_uid.ilike(search_term),
+            )
+        )
+        needs_filament_join = True
+        needs_manufacturer_join = True
+
+    # -- Data query --
+    query = select(Spool)
+    if needs_filament_join or needs_manufacturer_join:
+        query = query.join(Filament, Spool.filament_id == Filament.id)
+    if needs_manufacturer_join:
+        query = query.join(
+            Manufacturer, Filament.manufacturer_id == Manufacturer.id, isouter=True
+        )
+    if needs_status_join:
+        query = query.join(SpoolStatus, Spool.status_id == SpoolStatus.id)
+
+    for cond in conditions:
+        query = query.where(cond)
+
+    # Sorting — resolve virtual sort keys to joined columns
+    if sort_by == "manufacturer":
+        sort_column = Manufacturer.name
+        needs_filament_join = True
+        needs_manufacturer_join = True
+    elif sort_by == "material":
+        sort_column = Filament.material_type
+        needs_filament_join = True
+    elif sort_by == "mfr_color":
+        sort_column = Filament.manufacturer_color_name
+        needs_filament_join = True
+    else:
+        sort_column = getattr(Spool, sort_by, Spool.id)
+    order = sort_column.asc() if sort_order == "asc" else sort_column.desc()
 
     query = (
         query.options(
@@ -226,34 +291,27 @@ async def list_spools(
             .selectinload(Filament.filament_colors)
             .selectinload(FilamentColor.color),
         )
-        .order_by(Spool.id.desc())
+        .order_by(order)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
 
     result = await db.execute(query)
-    items = list(result.scalars().all())
+    items = list(result.scalars().unique().all())
 
+    # -- Count query (same filters, no eager loading / pagination) --
     count_query = select(func.count()).select_from(Spool)
-    if manufacturer_id:
-        count_query = count_query.join(Filament).where(
-            Filament.manufacturer_id == manufacturer_id
+    if needs_filament_join or needs_manufacturer_join:
+        count_query = count_query.join(Filament, Spool.filament_id == Filament.id)
+    if needs_manufacturer_join:
+        count_query = count_query.join(
+            Manufacturer, Filament.manufacturer_id == Manufacturer.id, isouter=True
         )
-    if filament_id:
-        count_query = count_query.where(Spool.filament_id == filament_id)
+    if needs_status_join:
+        count_query = count_query.join(SpoolStatus, Spool.status_id == SpoolStatus.id)
 
-    if include_archived:
-        # Include all spools - no additional filter
-        pass
-    elif status_id:
-        # Specific status selected - use that status
-        count_query = count_query.where(Spool.status_id == status_id)
-    else:
-        # Default: exclude archived spools
-        count_query = count_query.join(SpoolStatus).where(SpoolStatus.key != "archived")
-
-    if location_id:
-        count_query = count_query.where(Spool.location_id == location_id)
+    for cond in conditions:
+        count_query = count_query.where(cond)
 
     count_result = await db.execute(count_query)
     total = count_result.scalar() or 0
@@ -314,6 +372,14 @@ async def create_spool(
 
     if spool_data.get("spool_material") is None:
         spool_data["spool_material"] = filament.spool_material
+
+    # Calculate remaining_weight_g from initial_total_weight_g - empty_spool_weight_g
+    # when no explicit value was provided (new spool with no usage yet)
+    if spool_data.get("remaining_weight_g") is None:
+        itw = spool_data.get("initial_total_weight_g")
+        esw = spool_data.get("empty_spool_weight_g")
+        if itw is not None and esw is not None:
+            spool_data["remaining_weight_g"] = max(itw - esw, 0)
 
     if "status_id" not in spool_data or spool_data["status_id"] is None:
         spool_data["status_id"] = status_obj.id
@@ -395,6 +461,15 @@ async def create_spools_bulk(
         )
     if spool_data.get("spool_material") is None:
         spool_data["spool_material"] = filament.spool_material
+
+    # Calculate remaining_weight_g from initial_total_weight_g - empty_spool_weight_g
+    # when no explicit value was provided (new spool with no usage yet)
+    if spool_data.get("remaining_weight_g") is None:
+        itw = spool_data.get("initial_total_weight_g")
+        esw = spool_data.get("empty_spool_weight_g")
+        if itw is not None and esw is not None:
+            spool_data["remaining_weight_g"] = max(itw - esw, 0)
+
     if "status_id" not in spool_data or spool_data["status_id"] is None:
         spool_data["status_id"] = status_obj.id
 

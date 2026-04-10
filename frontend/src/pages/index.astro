@@ -85,7 +85,15 @@ interface PaginatedResponse<T> {
     </div>
 
     <div class="fm-card" style="display: flex; align-items: center; gap: 20px;">
-      <span style="font-size: 2rem; font-weight: 700; color: var(--accent); width: 36px; text-align: center; line-height: 36px;"> &#8383; </span>
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;" class="db-icon">
+        <ellipse cx="15.5" cy="14.5" rx="6.5" ry="2.5"/>
+        <path d="M9 14.5v4c0 1.38 2.91 2.5 6.5 2.5s6.5-1.12 6.5-2.5v-4"/>
+        <ellipse cx="8.5" cy="5.5" rx="6.5" ry="2.5"/>
+        <path d="M2 5.5v13c0 1.38 2.91 2.5 6.5 2.5"/>
+        <path d="M2 9.8c0 1.38 2.91 2.5 6.5 2.5 1.5 0 2.9-.29 4-.75"/>
+        <path d="M2 14.2c0 1.38 2.91 2.5 6.5 2.5H9"/>
+        <path d="M15 5.5v5.5"/>
+      </svg>
       <div>
         <div style="font-size: 1.6rem; font-weight: 700;" id="stat-total-value">-</div>
         <div style="font-size: 0.85rem; color: var(--text-muted);" data-i18n="dashboard.totalValue">Total Value (available)</div>
