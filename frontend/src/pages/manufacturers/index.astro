@@ -91,6 +91,19 @@ import Layout from '../../layouts/Layout.astro'
       background: color-mix(in srgb, #f8d66d 16%, transparent);
       border-color: color-mix(in srgb, #f8d66d 60%, var(--border));
     }
+    .manufacturer-sync-logo-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+    }
+    .manufacturer-sync-logo-button:hover {
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+      border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    }
     .manufacturer-logo-upload-state {
       display: none;
       font-size: 0.8rem;
@@ -318,6 +331,20 @@ import Layout from '../../layouts/Layout.astro'
                 <path d="m5 16 7 7"/>
               </svg>
               <span data-i18n="manufacturers.clearLogo">Clear Logo</span>
+            </button>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
+            <div id="manufacturer-resync-logo-hint" style="display: none; font-size: 0.8rem; color: var(--text-muted);" data-i18n="manufacturers.reSyncLogoHint">
+              Re-fetch the latest logo from FilaManDB and replace the current one.
+            </div>
+            <button type="button" id="manufacturer-resync-logo" class="fm-btn fm-btn-outline manufacturer-sync-logo-button" style="display: none;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 2v6h-6"/>
+                <path d="M3 12a9 9 0 0 1 15.3-6.36L21 8"/>
+                <path d="M3 22v-6h6"/>
+                <path d="M21 12a9 9 0 0 1-15.3 6.36L3 16"/>
+              </svg>
+              <span data-i18n="manufacturers.reSyncLogo">Re-sync from FilaManDB</span>
             </button>
           </div>
         </div>
@@ -819,6 +846,8 @@ import Layout from '../../layouts/Layout.astro'
       const logoFileInput = document.getElementById('manufacturer-logo-file') as HTMLInputElement
       const logoFilePathInput = document.getElementById('manufacturer-logo-file-path') as HTMLInputElement
       const logoPreview = document.getElementById('manufacturer-logo-preview') as HTMLDivElement
+      const resyncLogoButton = document.getElementById('manufacturer-resync-logo') as HTMLButtonElement
+      const resyncLogoHint = document.getElementById('manufacturer-resync-logo-hint') as HTMLDivElement
       const error = document.getElementById('modal-error')!
 
       // Mode toggle: show only for create (not edit)
@@ -853,6 +882,8 @@ import Layout from '../../layouts/Layout.astro'
         shouldClearLogo = false
         pendingLogoSlug = (item.has_web_logo || item.has_label_logo) ? (item.slug || null) : null
         pendingHasLabelLogo = item.has_label_logo || false
+        resyncLogoButton.dataset.currentSlug = pendingLogoSlug || ''
+        resyncLogoButton.dataset.hasLabelLogo = String(pendingHasLabelLogo)
         lookupToast.className = 'fdb-toast fdb-toast-success'
         lookupToast.textContent = t('filamentdbLookup.prefillSuccess')
         lookupToast.style.display = ''
@@ -863,6 +894,8 @@ import Layout from '../../layouts/Layout.astro'
         // Edit mode: hide create toggle, show lookup directly if FilamentDB active
         modeToggle.style.display = 'none'
         editLookupBtn.style.display = 'none'
+        resyncLogoButton.style.display = filamentDbActive ? 'inline-flex' : 'none'
+        resyncLogoHint.style.display = filamentDbActive ? 'block' : 'none'
 
         if (filamentDbActive) {
           // Create lookup with initial fuzzy search using current manufacturer name
@@ -880,6 +913,8 @@ import Layout from '../../layouts/Layout.astro'
       } else {
         // Create mode: show toggle only if FilamentDB plugin is active
         editLookupBtn.style.display = 'none'
+        resyncLogoButton.style.display = 'none'
+        resyncLogoHint.style.display = 'none'
         modeToggle.style.display = filamentDbActive ? 'flex' : 'none'
         const manualRadio = modeToggle.querySelector('input[value="manual"]') as HTMLInputElement
         manualRadio.checked = true
@@ -935,11 +970,14 @@ import Layout from '../../layouts/Layout.astro'
 
       const currentLogoPath = mf ? normalizeOptionalString(mf.logo_file) : null
       const currentLogoUrl = mf ? normalizeOptionalString(mf.logo_url) : null
+      const currentLogoSlug = mf ? normalizeOptionalString(mf.custom_fields?.logo_slug) : null
       logoUrlInput.value = ''
       logoFileInput.value = ''
       logoFilePathInput.value = currentLogoPath || ''
       logoFilePathInput.dataset.currentPath = currentLogoPath || ''
       logoPreview.dataset.currentUrl = currentLogoUrl || ''
+      resyncLogoButton.dataset.currentSlug = currentLogoSlug || ''
+      resyncLogoButton.dataset.hasLabelLogo = String(Boolean(mf?.label_logo_file))
       renderModalLogoPreview()
       
       error.classList.add('hidden')
@@ -1070,6 +1108,102 @@ import Layout from '../../layouts/Layout.astro'
         pendingLogoPreviewUrl = URL.createObjectURL(selectedFile)
       }
       renderModalLogoPreview()
+    })
+    document.getElementById('manufacturer-resync-logo')?.addEventListener('click', async () => {
+      const manufacturerId = (document.getElementById('manufacturer-id') as HTMLInputElement).value
+      const button = document.getElementById('manufacturer-resync-logo') as HTMLButtonElement
+      const uploadState = document.getElementById('manufacturer-logo-upload-state') as HTMLDivElement
+      const lookupToast = document.getElementById('mfr-lookup-toast') as HTMLDivElement
+      const dbLookup = document.getElementById('mfr-db-lookup') as HTMLDivElement
+      const logoUrlInput = document.getElementById('manufacturer-logo-url') as HTMLInputElement
+      const logoFileInput = document.getElementById('manufacturer-logo-file') as HTMLInputElement
+      const logoFilePathInput = document.getElementById('manufacturer-logo-file-path') as HTMLInputElement
+      const logoPreview = document.getElementById('manufacturer-logo-preview') as HTMLDivElement
+
+      if (!manufacturerId) return
+
+      const syncSlug = pendingLogoSlug || normalizeOptionalString(button.dataset.currentSlug)
+      const hasLabelLogo = pendingHasLabelLogo || button.dataset.hasLabelLogo === 'true'
+
+      if (!syncSlug) {
+        dbLookup.style.display = ''
+        lookupToast.className = 'fdb-toast'
+        lookupToast.textContent = t('manufacturers.reSyncLogoNeedsMatch')
+        lookupToast.style.display = ''
+        uploadState.textContent = t('manufacturers.reSyncLogoNeedsMatch')
+        uploadState.style.display = 'block'
+        return
+      }
+
+      const shouldProceed = await (window as any).__fmConfirm(
+        t('manufacturers.reSyncLogoConfirm'),
+        { title: t('manufacturers.reSyncLogo') },
+      )
+      if (!shouldProceed) return
+
+      const originalLabel = button.querySelector('span')?.textContent || t('manufacturers.reSyncLogo')
+      button.disabled = true
+      if (button.querySelector('span')) {
+        button.querySelector('span')!.textContent = t('manufacturers.reSyncingLogo')
+      }
+
+      try {
+        const response = await fetch(`/api/v1/manufacturers/${manufacturerId}/download-logo`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCsrfToken(),
+          },
+          credentials: 'include',
+          body: JSON.stringify({ slug: syncSlug, has_label_logo: hasLabelLogo, replace_existing: true }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.detail?.message || errorData.message || t('manufacturers.failedLogoUpload'))
+        }
+
+        const refreshedResponse = await fetch(`/api/v1/manufacturers/${manufacturerId}`, {
+          credentials: 'include',
+          signal: getAbortSignal(),
+        })
+        if (refreshedResponse.ok) {
+          const refreshed = await refreshedResponse.json()
+          const refreshedLogoPath = normalizeOptionalString(refreshed.logo_file)
+          const refreshedLogoUrl = normalizeOptionalString(refreshed.logo_url)
+          const refreshedLogoSlug = normalizeOptionalString(refreshed.custom_fields?.logo_slug) || syncSlug
+
+          pendingLogoSlug = refreshedLogoSlug
+          pendingHasLabelLogo = Boolean(refreshed.label_logo_file) || hasLabelLogo
+          pendingLogoFile = null
+          shouldClearLogo = false
+          logoUrlInput.value = ''
+          logoFileInput.value = ''
+          resetPendingLogoPreviewUrl()
+          logoFilePathInput.value = refreshedLogoPath || ''
+          logoFilePathInput.dataset.currentPath = refreshedLogoPath || ''
+          logoPreview.dataset.currentUrl = refreshedLogoUrl ? `${refreshedLogoUrl}?ts=${Date.now()}` : ''
+          button.dataset.currentSlug = refreshedLogoSlug || ''
+          button.dataset.hasLabelLogo = String(pendingHasLabelLogo)
+          renderModalLogoPreview()
+        }
+
+        uploadState.textContent = t('manufacturers.logoResynced')
+        uploadState.style.display = 'block'
+        lookupToast.className = 'fdb-toast fdb-toast-success'
+        lookupToast.textContent = t('manufacturers.logoResynced')
+        lookupToast.style.display = ''
+        invalidateCachePrefix(CACHE_KEYS.MANUFACTURERS)
+        loadManufacturers()
+      } catch (err: any) {
+        uploadState.textContent = err.message || t('manufacturers.failedLogoUpload')
+        uploadState.style.display = 'block'
+      } finally {
+        button.disabled = false
+        if (button.querySelector('span')) {
+          button.querySelector('span')!.textContent = originalLabel
+        }
+      }
     })
 
     document.getElementById('modal-form')?.addEventListener('submit', async (e) => {

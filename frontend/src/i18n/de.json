@@ -580,7 +580,13 @@
     "pendingUploadSelected": "Ausgewählte Datei: {name}",
     "logoWillBeCleared": "Das aktuelle Logo wird beim Speichern entfernt.",
     "logoUrlWillBeImported": "Diese Logo-URL wird beim Speichern importiert.",
-    "failedLogoUpload": "Herstellerlogo konnte nicht aktualisiert werden"
+    "failedLogoUpload": "Herstellerlogo konnte nicht aktualisiert werden",
+    "reSyncLogo": "Von FilaManDB neu synchronisieren",
+    "reSyncLogoHint": "Das aktuelle Logo erneut aus der FilaManDB abrufen und ersetzen.",
+    "reSyncingLogo": "Synchronisiere...",
+    "reSyncLogoConfirm": "Das aktuelle Logo durch die neueste Version aus der FilaManDB ersetzen?",
+    "reSyncLogoNeedsMatch": "Wähle zuerst einen passenden FilaManDB-Hersteller aus, damit das Logo neu synchronisiert werden kann.",
+    "logoResynced": "Logo wurde aus der FilaManDB neu synchronisiert."
   },
   "admin": {
     "title": "Admin",
