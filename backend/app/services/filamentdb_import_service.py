@@ -1,16 +1,19 @@
 """FilamentDB-Import-Service: Daten aus der FilamentDB importieren."""
 
+import copy
 import logging
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Literal
+from uuid import uuid4
 
 import httpx
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.cache import response_cache
 from app.models.filament import Color, Filament, FilamentColor, Manufacturer
 
 logger = logging.getLogger(__name__)
@@ -20,6 +23,12 @@ FILAMENTDB_URL = "https://db.filaman.app"
 
 # Standard-Timeout fuer HTTP-Requests
 HTTP_TIMEOUT = 30.0
+
+# Die komplette Sync-Antwort ist gross; fuer die mehrstufige UI behalten wir sie
+# kurzzeitig im Speicher, damit Preview, Filament-Auswahl, Diff und Execute
+# dieselbe Momentaufnahme wiederverwenden koennen.
+SYNC_CACHE_TTL_SECONDS = 300
+SYNC_CACHE_KEY_PREFIX = "filamentdb_import:sync_snapshot"
 
 # Uploads-Verzeichnis fuer Hersteller-Logos (persistenter Pfad)
 from app.core.config import MANUFACTURER_LOGO_DIR as LOGO_DIR
@@ -96,6 +105,7 @@ class FilamentDBImportError(Exception):
 class ImportPreview:
     """Vorschau der zu importierenden Daten."""
 
+    snapshot_id: str | None = None
     manufacturers: list[dict[str, Any]] = field(default_factory=list)
     materials: list[dict[str, Any]] = field(default_factory=list)
     filaments: list[dict[str, Any]] = field(default_factory=list)
@@ -117,6 +127,7 @@ class ImportPreview:
 class ManufacturerPreview:
     """Leichtgewichtige Vorschau — nur Hersteller + Materialien (keine Filamente)."""
 
+    snapshot_id: str | None = None
     manufacturers: list[dict[str, Any]] = field(default_factory=list)
     materials: list[dict[str, Any]] = field(default_factory=list)
     total_filaments: int = 0
@@ -134,8 +145,18 @@ class ManufacturerPreview:
 class FilamentsByManufacturer:
     """Filamente + Farben fuer ausgewaehlte Hersteller."""
 
+    snapshot_id: str | None = None
     filaments: list[dict[str, Any]] = field(default_factory=list)
     colors: list[dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class SyncSnapshot:
+    """Kurzlebige, wiederverwendbare Momentaufnahme des FilamentDB Sync-Endpoints."""
+
+    snapshot_id: str
+    synced_at: str | None
+    data: dict[str, Any]
 
 
 @dataclass
@@ -197,8 +218,34 @@ class FilamentDBImportService:
     #  Sync-Daten holen
     # ------------------------------------------------------------------ #
 
-    async def _fetch_sync_data(self) -> dict[str, Any]:
-        """Alle Daten von der FilamentDB via Sync-Endpoint laden."""
+    async def _fetch_sync_data(
+        self,
+        snapshot_id: str | None = None,
+        *,
+        force_refresh: bool = False,
+    ) -> SyncSnapshot:
+        """Alle Daten von der FilamentDB via Sync-Endpoint laden oder aus dem Cache holen.
+
+        Die Import-UI arbeitet in mehreren Schritten. Ohne Snapshot-Reuse wurde bei
+        jedem Schritt die komplette Sync-Antwort erneut von FilamentDB geladen,
+        was die UI bei grossen Datenmengen deutlich verlangsamt hat.
+        """
+        cache_key = (
+            f"{SYNC_CACHE_KEY_PREFIX}:{snapshot_id}"
+            if snapshot_id
+            else f"{SYNC_CACHE_KEY_PREFIX}:latest"
+        )
+
+        if not force_refresh:
+            cached = response_cache.get(cache_key)
+            if isinstance(cached, dict) and isinstance(cached.get("data"), dict):
+                resolved_id = cached.get("snapshot_id") or snapshot_id or uuid4().hex
+                return SyncSnapshot(
+                    snapshot_id=resolved_id,
+                    synced_at=cached.get("synced_at"),
+                    data=copy.deepcopy(cached["data"]),
+                )
+
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             try:
                 resp = await client.get(
@@ -206,7 +253,7 @@ class FilamentDBImportService:
                     params={"since": "1970-01-01T00:00:00Z"},
                 )
                 resp.raise_for_status()
-                return resp.json()
+                payload = resp.json()
             except httpx.HTTPStatusError as e:
                 raise FilamentDBImportError(
                     f"FilamentDB Sync fehlgeschlagen: HTTP {e.response.status_code}",
@@ -217,6 +264,29 @@ class FilamentDBImportService:
                     f"Verbindung zur FilamentDB fehlgeschlagen: {e}",
                     code="connection_failed",
                 ) from e
+
+        new_snapshot_id = uuid4().hex
+        snapshot_payload = {
+            "snapshot_id": new_snapshot_id,
+            "synced_at": payload.get("synced_at"),
+            "data": payload,
+        }
+        response_cache.set(
+            f"{SYNC_CACHE_KEY_PREFIX}:{new_snapshot_id}",
+            snapshot_payload,
+            ttl=SYNC_CACHE_TTL_SECONDS,
+        )
+        response_cache.set(
+            f"{SYNC_CACHE_KEY_PREFIX}:latest",
+            snapshot_payload,
+            ttl=SYNC_CACHE_TTL_SECONDS,
+        )
+
+        return SyncSnapshot(
+            snapshot_id=new_snapshot_id,
+            synced_at=payload.get("synced_at"),
+            data=copy.deepcopy(payload),
+        )
 
     # ------------------------------------------------------------------ #
     #  Farben extrahieren
@@ -266,14 +336,23 @@ class FilamentDBImportService:
     #  Leichtgewichtige Vorschau (nur Hersteller + Materialien)
     # ------------------------------------------------------------------ #
 
-    async def preview_manufacturers(self) -> ManufacturerPreview:
+    async def preview_manufacturers(
+        self,
+        snapshot_id: str | None = None,
+        *,
+        force_refresh: bool = False,
+    ) -> ManufacturerPreview:
         """Vorschau: nur Hersteller und Materialien zurueckgeben.
 
         Filamente werden intern gelesen (fuer ``_filament_count`` und
         ``_material_types``), aber NICHT an den Caller zurueckgegeben.
         Das spart bei 40k+ Filamenten enorm Bandbreite.
         """
-        data = await self._fetch_sync_data()
+        snapshot = await self._fetch_sync_data(
+            snapshot_id=snapshot_id,
+            force_refresh=force_refresh,
+        )
+        data = snapshot.data
 
         manufacturers = data.get("manufacturers", [])
         materials = data.get("materials", [])
@@ -329,6 +408,7 @@ class FilamentDBImportService:
             mfr["_material_types"] = sorted(mfr_material_types.get(fdb_id, set()))
 
         return ManufacturerPreview(
+            snapshot_id=snapshot.snapshot_id,
             manufacturers=manufacturers,
             materials=materials,
             total_filaments=len(filaments),
@@ -339,14 +419,17 @@ class FilamentDBImportService:
     # ------------------------------------------------------------------ #
 
     async def fetch_filaments(
-        self, manufacturer_ids: list[int]
+        self,
+        manufacturer_ids: list[int],
+        snapshot_id: str | None = None,
     ) -> FilamentsByManufacturer:
         """Filamente + Farben fuer die gegebenen Hersteller-IDs laden.
 
         Filtert die FilamentDB-Daten auf die uebergebenen Manufacturer-IDs
         und reichert jedes Filament mit ``_exists`` und ``_material_key`` an.
         """
-        data = await self._fetch_sync_data()
+        snapshot = await self._fetch_sync_data(snapshot_id=snapshot_id)
+        data = snapshot.data
 
         manufacturers = data.get("manufacturers", [])
         materials = data.get("materials", [])
@@ -442,6 +525,7 @@ class FilamentDBImportService:
         colors = self._extract_colors(filtered_filaments)
 
         return FilamentsByManufacturer(
+            snapshot_id=snapshot.snapshot_id,
             filaments=filtered_filaments,
             colors=colors,
         )
@@ -463,7 +547,11 @@ class FilamentDBImportService:
         ("color_mode", "color_mode", "color_mode"),
     ]
 
-    async def diff_filaments(self, filament_ids: list[int]) -> list[dict[str, Any]]:
+    async def diff_filaments(
+        self,
+        filament_ids: list[int],
+        snapshot_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Vergleiche existierende FilaMan-Filamente mit FDB-Daten.
 
         Args:
@@ -476,7 +564,8 @@ class FilamentDBImportService:
         if not filament_ids:
             return []
 
-        data = await self._fetch_sync_data()
+        snapshot = await self._fetch_sync_data(snapshot_id=snapshot_id)
+        data = snapshot.data
         all_filaments = data.get("filaments", [])
         manufacturers = data.get("manufacturers", [])
         materials = data.get("materials", [])
@@ -706,7 +795,7 @@ class FilamentDBImportService:
     #  Vorschau (komplett — wird intern von execute() genutzt)
     # ------------------------------------------------------------------ #
 
-    async def preview(self) -> ImportPreview:
+    async def preview(self, snapshot_id: str | None = None) -> ImportPreview:
         """Vorschau: welche Daten wuerden importiert?
 
         Fuegt jedem Manufacturer und Filament ein ``_exists``-Flag hinzu,
@@ -714,7 +803,8 @@ class FilamentDBImportService:
         Manufacturers bekommen zusaetzlich ``_filament_count`` und
         ``_material_types`` fuer die UI.
         """
-        data = await self._fetch_sync_data()
+        snapshot = await self._fetch_sync_data(snapshot_id=snapshot_id)
+        data = snapshot.data
 
         manufacturers = data.get("manufacturers", [])
         materials = data.get("materials", [])
@@ -809,6 +899,7 @@ class FilamentDBImportService:
             mfr["_material_types"] = sorted(mfr_material_types.get(fdb_id, set()))
 
         return ImportPreview(
+            snapshot_id=snapshot.snapshot_id,
             manufacturers=manufacturers,
             materials=materials,
             filaments=filaments,
@@ -827,6 +918,7 @@ class FilamentDBImportService:
         filament_ids: list[int] | None = None,
         update_filament_ids: list[int] | None = None,
         skip_fuzzy_ids: list[int] | None = None,
+        snapshot_id: str | None = None,
     ) -> ImportResult:
         """Import aus der FilamentDB ausfuehren.
 
@@ -842,7 +934,7 @@ class FilamentDBImportService:
                             uebersprungen wird (User hat Match abgelehnt).
         """
         result = ImportResult()
-        preview = await self.preview()
+        preview = await self.preview(snapshot_id=snapshot_id)
 
         # -- Filtern nach Auswahl --
         selected_manufacturers = preview.manufacturers

@@ -110,6 +110,8 @@ import Layout from '../../../layouts/Layout.astro'
 
     // ---- State ----
     let previewData: any = null
+    /** Stable backend snapshot for the current preview/import flow */
+    let snapshotId: string | null = null
     /** Filament data loaded on-demand for selected manufacturers */
     let filamentData: any = null
     /** Set of selected FDB manufacturer IDs */
@@ -214,6 +216,7 @@ import Layout from '../../../layouts/Layout.astro'
         }
 
         previewData = await response.json()
+        snapshotId = previewData.snapshot_id || null
         resultDiv.style.display = 'block'
 
         // Default: kein Hersteller ausgewählt
@@ -449,7 +452,10 @@ import Layout from '../../../layouts/Layout.astro'
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
           credentials: 'include',
-          body: JSON.stringify({ manufacturer_ids: [...selectedMfrIds] }),
+          body: JSON.stringify({
+            manufacturer_ids: [...selectedMfrIds],
+            snapshot_id: snapshotId,
+          }),
           signal: filamentAbortCtrl.signal,
         })
 
@@ -459,6 +465,7 @@ import Layout from '../../../layouts/Layout.astro'
         }
 
         filamentData = await response.json()
+        snapshotId = filamentData.snapshot_id || snapshotId
         filamentLoading = false
 
         selectedFilIds.clear()
@@ -714,7 +721,10 @@ import Layout from '../../../layouts/Layout.astro'
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
           credentials: 'include',
-          body: JSON.stringify({ filament_ids: existingFdbIds }),
+          body: JSON.stringify({
+            filament_ids: existingFdbIds,
+            snapshot_id: snapshotId,
+          }),
           signal: getAbortSignal(),
         })
 
@@ -724,6 +734,7 @@ import Layout from '../../../layouts/Layout.astro'
         }
 
         const diffData = await response.json()
+        snapshotId = diffData.snapshot_id || snapshotId
         loading.style.display = 'none'
 
         if (!diffData.results || diffData.results.length === 0) {
@@ -917,6 +928,7 @@ import Layout from '../../../layouts/Layout.astro'
           spool_detail_target: getSelectedTarget(),
           manufacturer_ids: [...selectedMfrIds],
           filament_ids: [...selectedFilIds],
+          snapshot_id: snapshotId,
         }
 
         // Update-IDs mitsenden wenn vorhanden

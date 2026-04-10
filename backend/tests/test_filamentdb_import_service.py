@@ -1,9 +1,61 @@
 from sqlalchemy import delete, select
 
+import httpx
 import pytest
 
+from app.core.cache import response_cache
 from app.models.filament import Color, Filament, FilamentColor, Manufacturer
 from app.services.filamentdb_import_service import FilamentDBImportService
+
+
+@pytest.mark.asyncio
+async def test_preview_and_fetch_filaments_reuse_cached_sync_snapshot(
+    db_session, monkeypatch
+):
+    response_cache.clear()
+    calls = 0
+    payload = {
+        "synced_at": "2026-04-10T12:00:00Z",
+        "manufacturers": [{"id": 1, "name": "ACME"}],
+        "materials": [{"id": 10, "key": "PLA", "name": "PLA"}],
+        "filaments": [
+            {
+                "id": 100,
+                "designation": "Fast PLA",
+                "manufacturer_id": 1,
+                "material_id": 10,
+                "colors": [{"hex_code": "#ff0000", "color_name": "Red", "position": 1}],
+            }
+        ],
+        "spool_profiles": [],
+    }
+
+    class DummyResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return payload
+
+    async def fake_get(self, url, params=None):
+        nonlocal calls
+        calls += 1
+        return DummyResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    service = FilamentDBImportService(db_session)
+    preview = await service.preview_manufacturers()
+    fetched = await service.fetch_filaments([1], snapshot_id=getattr(preview, "snapshot_id", None))
+
+    assert getattr(preview, "snapshot_id", None)
+    assert preview.summary["manufacturers"] == 1
+    assert len(fetched.filaments) == 1
+    assert calls == 1
+
+    response_cache.clear()
 
 
 @pytest.mark.asyncio
