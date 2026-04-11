@@ -257,21 +257,8 @@ async def list_spools(
         needs_filament_join = True
         needs_manufacturer_join = True
 
-    # -- Data query --
-    query = select(Spool)
-    if needs_filament_join or needs_manufacturer_join:
-        query = query.join(Filament, Spool.filament_id == Filament.id)
-    if needs_manufacturer_join:
-        query = query.join(
-            Manufacturer, Filament.manufacturer_id == Manufacturer.id, isouter=True
-        )
-    if needs_status_join:
-        query = query.join(SpoolStatus, Spool.status_id == SpoolStatus.id)
-
-    for cond in conditions:
-        query = query.where(cond)
-
     # Sorting — resolve virtual sort keys to joined columns
+    # (must run BEFORE building JOINs so that the flags are correct)
     if sort_by == "manufacturer":
         sort_column = Manufacturer.name
         needs_filament_join = True
@@ -285,6 +272,20 @@ async def list_spools(
     else:
         sort_column = getattr(Spool, sort_by, Spool.id)
     order = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+
+    # -- Data query --
+    query = select(Spool)
+    if needs_filament_join or needs_manufacturer_join:
+        query = query.join(Filament, Spool.filament_id == Filament.id)
+    if needs_manufacturer_join:
+        query = query.join(
+            Manufacturer, Filament.manufacturer_id == Manufacturer.id, isouter=True
+        )
+    if needs_status_join:
+        query = query.join(SpoolStatus, Spool.status_id == SpoolStatus.id)
+
+    for cond in conditions:
+        query = query.where(cond)
 
     query = (
         query.options(

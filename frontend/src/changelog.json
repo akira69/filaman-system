@@ -1,6 +1,18 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Spulenübersicht: Sortierung nach Hersteller, Material oder Herstellerfarbe funktioniert jetzt zuverlässig" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Spool overview: Sorting by manufacturer, material or manufacturer color now works reliably" }
+        ]
+      }
+    },
+    {
       "version": "1.2.6",
       "date": "",
       "changes": {
