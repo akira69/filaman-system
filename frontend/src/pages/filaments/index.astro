@@ -96,7 +96,7 @@ import Layout from '../../layouts/Layout.astro'
           <th style="width: 40px; text-align: center;"><input type="checkbox" id="bulk-select-all" class="fm-checkbox bulk-checkbox" /></th>
           <th data-i18n="filaments.manufacturer" data-sort="manufacturer" class="sortable col-manufacturer">Manufacturer</th>
           <th data-i18n="filaments.type" data-sort="type" class="sortable col-type">Type</th>
-          <th data-i18n="filaments.designation" data-sort="designation" class="sortable">Designation</th>
+          <th data-i18n="filaments.designation" data-sort="designation" class="sortable col-designation">Designation</th>
           <th data-i18n="filaments.colors" data-sort="colors" class="sortable col-colors">Colors</th>
           <th data-i18n="filaments.diameter" data-sort="diameter_mm" class="sortable col-diameter">Diameter</th>
           <th style="text-align: right;" data-i18n="filaments.spools" data-sort="spool_count" class="sortable col-spools">Spools</th>
@@ -144,6 +144,7 @@ import Layout from '../../layouts/Layout.astro'
     import { t, initI18n, translatePage } from '../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
+    import { initColumnReorder } from '../../lib/column-reorder'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     await initI18n()
 
@@ -531,6 +532,7 @@ import Layout from '../../layouts/Layout.astro'
       }
       
       tbody.innerHTML = filaments.map(f => renderFilamentRow(f)).join('')
+      filReorder.applyOrder()
     }
 
     function renderFilamentRow(f: any): string {
@@ -540,7 +542,7 @@ import Layout from '../../layouts/Layout.astro'
           <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-filament-id="${f.id}" ${selectedFilamentIds.has(f.id) ? 'checked' : ''} onchange="window.__toggleFilamentSelection(${f.id}, this.checked)" /></td>
           <td class="col-manufacturer" style="padding: 12px; color: var(--text-muted);">${f.manufacturer?.name || '-'}</td>
           <td class="col-type" style="padding: 12px; color: var(--text-muted);">${f.material_type}</td>
-          <td style="padding: 12px;">
+          <td class="col-designation" style="padding: 12px;">
             <div style="font-weight: 500;">${f.designation}</div>
             ${f.manufacturer_color_name ? `<div style="font-size: 0.85rem; color: var(--text-muted);">${f.manufacturer_color_name}</div>` : ''}
           </td>
@@ -611,6 +613,7 @@ import Layout from '../../layouts/Layout.astro'
       })
 
       tbody.innerHTML = html
+      filReorder.applyOrder()
 
       // Wire up group toggle
       tbody.querySelectorAll('tr[data-group]').forEach(header => {
@@ -766,6 +769,14 @@ import Layout from '../../layouts/Layout.astro'
       groups: filColumnGroups,
       btnId: 'btn-columns',
       dropdownId: 'columns-dropdown',
+      orderStorageKey: 'filaman-column-order-filaments',
+      resetLabel: t('common.columnsReset'),
+      onReset: () => filReorder.resetOrder(),
+    })
+
+    const filReorder = initColumnReorder({
+      tableSelector: '.fm-table',
+      storageKey: 'filaman-column-order-filaments',
     })
 
     // Load SystemExtraFields for filaments and add as dynamic column group
@@ -793,6 +804,8 @@ import Layout from '../../layouts/Layout.astro'
         }
         // Store fields for renderFilamentRow access
         ;(window as any).__filamentExtraFields = fields
+        // Refresh column reorder to include new extra field columns
+        filReorder.refreshColumns()
       } catch (e) {
         if (isAbortError(e)) return
         console.error('Failed to load filament extra field columns:', e)
