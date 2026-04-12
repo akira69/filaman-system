@@ -1752,6 +1752,8 @@ async def _import_inventory_data(
 
                 db.add(model(**attr_data))
 
+            await db.flush()
+
             imported[table_name] = len(rows)
             logger.info(f"Imported {len(rows)} inventory rows into {table_name}")
         else:
@@ -1825,6 +1827,8 @@ async def _import_all_data(
                         attr_data[attr_name] = value
 
                 db.add(model(**attr_data))
+
+            await db.flush()
 
             imported[table_name] = len(rows)
             logger.info(f"Imported {len(rows)} rows into {table_name}")
