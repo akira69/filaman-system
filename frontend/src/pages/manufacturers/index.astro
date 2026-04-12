@@ -65,7 +65,7 @@ import Layout from '../../layouts/Layout.astro'
     <table class="fm-table">
       <thead>
         <tr>
-          <th data-i18n="manufacturers.name" data-sort="name" class="sortable">Name</th>
+          <th data-i18n="manufacturers.name" data-sort="name" class="sortable col-name">Name</th>
           <th data-i18n="manufacturers.url" data-sort="url" class="sortable col-url">URL</th>
           <th data-i18n="manufacturers.filaments" data-sort="filament_count" class="sortable col-filaments">Filaments</th>
           <th data-i18n="manufacturers.spools" data-sort="spool_count" class="sortable col-spools">Spools</th>
@@ -232,6 +232,7 @@ import Layout from '../../layouts/Layout.astro'
     import { cachedFetchAllPages, invalidateCachePrefix, CACHE_KEYS } from '../../lib/cache'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
+    import { initColumnReorder } from '../../lib/column-reorder'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive, fuzzyTokenScore } from '../../lib/filamentdb-lookup'
     await initI18n()
@@ -536,7 +537,7 @@ import Layout from '../../layouts/Layout.astro'
       // Note: escapeHtml() is used for all user-supplied data; URLs use escapeHtml for both href and text
       tbody.innerHTML = paged.map(mf => `
         <tr style="cursor: pointer;" class="manufacturer-row" data-mf='${escapeHtml(JSON.stringify(mf))}'>
-          <td style="font-weight: 500;">${mf.logo_url ? `<span style="display: inline-flex; align-items: center; gap: 8px;">${escapeHtml(mf.name)}<img src="${escapeHtml(mf.logo_url)}" alt="" style="height: 1.4em; width: auto; flex-shrink: 0; background: #fff; border: 1px solid rgba(0,0,0,0.12); border-radius: 4px; padding: 2px;" onerror="this.style.display='none'" /></span>` : escapeHtml(mf.name)}</td>
+          <td class="col-name" style="font-weight: 500;">${mf.logo_url ? `<span style="display: inline-flex; align-items: center; gap: 8px;">${escapeHtml(mf.name)}<img src="${escapeHtml(mf.logo_url)}" alt="" style="height: 1.4em; width: auto; flex-shrink: 0; background: #fff; border: 1px solid rgba(0,0,0,0.12); border-radius: 4px; padding: 2px;" onerror="this.style.display='none'" /></span>` : escapeHtml(mf.name)}</td>
           <td class="col-url">${mf.url ? `<a href="${escapeHtml(mf.url)}" target="_blank" rel="noopener" class="stop-prop" style="color: var(--accent); text-decoration: none;">${escapeHtml(mf.url)}</a>` : '<span style="color: var(--text-muted);">-</span>'}</td>
           <td class="col-filaments"><a href="/filaments?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.filament_count || 0}</a></td>
           <td class="col-spools"><a href="/spools?manufacturer_id=${mf.id}" class="stop-prop" style="color: var(--accent); text-decoration: none; font-weight: 500;">${mf.spool_count || 0}</a></td>
@@ -550,6 +551,8 @@ import Layout from '../../layouts/Layout.astro'
           </td>
         </tr>
       `).join('')
+
+      mfrReorder.applyOrder()
 
       document.querySelectorAll('.manufacturer-row').forEach(row => {
         row.addEventListener('click', () => {
@@ -957,6 +960,14 @@ import Layout from '../../layouts/Layout.astro'
       groups: mfrColumnGroups,
       btnId: 'btn-columns',
       dropdownId: 'columns-dropdown',
+      orderStorageKey: 'filaman-column-order-manufacturers',
+      resetLabel: t('common.columnsReset'),
+      onReset: () => mfrReorder.resetOrder(),
+    })
+
+    const mfrReorder = initColumnReorder({
+      tableSelector: '.fm-table',
+      storageKey: 'filaman-column-order-manufacturers',
     })
     // ── End Column Visibility ──────────────────────────────────────────
 

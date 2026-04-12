@@ -113,7 +113,7 @@ import Layout from '../../layouts/Layout.astro'
         <tr style="background: var(--bg-soft);">
           <th style="width: 40px; text-align: center;"><input type="checkbox" id="bulk-select-all" class="fm-checkbox bulk-checkbox" /></th>
           <th data-i18n="spools.id" data-sort="id" class="sortable col-id">ID</th>
-          <th data-i18n="spools.filament" data-sort="filament_id" class="sortable">Filament</th>
+          <th data-i18n="spools.filament" data-sort="filament_id" class="sortable col-filament">Filament</th>
           <th data-i18n="spools.manufacturer" data-sort="manufacturer" class="sortable col-manufacturer">Manufacturer</th>
           <th data-i18n="spools.material" data-sort="material" class="sortable col-material">Material</th>
           <th data-i18n="spools.status" data-sort="status_id" class="sortable col-status">Status</th>
@@ -213,6 +213,7 @@ import Layout from '../../layouts/Layout.astro'
     import { t, initI18n, translatePage } from '../../lib/i18n'
     import { fetchSequential } from '../../lib/cache'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
+    import { initColumnReorder } from '../../lib/column-reorder'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     await initI18n()
@@ -366,42 +367,6 @@ import Layout from '../../layouts/Layout.astro'
       const material = (document.getElementById('filter-material') as HTMLSelectElement).value
       const groupBy = (document.getElementById('filter-group') as HTMLInputElement).checked
       return { search, statusId, locationId, manufacturerId, material, groupBy }
-    }
-
-    function filterSpools(spools: any[]): any[] {
-      const { search, statusId, locationId, manufacturerId, material } = getFilterValues()
-
-      return spools.filter(s => {
-        if (statusId && String(s.status_id) !== statusId) return false
-        if (locationId && String(s.location_id) !== locationId) return false
-        if (manufacturerId) {
-          const fil = getFilamentForSpool(s)
-          if (!fil || String(fil.manufacturer_id) !== manufacturerId) return false
-        }
-        if (material) {
-          const fil = getFilamentForSpool(s)
-          if (!fil || fil.material_type !== material) return false
-        }
-        if (search) {
-          const fil = getFilamentForSpool(s)
-          const filName = fil ? (fil.designation || '').toLowerCase() : ''
-          const filType = fil ? (fil.material_type || '').toLowerCase() : ''
-          const mfName = fil?.manufacturer?.name ? fil.manufacturer.name.toLowerCase() : ''
-          const mfColorName = fil ? (fil.manufacturer_color_name || '').toLowerCase() : ''
-          const colorNames = fil && fil.colors ? fil.colors.map((fc: any) => {
-            const parts: string[] = []
-            if (fc.color?.name) parts.push(fc.color.name.toLowerCase())
-            if (fc.display_name_override) parts.push(fc.display_name_override.toLowerCase())
-            return parts.join(' ')
-          }).join(' ') : ''
-          const locationName = getLocationName(s.location_id).toLowerCase()
-          const statusLabel = getStatusLabel(s.status_id).toLowerCase()
-
-          const haystack = `${filName} ${filType} ${mfName} ${mfColorName} ${colorNames} ${locationName} ${statusLabel}`
-          if (!haystack.includes(search)) return false
-        }
-        return true
-      })
     }
 
     function applyFiltersAndRender() {
@@ -669,7 +634,7 @@ import Layout from '../../layouts/Layout.astro'
         <tr class="${selectedSpoolIds.has(s.id) ? 'bulk-selected' : ''}" style="cursor: pointer;" onclick="window.location='/spools/${s.id}'">
           <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-spool-id="${s.id}" ${selectedSpoolIds.has(s.id) ? 'checked' : ''} onchange="window.__toggleSpoolSelection(${s.id}, this.checked)" /></td>
           <td class="col-id" style="padding: 12px; font-weight: 500;">${t('spools.spoolId', { id: s.id })}</td>
-          <td style="padding: 12px;">${colorDots} ${getFilamentName(s)}</td>
+          <td class="col-filament" style="padding: 12px;">${colorDots} ${getFilamentName(s)}</td>
           <td class="col-manufacturer" style="padding: 12px; color: var(--text-muted);">${getManufacturerName(s)}</td>
           <td class="col-material" style="padding: 12px; color: var(--text-muted);">${getMaterialType(s)}</td>
           <td class="col-status" style="padding: 12px;">${getStatusLabel(s.status_id)}</td>
@@ -711,6 +676,7 @@ import Layout from '../../layouts/Layout.astro'
       
       tbody.innerHTML = spools.map(s => renderSpoolRow(s)).join('')
       translatePage()
+      splReorder.applyOrder()
     }
 
     function renderGroupedSpools(spools: any[]) {
@@ -768,6 +734,7 @@ import Layout from '../../layouts/Layout.astro'
 
       tbody.innerHTML = html
       translatePage()
+      splReorder.applyOrder()
 
       // Wire up group toggle
       tbody.querySelectorAll('tr[data-group]').forEach(header => {
@@ -926,6 +893,14 @@ import Layout from '../../layouts/Layout.astro'
       groups: splColumnGroups,
       btnId: 'btn-columns',
       dropdownId: 'columns-dropdown',
+      orderStorageKey: 'filaman-column-order-spools',
+      resetLabel: t('common.columnsReset'),
+      onReset: () => splReorder.resetOrder(),
+    })
+
+    const splReorder = initColumnReorder({
+      tableSelector: '.fm-table',
+      storageKey: 'filaman-column-order-spools',
     })
 
     // Load SystemExtraFields for spools and add as dynamic column group
@@ -954,6 +929,8 @@ import Layout from '../../layouts/Layout.astro'
         }
         // Store fields for renderSpoolRow access
         ;(window as any).__spoolExtraFields = fields
+        // Refresh column reorder to include new extra field columns
+        splReorder.refreshColumns()
       } catch (e) {
         if (isAbortError(e)) return
         console.error('Failed to load spool extra field columns:', e)

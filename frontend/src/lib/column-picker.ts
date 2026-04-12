@@ -49,6 +49,12 @@ export interface ColumnPickerOptions {
   dropdownId: string
   /** Optional callback fired after a column is toggled */
   onVisibilityChange?: () => void
+  /** Optional: localStorage key for column order (to reset alongside visibility) */
+  orderStorageKey?: string
+  /** Optional: callback to reset column order (called when reset button is clicked) */
+  onReset?: () => void
+  /** Label for the reset button (i18n). Defaults to 'Reset columns'. */
+  resetLabel?: string
 }
 
 export interface ColumnPicker {
@@ -151,6 +157,30 @@ export function initColumnPicker(opts: ColumnPickerOptions): ColumnPicker {
         frag.appendChild(lbl)
       })
     })
+
+    // Reset button — resets visibility and optionally column order
+    const resetDiv = document.createElement('div')
+    resetDiv.style.cssText = 'border-top: 1px solid var(--border); margin-top: 6px; padding: 6px 12px 2px;'
+    const resetBtn = document.createElement('button')
+    resetBtn.className = 'fm-btn fm-btn-outline'
+    resetBtn.style.cssText = 'width: 100%; font-size: 0.8rem; padding: 4px 8px;'
+    resetBtn.textContent = opts.resetLabel || 'Reset columns'
+    resetBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      // Reset visibility
+      localStorage.removeItem(opts.storageKey)
+      visibleCols = new Set(opts.defaultVisible)
+      applyVisibility()
+      // Reset column order
+      if (opts.orderStorageKey) {
+        localStorage.removeItem(opts.orderStorageKey)
+      }
+      opts.onReset?.()
+      opts.onVisibilityChange?.()
+      renderDropdown() // re-render checkboxes
+    })
+    resetDiv.appendChild(resetBtn)
+    frag.appendChild(resetDiv)
 
     dropdown.textContent = ''
     dropdown.appendChild(frag)

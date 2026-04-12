@@ -1,6 +1,22 @@
 {
   "versions": [
     {
+      "version": "1.2.7",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Spalten in den Übersichtstabellen (Spulen, Filamente, Hersteller) können jetzt per Drag & Drop frei angeordnet werden — die Reihenfolge wird im Browser gespeichert" },
+          { "type": "improvement", "text": "Spalten-Einstellungen: Neuer Reset-Button setzt Sichtbarkeit und Reihenfolge auf den Standard zurück" },
+          { "type": "fix", "text": "Spulenübersicht: Sortierung nach Hersteller, Material oder Herstellerfarbe funktioniert jetzt zuverlässig" }
+        ],
+        "en": [
+          { "type": "feature", "text": "Columns in overview tables (spools, filaments, manufacturers) can now be freely reordered via drag & drop — the order is saved in the browser" },
+          { "type": "improvement", "text": "Column settings: New reset button restores default visibility and column order" },
+          { "type": "fix", "text": "Spool overview: Sorting by manufacturer, material or manufacturer color now works reliably" }
+        ]
+      }
+    },
+    {
       "version": "1.2.6",
       "date": "",
       "changes": {
