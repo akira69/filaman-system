@@ -248,8 +248,13 @@ import Layout from '../../layouts/Layout.astro'
       return item[key]
     }
 
+    function usesServerOnlySort(key: string | null): boolean {
+      return key === 'spool_count'
+    }
+
     function sortFilaments(filaments: any[]): any[] {
       if (!sortKey || !sortDirection) return filaments
+      if (usesServerOnlySort(sortKey)) return filaments
       return [...filaments].sort((a, b) => {
         const aVal = getSortValue(a, sortKey)
         const bVal = getSortValue(b, sortKey)
@@ -416,7 +421,6 @@ import Layout from '../../layouts/Layout.astro'
       const sortKeyMap: Record<string, string> = {
         'type': 'material_type',
         'colors': '', // not sortable server-side
-        'spool_count': '', // not sortable server-side
       }
       if (sortKey && sortDirection) {
         const backendSortKey = sortKeyMap[sortKey] ?? sortKey
