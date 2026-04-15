@@ -1,6 +1,32 @@
 {
   "versions": [
     {
+      "version": "1.2.9",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Backup-Import: Import schlug bei großen Datenbanken mit vielen Filamenten/Farben fehl (FOREIGN KEY constraint)" },
+          { "type": "added", "text": "Zugriff auf Spulen-Seiten und API auch über /spool (Singular) möglich – wird automatisch auf /spools umgeleitet" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Backup import: Import failed on large databases with many filaments/colors (FOREIGN KEY constraint)" },
+          { "type": "added", "text": "Spool pages and API can now also be accessed via /spool (singular) – automatically redirects to /spools" }
+        ]
+      }
+    },
+    {
+      "version": "1.2.8",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "fix", "text": "Backup-Import: Import schlug bei Datenbanken mit Rollen und Berechtigungen fehl (FOREIGN KEY constraint)" }
+        ],
+        "en": [
+          { "type": "fix", "text": "Backup import: Import failed on databases with roles and permissions (FOREIGN KEY constraint)" }
+        ]
+      }
+    },
+    {
       "version": "1.2.7",
       "date": "",
       "changes": {
