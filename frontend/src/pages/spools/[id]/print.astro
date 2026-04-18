@@ -860,6 +860,9 @@ Bed: {filament.bed_temp}°C</textarea>
 </style>
 
 <script>
+  import { parseTemplate, renderTemplateText } from '../../../lib/label-template'
+  import type { SpoolData } from '../../../lib/label-template'
+
   // Global print function for Safari compatibility
   ;(window as any).filamanPrint = function() {
     try {
@@ -940,6 +943,9 @@ Bed: {filament.bed_temp}°C</textarea>
     tabPanelPrint.style.display = tab === 'print' ? '' : 'none'
     tabPanelDesigner.style.display = tab === 'designer' ? '' : 'none'
     localStorage.setItem(ACTIVE_TAB_KEY, tab)
+    // Trigger the appropriate preview when switching tabs
+    if (tab === 'designer') updateDesignerPreview()
+    else updatePreview()
   }
 
   tabBtns.forEach(btn => {
@@ -1064,7 +1070,7 @@ Bed: {filament.bed_temp}°C</textarea>
     const group = document.getElementById(groupId)
     if (!group) return
     group.querySelectorAll<HTMLButtonElement>('.ds-align-btn').forEach(btn => {
-      btn.addEventListener('click', () => { setAlignGroup(groupId, btn.dataset.align!); saveDesignerSettings() })
+      btn.addEventListener('click', () => { setAlignGroup(groupId, btn.dataset.align!); saveDesignerSettings(); updateDesignerPreview() })
     })
   }
 
@@ -1076,6 +1082,7 @@ Bed: {filament.bed_temp}°C</textarea>
         setPillGroup(groupId, btn.dataset.val!)
         saveDesignerSettings()
         onChange?.(btn.dataset.val!)
+        updateDesignerPreview()
       })
     })
   }
@@ -1116,12 +1123,12 @@ Bed: {filament.bed_temp}°C</textarea>
   const dsCheckIds = ['ds-border','ds-title-show','ds-title-fit','ds-info-show']
   const dsSelectIds = ['ds-qr-mode']
   ;[...dsInputIds, ...dsCheckIds, ...dsSelectIds].forEach(id => {
-    document.getElementById(id)?.addEventListener('change', saveDesignerSettings)
+    document.getElementById(id)?.addEventListener('change', () => { saveDesignerSettings(); updateDesignerPreview() })
   })
   dsInputIds.forEach(id => {
     const el = document.getElementById(id)
     if (el && (el as HTMLInputElement).type !== 'checkbox') {
-      el.addEventListener('input', saveDesignerSettings)
+      el.addEventListener('input', () => { saveDesignerSettings(); updateDesignerPreview() })
     }
   })
 
@@ -1430,7 +1437,11 @@ Bed: {filament.bed_temp}°C</textarea>
         div.style.overflow = 'hidden'
         div.style.textOverflow = 'ellipsis'
         div.style.lineHeight = '1.3'
-        div.innerHTML = `<span style="color:#555">${ef.label}:</span> ${ef.value}`
+        const labelSpan = document.createElement('span')
+        labelSpan.style.color = '#555'
+        labelSpan.textContent = ef.label + ':'
+        div.appendChild(labelSpan)
+        div.appendChild(document.createTextNode(' ' + ef.value))
         extraContainer.appendChild(div)
       }
     }
@@ -1528,6 +1539,198 @@ Bed: {filament.bed_temp}°C</textarea>
     }
   })
 
+  // ─── Designer preview ─────────────────────────────────────────────────────
+
+  async function updateDesignerPreview() {
+    // Load QR library if needed
+    if (typeof (window as any).QRCode === 'undefined') {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = '/vendor/qrcode.min.js'
+        script.onload = resolve
+        script.onerror = reject
+        document.head.appendChild(script)
+      })
+    }
+
+    const s = (() => {
+      try {
+        const raw = localStorage.getItem(DESIGNER_KEY)
+        if (raw) return { ...DESIGNER_DEFAULTS, ...JSON.parse(raw) }
+      } catch { /* ignore */ }
+      return DESIGNER_DEFAULTS
+    })()
+
+    const data = buildSpoolData() as SpoolData
+
+    // --- Size & border ---
+    const w = s.label.width
+    const h = s.label.height
+    labelPreview.style.width = w + 'mm'
+    labelPreview.style.height = h + 'mm'
+    labelPreview.style.border = s.label.border ? '0.3mm solid black' : '1px dashed #ccc'
+
+    // Clear and rebuild preview in designer layout
+    labelPreview.innerHTML = ''
+
+    // --- Title block ---
+    if (s.title.show && s.title.template.trim()) {
+      const titleEl = document.createElement('div')
+      titleEl.className = 'ds-prev-title'
+      titleEl.style.textAlign = s.title.align
+      titleEl.style.fontWeight = '700'
+      titleEl.style.overflow = 'hidden'
+      titleEl.style.whiteSpace = 'nowrap'
+      titleEl.style.textOverflow = 'ellipsis'
+      titleEl.style.padding = '0.5mm 1mm 0 1mm'
+      titleEl.style.color = 'black'
+
+      // Build content
+      const frag = parseTemplate(s.title.template, data)
+      titleEl.appendChild(frag)
+
+      // Fit-to-width: binary search for the font size that fills the label width
+      if (s.title.fitToWidth) {
+        labelPreview.appendChild(titleEl)
+        const maxPx = s.title.sizeMm * 3.78
+        let lo = 4, hi = maxPx, bestPx = lo
+        titleEl.style.fontSize = maxPx + 'px'
+        if (titleEl.scrollWidth <= titleEl.clientWidth) {
+          bestPx = maxPx
+        } else {
+          for (let i = 0; i < 12; i++) {
+            const mid = (lo + hi) / 2
+            titleEl.style.fontSize = mid + 'px'
+            if (titleEl.scrollWidth <= titleEl.clientWidth) {
+              bestPx = mid
+              lo = mid
+            } else {
+              hi = mid
+            }
+          }
+        }
+        titleEl.style.fontSize = bestPx + 'px'
+      } else {
+        titleEl.style.fontSize = s.title.sizeMm * 3.78 + 'px'
+        labelPreview.appendChild(titleEl)
+      }
+
+      // Divider below title
+      const div = document.createElement('div')
+      div.style.borderTop = '0.3mm solid black'
+      div.style.margin = '0.5mm 1mm'
+      labelPreview.appendChild(div)
+    }
+
+    // --- Main row: info (left/right) + QR (left/right) ---
+    const mainRow = document.createElement('div')
+    mainRow.style.display = 'flex'
+    mainRow.style.flex = '1'
+    mainRow.style.minHeight = '0'
+    mainRow.style.padding = '1mm'
+    mainRow.style.gap = '1.5mm'
+    mainRow.style.flexDirection = s.qr.position === 'left' ? 'row-reverse' : 'row'
+    mainRow.style.alignItems = s.info.vAlign === 'top' ? 'flex-start' : s.info.vAlign === 'center' ? 'center' : 'flex-end'
+    labelPreview.appendChild(mainRow)
+
+    // Information block
+    if (s.info.show && s.info.template.trim()) {
+      const infoEl = document.createElement('div')
+      infoEl.style.flex = '1'
+      infoEl.style.minWidth = '0'
+      infoEl.style.fontSize = s.info.sizeMm * 3.78 + 'px'
+      infoEl.style.textAlign = s.info.hAlign
+      infoEl.style.color = 'black'
+      infoEl.style.overflow = 'hidden'
+      infoEl.style.lineHeight = '1.4'
+
+      const frag = parseTemplate(s.info.template, data)
+      infoEl.appendChild(frag)
+      mainRow.appendChild(infoEl)
+    }
+
+    // QR Code block
+    if (s.qr.mode !== 'none') {
+      const qrWrap = document.createElement('div')
+      qrWrap.style.flexShrink = '0'
+      qrWrap.style.width = s.qr.sizeMm + 'mm'
+      qrWrap.style.height = s.qr.sizeMm + 'mm'
+      qrWrap.style.alignSelf = s.qr.vAlign === 'top' ? 'flex-start' : s.qr.vAlign === 'center' ? 'center' : 'flex-end'
+
+      const qrUrl = s.qr.linkMode === 'url' && s.qr.urlTemplate.trim()
+        ? renderTemplateText(s.qr.urlTemplate, data)
+        : window.location.origin + '/spools/' + labelData.id
+      const qrPx = Math.round(s.qr.sizeMm * 3.78)
+
+      // @ts-ignore
+      new QRCode(qrWrap, {
+        text: qrUrl, width: qrPx, height: qrPx,
+        colorDark: '#000000', colorLight: '#ffffff',
+        correctLevel: (window as any).QRCode.CorrectLevel.H,
+      })
+
+      // Optionally draw icon text in center
+      if (s.qr.mode === 'icon') {
+        const canvas = qrWrap.querySelector('canvas')
+        if (canvas) {
+          const ctx = (canvas as HTMLCanvasElement).getContext('2d')
+          if (ctx) {
+            const fontSize = Math.round(qrPx * 0.13)
+            ctx.font = `700 ${fontSize}px "Space Grotesk", sans-serif`
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            const text = 'FilaMan'
+            const tw = ctx.measureText(text).width
+            const pad = Math.round(fontSize * 0.3)
+            const cx = qrPx / 2, cy = qrPx / 2
+            ctx.fillStyle = '#ffffff'
+            ctx.fillRect(cx - tw / 2 - pad, cy - fontSize / 2 - pad, tw + pad * 2, fontSize + pad * 2)
+            ctx.fillStyle = '#000000'
+            ctx.fillText(text, cx, cy)
+          }
+          const dataUrl = (canvas as HTMLCanvasElement).toDataURL('image/png')
+          qrWrap.innerHTML = ''
+          const img = document.createElement('img')
+          img.src = dataUrl
+          img.style.width = '100%'; img.style.height = '100%'; img.style.display = 'block'
+          qrWrap.appendChild(img)
+        }
+      } else {
+        // Convert canvas to img for reliable printing
+        const canvas = qrWrap.querySelector('canvas')
+        if (canvas) {
+          const dataUrl = (canvas as HTMLCanvasElement).toDataURL('image/png')
+          qrWrap.innerHTML = ''
+          const img = document.createElement('img')
+          img.src = dataUrl
+          img.style.width = '100%'; img.style.height = '100%'; img.style.display = 'block'
+          qrWrap.appendChild(img)
+        }
+      }
+
+      mainRow.appendChild(qrWrap)
+    }
+
+    // Print page style
+    const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)
+    const pageRule = isSafari ? '' : `@page { size: ${w}mm ${h}mm; margin: 0; }`
+    const style = document.createElement('style')
+    style.innerHTML = `
+      ${pageRule}
+      @media print {
+        .label-preview {
+          width: ${w}mm !important; height: ${h}mm !important;
+          min-width: ${w}mm !important; min-height: ${h}mm !important;
+          max-width: ${w}mm !important; max-height: ${h}mm !important;
+        }
+      }
+    `
+    const oldStyle = document.querySelector('style#page-style')
+    if (oldStyle) oldStyle.remove()
+    style.id = 'page-style'
+    document.head.appendChild(style)
+  }
+
   document.getElementById('btn-reset')?.addEventListener('click', () => {
     localStorage.removeItem(LABEL_SETTINGS_KEY);
     (widthInput as HTMLInputElement).value = '60';
@@ -1547,6 +1750,10 @@ Bed: {filament.bed_temp}°C</textarea>
     updatePreview()
   })
 
-  // Initialize: load logo then render
-  loadLabelLogo().then(() => updatePreview())
+  // Initialize: load logo then render whichever tab is active
+  loadLabelLogo().then(() => {
+    const activeTab = localStorage.getItem(ACTIVE_TAB_KEY)
+    if (activeTab === 'designer') updateDesignerPreview()
+    else updatePreview()
+  })
 </script>

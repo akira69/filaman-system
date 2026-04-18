@@ -1,7 +1,7 @@
 /**
  * Label template parser for the Advanced Label Designer.
  *
- * Template syntax (compatible with Spoolman PR #857):
+ * Template syntax:
  *   {token}                — simple dot-path substitution; resolves to "?" if missing
  *   {prefix{token}suffix}  — optional block: rendered as prefix+value+suffix if token is not "?"
  *                            omitted entirely when token resolves to "?"
