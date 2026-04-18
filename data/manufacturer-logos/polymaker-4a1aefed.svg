@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="96" viewBox="0 0 320 96" role="img" aria-label="Polymaker logo">
+  <rect width="320" height="96" fill="transparent" />
+  <circle cx="36" cy="48" r="14" fill="#F97316" /><circle cx="58" cy="48" r="6" fill="#1F2937" />
+  <text x="94" y="58" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" fill="#1F2937" letter-spacing="0.5">Polymaker</text>
+</svg>

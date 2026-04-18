@@ -89,7 +89,7 @@ const { id } = Astro.params
 
         <!-- Section: Presets -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-presets"><span id="dsh-presets-text">Presets/span></summary>
+          <summary class="ds-section-header" id="dsh-presets"><span id="dsh-presets-text">Presets</span></summary>
           <div class="ds-section-body">
             <div>
               <label class="fm-label" id="dsl-preset-saved">Saved presets</label>
@@ -109,32 +109,22 @@ const { id } = Astro.params
           </div>
         </details>
 
-        <!-- Section: Logo -->
-        <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-logo">Logo<button class="ds-reset-btn" id="dsr-logo" title="Reset section">↺</button></summary>
-          <div class="ds-section-body">
-            <label class="fm-checkbox-group">
-              <input type="checkbox" id="ds-logo-show" checked>
-              <span id="dsl-logo-show">Show manufacturer logo</span>
-            </label>
-            <div id="ds-logo-size-wrap">
-              <label class="fm-label" id="dsl-logo-size">Logo height (mm)</label>
-              <input type="number" id="ds-logo-size" value="6" step="0.5" min="2" max="20" class="fm-input">
-            </div>
-          </div>
-        </details>
-
         <!-- Section: Label -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-label">Label<button class="ds-reset-btn" id="dsr-label" title="Reset section">↺</button></summary>
+          <summary class="ds-section-header" id="dsh-label">
+            <span id="dsl-label-label">Label</span>
+            <button class="ds-reset-btn" id="dsr-label" title="Reset section">↺</button>
+          </summary>
           <div class="ds-section-body">
-            <div>
-              <label class="fm-label" id="dsl-width">Width (mm)</label>
-              <input type="number" id="ds-width" value="60" class="fm-input">
-            </div>
-            <div>
-              <label class="fm-label" id="dsl-height">Height (mm)</label>
-              <input type="number" id="ds-height" value="40" class="fm-input">
+            <div class="ds-dim-grid">
+              <div>
+                <label class="fm-label" id="dsl-width">W (mm)</label>
+                <input type="number" id="ds-width" value="60" min="10" max="300" class="fm-input">
+              </div>
+              <div>
+                <label class="fm-label" id="dsl-height">H (mm)</label>
+                <input type="number" id="ds-height" value="40" min="5" max="200" class="fm-input">
+              </div>
             </div>
             <label class="fm-checkbox-group">
               <input type="checkbox" id="ds-border">
@@ -143,22 +133,67 @@ const { id } = Astro.params
           </div>
         </details>
 
+        <!-- Section: Logo -->
+        <details class="ds-section" open>
+          <summary class="ds-section-header" id="dsh-logo">
+            <label class="ds-header-show" onclick="event.stopPropagation()">
+              <input type="checkbox" id="ds-logo-show" checked>
+              <span id="dsl-logo-label">Logo</span>
+            </label>
+            <button class="ds-reset-btn" id="dsr-logo" title="Reset section">↺</button>
+          </summary>
+          <div class="ds-section-body">
+            <div class="ds-size-row">
+              <label class="fm-label ds-size-label" id="dsl-logo-size">Height (mm)</label>
+              <input type="range" id="ds-logo-size-range" min="2" max="20" step="0.5" value="6" class="ds-slider">
+              <input type="number" id="ds-logo-size" value="6" step="0.5" min="2" max="20" class="fm-input ds-size-num">
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-logo-align">Alignment</label>
+              <div class="ds-align-group" id="ds-logo-align-group" data-value="left">
+                <button class="ds-align-btn active" data-align="left" title="Left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+                </button>
+                <button class="ds-align-btn" data-align="center" title="Center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                </button>
+                <button class="ds-align-btn" data-align="right" title="Right">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </details>
+
         <!-- Section: Title -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-title">Title<button class="ds-reset-btn" id="dsr-title" title="Reset section">↺</button></summary>
-          <div class="ds-section-body">
-            <label class="fm-checkbox-group">
+          <summary class="ds-section-header" id="dsh-title">
+            <label class="ds-header-show" onclick="event.stopPropagation()">
               <input type="checkbox" id="ds-title-show" checked>
-              <span id="dsl-title-show">Show title</span>
+              <span id="dsl-title-label">Title</span>
             </label>
-            <div>
-              <label class="fm-label" id="dsl-title-size">Max font size (mm)</label>
-              <input type="number" id="ds-title-size" value="4" step="0.5" min="1" max="20" class="fm-input">
+            <button class="ds-reset-btn" id="dsr-title" title="Reset section">↺</button>
+          </summary>
+          <div class="ds-section-body">
+            <div class="ds-size-row">
+              <label class="fm-label ds-size-label" id="dsl-title-size">Max size (mm)</label>
+              <input type="range" id="ds-title-size-range" min="1" max="20" step="0.5" value="4" class="ds-slider">
+              <input type="number" id="ds-title-size" value="4" step="0.5" min="1" max="20" class="fm-input ds-size-num">
             </div>
-            <label class="fm-checkbox-group">
-              <input type="checkbox" id="ds-title-fit" checked>
-              <span id="dsl-title-fit">Fit to width</span>
-            </label>
+            <div class="ds-options-row">
+              <label class="fm-checkbox-group">
+                <input type="checkbox" id="ds-title-fit" checked>
+                <span id="dsl-title-fit">Fit to width</span>
+              </label>
+              <label class="fm-checkbox-group">
+                <input type="checkbox" id="ds-divider-above">
+                <span id="dsl-divider-above">Line above</span>
+              </label>
+              <label class="fm-checkbox-group">
+                <input type="checkbox" id="ds-divider-below" checked>
+                <span id="dsl-divider-below">Line below</span>
+              </label>
+            </div>
             <div>
               <label class="fm-label" id="dsl-title-align">Alignment</label>
               <div class="ds-align-group" id="ds-title-align-group" data-value="left">
@@ -174,7 +209,10 @@ const { id } = Astro.params
               </div>
             </div>
             <div>
-              <label class="fm-label" id="dsl-title-tpl">Template</label>
+              <div class="ds-tpl-label-row">
+                <label class="fm-label" id="dsl-title-tpl">Template</label>
+                <button class="ds-syntax-btn" id="ds-title-syntax-btn" type="button" title="Template syntax help">?</button>
+              </div>
               <input type="text" id="ds-title-tpl" value="{filament.name}" class="fm-input ds-tpl-input" placeholder="{filament.name}">
               <div class="ds-token-hints" id="ds-title-tokens"></div>
             </div>
@@ -183,7 +221,10 @@ const { id } = Astro.params
 
         <!-- Section: QR Code -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-qr">QR Code<button class="ds-reset-btn" id="dsr-qr" title="Reset section">↺</button></summary>
+          <summary class="ds-section-header" id="dsh-qr">
+            <span id="dsl-qr-label">QR Code</span>
+            <button class="ds-reset-btn" id="dsr-qr" title="Reset section">↺</button>
+          </summary>
           <div class="ds-section-body">
             <div>
               <label class="fm-label" id="dsl-qr-mode">Mode</label>
@@ -195,7 +236,10 @@ const { id } = Astro.params
             </div>
             <div>
               <label class="fm-label" id="dsl-qr-size">Size (mm)</label>
-              <input type="number" id="ds-qr-size" value="18" step="1" min="5" max="60" class="fm-input">
+              <div class="ds-size-row">
+                <input type="range" id="ds-qr-size-range" min="5" max="60" step="1" value="18" class="ds-slider">
+                <input type="number" id="ds-qr-size" value="18" step="1" min="5" max="60" class="fm-input ds-size-num">
+              </div>
             </div>
             <div>
               <label class="fm-label" id="dsl-qr-pos">Position</label>
@@ -229,15 +273,18 @@ const { id } = Astro.params
 
         <!-- Section: Information -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-info">Information<button class="ds-reset-btn" id="dsr-info" title="Reset section">↺</button></summary>
-          <div class="ds-section-body">
-            <label class="fm-checkbox-group">
+          <summary class="ds-section-header" id="dsh-info">
+            <label class="ds-header-show" onclick="event.stopPropagation()">
               <input type="checkbox" id="ds-info-show" checked>
-              <span id="dsl-info-show">Show information block</span>
+              <span id="dsl-info-label">Information</span>
             </label>
-            <div>
-              <label class="fm-label" id="dsl-info-size">Text size (mm)</label>
-              <input type="number" id="ds-info-size" value="2.5" step="0.5" min="1" max="10" class="fm-input">
+            <button class="ds-reset-btn" id="dsr-info" title="Reset section">↺</button>
+          </summary>
+          <div class="ds-section-body">
+            <div class="ds-size-row">
+              <label class="fm-label ds-size-label" id="dsl-info-size">Text size (mm)</label>
+              <input type="range" id="ds-info-size-range" min="1" max="10" step="0.5" value="2.5" class="ds-slider">
+              <input type="number" id="ds-info-size" value="2.5" step="0.5" min="1" max="10" class="fm-input ds-size-num">
             </div>
             <div>
               <label class="fm-label" id="dsl-info-halign">Horizontal align</label>
@@ -262,8 +309,11 @@ const { id } = Astro.params
               </div>
             </div>
             <div>
-              <label class="fm-label" id="dsl-info-tpl">Template</label>
-              <textarea id="ds-info-tpl" class="fm-input ds-tpl-input" rows="4" placeholder="{filament.material}&#10;{filament.color}&#10;Ext: {filament.extruder_temp}°C&#10;Bed: {filament.bed_temp}°C"></textarea>
+              <div class="ds-tpl-label-row">
+                <label class="fm-label" id="dsl-info-tpl">Template</label>
+                <button class="ds-syntax-btn" id="ds-info-syntax-btn" type="button" title="Template syntax help">?</button>
+              </div>
+              <textarea id="ds-info-tpl" class="fm-input ds-tpl-input" rows="7" placeholder="{filament.material}&#10;{filament.color}&#10;Ext: {filament.extruder_temp}°C&#10;Bed: {filament.bed_temp}°C"></textarea>
               <div class="ds-token-hints" id="ds-info-tokens"></div>
             </div>
           </div>
@@ -278,6 +328,14 @@ const { id } = Astro.params
     </aside>
 
     <main class="preview-container">
+      <div class="preview-zoom-bar">
+        <button class="preview-zoom-btn" id="preview-zoom-out" title="Zoom out">−</button>
+        <input type="range" id="preview-zoom-slider" min="50" max="300" step="5" value="100" class="preview-zoom-slider">
+        <button class="preview-zoom-btn" id="preview-zoom-in" title="Zoom in">+</button>
+        <span id="preview-zoom-label" class="preview-zoom-label">100%</span>
+        <button class="preview-zoom-btn preview-zoom-reset" id="preview-zoom-reset" title="Reset zoom">⟳</button>
+      </div>
+      <div class="preview-scroll-area">
       <div id="label-preview" class="label-preview">
         <!-- Top: Logo area -->
         <div id="label-top" class="label-top">
@@ -306,6 +364,7 @@ const { id } = Astro.params
           </div>
           <div id="label-qr-container" class="label-qr"></div>
         </div>
+      </div>
       </div>
     </main>
   </div>
@@ -370,11 +429,68 @@ const { id } = Astro.params
   .preview-container {
     flex: 1;
     display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-soft);
+  }
+
+  .preview-zoom-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px 6px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .preview-zoom-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background var(--transition), border-color var(--transition);
+  }
+  .preview-zoom-btn:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--btn-primary-text);
+  }
+  .preview-zoom-reset {
+    font-size: 0.85rem;
+  }
+
+  .preview-zoom-slider {
+    flex: 1;
+    max-width: 160px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .preview-zoom-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    min-width: 38px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .preview-scroll-area {
+    flex: 1;
+    display: flex;
     align-items: center;
     justify-content: center;
     padding: 40px;
     overflow: auto;
-    background: var(--bg-soft);
   }
 
   .label-preview {
@@ -403,7 +519,7 @@ const { id } = Astro.params
   }
 
   .print-sidebar.sidebar-wide {
-    width: 420px;
+    width: 530px;
   }
 
   .label-logo {
@@ -853,7 +969,172 @@ const { id } = Astro.params
     resize: vertical;
   }
 
-  /* Token hint chips below template inputs */
+  /* Inline row of checkboxes (fit/divider options) */
+  .ds-options-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+  }
+
+  /* Show checkbox embedded in section header */
+  .ds-header-show {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    flex: 1;
+    min-width: 0;
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+  }
+  .ds-header-show input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+
+  /* Two-column grid for width + height */
+  .ds-dim-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  /* Inline size row: label + slider + number input */
+  .ds-size-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ds-size-label {
+    min-width: 80px;
+    flex-shrink: 0;
+    margin-bottom: 0;
+  }
+  .ds-slider {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .ds-size-num {
+    width: 60px !important;
+    flex-shrink: 0;
+    padding: 4px 6px !important;
+    text-align: center;
+  }
+
+  /* Template label row with syntax help button */
+  .ds-tpl-label-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .ds-tpl-label-row .fm-label {
+    margin-bottom: 0;
+    flex: 1;
+  }
+
+  /* Syntax help button */
+  .ds-syntax-btn {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    font-size: 0.65rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background var(--transition), color var(--transition);
+  }
+  .ds-syntax-btn:hover {
+    background: var(--accent);
+    color: var(--btn-primary-text);
+  }
+
+</style>
+
+<style is:global>
+  /* Syntax popover — global because it is appended to document.body */
+  .ds-syntax-popover {
+    position: fixed;
+    z-index: 9999;
+    background: #1a2a1a;
+    border: 1px solid var(--accent, #4ade80);
+    border-radius: 10px;
+    padding: 14px 16px 12px;
+    width: 380px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(74,222,128,0.1);
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: #d4e8d4;
+  }
+  .ds-syntax-popover h4 {
+    margin: 0 0 10px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent, #4ade80);
+    padding-right: 20px;
+  }
+  .ds-syntax-popover table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .ds-syntax-popover tr + tr td {
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  .ds-syntax-popover td {
+    padding: 5px 0;
+    vertical-align: middle;
+  }
+  .ds-syntax-popover td:first-child {
+    font-family: 'Space Mono', 'Courier New', monospace;
+    font-size: 0.68rem;
+    color: var(--accent, #4ade80);
+    white-space: nowrap;
+    padding-right: 12px;
+  }
+  .ds-syntax-popover td:last-child {
+    color: #b8d4b8;
+    font-size: 0.76rem;
+    padding-left: 8px;
+  }
+  .ds-syntax-popover .ds-popover-eg {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.68rem;
+    color: #6a9a6a;
+    font-style: italic;
+  }
+  .ds-syntax-popover .ds-popover-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #6a8a6a;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .ds-syntax-popover .ds-popover-close:hover {
+    color: #d4e8d4;
+    background: rgba(255,255,255,0.08);
+  }
+
+  /* Token hint chips — must be global because chips are created dynamically via JS */
   .ds-token-hints {
     display: flex;
     flex-wrap: wrap;
@@ -863,15 +1144,17 @@ const { id } = Astro.params
 
   .ds-token-chip {
     font-family: 'Space Mono', 'Courier New', monospace;
-    font-size: 0.68rem;
-    padding: 2px 7px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--bg-soft);
-    color: var(--text-muted);
+    font-size: 0.6rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
     cursor: pointer;
     transition: background var(--transition), color var(--transition);
     white-space: nowrap;
+    user-select: none;
+    line-height: 1.4;
   }
 
   .ds-token-chip:hover {
@@ -879,9 +1162,7 @@ const { id } = Astro.params
     border-color: var(--accent);
     color: var(--btn-primary-text);
   }
-</style>
 
-<style is:global>
   @media print {
     /* Reset page */
     html, body {
@@ -1087,15 +1368,15 @@ const { id } = Astro.params
   const DESIGNER_KEY = 'filaman-label-designer-v1'
 
   interface LabelDesignerSettings {
-    logo:   { show: boolean; sizeMm: number }
+    logo:   { show: boolean; sizeMm: number; align: 'left'|'center'|'right' }
     label:  { width: number; height: number; border: boolean }
-    title:  { show: boolean; sizeMm: number; fitToWidth: boolean; align: 'left'|'center'|'right'; template: string }
+    title:  { show: boolean; sizeMm: number; fitToWidth: boolean; align: 'left'|'center'|'right'; template: string; dividerAbove: boolean; dividerBelow: boolean }
     qr:     { mode: 'none'|'simple'|'icon'; sizeMm: number; position: 'left'|'right'; vAlign: 'top'|'center'|'bottom'; linkMode: 'spool'|'url'; urlTemplate: string }
     info:   { show: boolean; sizeMm: number; hAlign: 'left'|'center'|'right'; vAlign: 'top'|'center'|'bottom'; template: string }
   }
 
   const DESIGNER_DEFAULTS: LabelDesignerSettings = {
-    logo:   { show: true, sizeMm: 6 },
+    logo:   { show: true, sizeMm: 6, align: 'left' },
     label:  { width: 60, height: 40, border: false },
     title:  { show: true, sizeMm: 4, fitToWidth: true, align: 'left', template: '{filament.name}' },
     qr:     { mode: 'simple', sizeMm: 18, position: 'right', vAlign: 'bottom', linkMode: 'spool', urlTemplate: '' },
@@ -1115,6 +1396,7 @@ const { id } = Astro.params
       logo: {
         show:   (document.getElementById('ds-logo-show') as HTMLInputElement).checked,
         sizeMm: Number((document.getElementById('ds-logo-size') as HTMLInputElement).value),
+        align:  (document.getElementById('ds-logo-align-group') as HTMLElement).dataset.value as 'left'|'center'|'right',
       },
       label: {
         width:  Number((document.getElementById('ds-width') as HTMLInputElement).value),
@@ -1127,6 +1409,8 @@ const { id } = Astro.params
         fitToWidth: (document.getElementById('ds-title-fit') as HTMLInputElement).checked,
         align:      (document.getElementById('ds-title-align-group') as HTMLElement).dataset.value as 'left'|'center'|'right',
         template:   (document.getElementById('ds-title-tpl') as HTMLInputElement).value,
+        dividerAbove: (document.getElementById('ds-divider-above') as HTMLInputElement).checked,
+        dividerBelow: (document.getElementById('ds-divider-below') as HTMLInputElement).checked,
       },
       qr: {
         mode:        (document.getElementById('ds-qr-mode') as HTMLSelectElement).value as 'none'|'simple'|'icon',
@@ -1151,8 +1435,24 @@ const { id } = Astro.params
     let s: LabelDesignerSettings = DESIGNER_DEFAULTS
     try {
       const raw = localStorage.getItem(DESIGNER_KEY)
-      if (raw) s = { ...DESIGNER_DEFAULTS, ...JSON.parse(raw) }
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        s = {
+          ...DESIGNER_DEFAULTS,
+          ...parsed,
+          logo:  { ...DESIGNER_DEFAULTS.logo,  ...parsed.logo },
+          label: { ...DESIGNER_DEFAULTS.label, ...parsed.label },
+          title: { ...DESIGNER_DEFAULTS.title, ...parsed.title },
+          qr:    { ...DESIGNER_DEFAULTS.qr,    ...parsed.qr },
+          info:  { ...DESIGNER_DEFAULTS.info,  ...parsed.info },
+        }
+      }
     } catch { /* ignore */ }
+
+    ;(document.getElementById('ds-logo-show') as HTMLInputElement).checked = s.logo.show
+    ;(document.getElementById('ds-logo-size') as HTMLInputElement).value = String(s.logo.sizeMm)
+    ;(document.getElementById('ds-logo-size-range') as HTMLInputElement).value = String(s.logo.sizeMm)
+    setAlignGroup('ds-logo-align-group', s.logo.align)
 
     ;(document.getElementById('ds-width') as HTMLInputElement).value = String(s.label.width)
     ;(document.getElementById('ds-height') as HTMLInputElement).value = String(s.label.height)
@@ -1160,12 +1460,16 @@ const { id } = Astro.params
 
     ;(document.getElementById('ds-title-show') as HTMLInputElement).checked = s.title.show
     ;(document.getElementById('ds-title-size') as HTMLInputElement).value = String(s.title.sizeMm)
+    ;(document.getElementById('ds-title-size-range') as HTMLInputElement).value = String(s.title.sizeMm)
     ;(document.getElementById('ds-title-fit') as HTMLInputElement).checked = s.title.fitToWidth
     setAlignGroup('ds-title-align-group', s.title.align)
     ;(document.getElementById('ds-title-tpl') as HTMLInputElement).value = s.title.template
+    ;(document.getElementById('ds-divider-above') as HTMLInputElement).checked = s.title.dividerAbove ?? false
+    ;(document.getElementById('ds-divider-below') as HTMLInputElement).checked = s.title.dividerBelow ?? true
 
     ;(document.getElementById('ds-qr-mode') as HTMLSelectElement).value = s.qr.mode
     ;(document.getElementById('ds-qr-size') as HTMLInputElement).value = String(s.qr.sizeMm)
+    ;(document.getElementById('ds-qr-size-range') as HTMLInputElement).value = String(s.qr.sizeMm)
     setPillGroup('ds-qr-pos-group', s.qr.position)
     setPillGroup('ds-qr-valign-group', s.qr.vAlign)
     setPillGroup('ds-qr-link-group', s.qr.linkMode)
@@ -1174,6 +1478,7 @@ const { id } = Astro.params
 
     ;(document.getElementById('ds-info-show') as HTMLInputElement).checked = s.info.show
     ;(document.getElementById('ds-info-size') as HTMLInputElement).value = String(s.info.sizeMm)
+    ;(document.getElementById('ds-info-size-range') as HTMLInputElement).value = String(s.info.sizeMm)
     setAlignGroup('ds-info-align-group', s.info.hAlign)
     setPillGroup('ds-info-valign-group', s.info.vAlign)
     ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = s.info.template
@@ -1242,6 +1547,7 @@ const { id } = Astro.params
   }
 
   // Wire up all designer controls
+  wireAlignGroup('ds-logo-align-group')
   wireAlignGroup('ds-title-align-group')
   wireAlignGroup('ds-info-align-group')
   wirePillGroup('ds-qr-pos-group')
@@ -1252,7 +1558,7 @@ const { id } = Astro.params
   })
 
   const dsInputIds = ['ds-width','ds-height','ds-logo-size','ds-title-size','ds-qr-size','ds-info-size','ds-title-tpl','ds-qr-url-tpl','ds-info-tpl']
-  const dsCheckIds = ['ds-border','ds-logo-show','ds-title-show','ds-title-fit','ds-info-show']
+  const dsCheckIds = ['ds-border','ds-logo-show','ds-title-show','ds-title-fit','ds-divider-above','ds-divider-below','ds-info-show']
   const dsSelectIds = ['ds-qr-mode']
   ;[...dsInputIds, ...dsCheckIds, ...dsSelectIds].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => { saveDesignerSettings(); updateDesignerPreview() })
@@ -1264,6 +1570,87 @@ const { id } = Astro.params
     }
   })
 
+  // Wire sliders ↔ number inputs bidirectionally
+  const sliderPairs: [string, string][] = [
+    ['ds-logo-size-range', 'ds-logo-size'],
+    ['ds-title-size-range', 'ds-title-size'],
+    ['ds-qr-size-range', 'ds-qr-size'],
+    ['ds-info-size-range', 'ds-info-size'],
+  ]
+  for (const [rangId, numId] of sliderPairs) {
+    const rang = document.getElementById(rangId) as HTMLInputElement
+    const num  = document.getElementById(numId)  as HTMLInputElement
+    if (!rang || !num) continue
+    rang.addEventListener('input', () => {
+      num.value = rang.value
+      saveDesignerSettings()
+      updateDesignerPreview()
+    })
+    num.addEventListener('input', () => {
+      rang.value = num.value
+    })
+  }
+
+  // Template syntax popover
+  const SYNTAX_HTML = `
+    <button class="ds-popover-close" title="Close">✕</button>
+    <h4>Template syntax</h4>
+    <table>
+      <tr><td>{token}</td><td>Insert token value<br><span class="ds-popover-eg">e.g. {filament.material} → TPU</span></td></tr>
+      <tr><td>{text{token}text}</td><td>Wrap token with literal text — the whole thing is hidden if the token is empty<br><span class="ds-popover-eg">e.g. {Ext: {filament.extruder_temp}°C} → Ext: 210°C, or nothing if temp is unset</span></td></tr>
+      <tr><td>**text**</td><td><strong>Bold</strong></td></tr>
+      <tr><td>*text*</td><td><em>Italic</em></td></tr>
+      <tr><td>==text==</td><td style="background:#000;color:#fff;padding:0 2px;border-radius:2px">Inverse (white on black)</td></tr>
+      <tr><td>\\n</td><td>New line (in info textarea, just press Enter)</td></tr>
+    </table>`
+
+  let _activeSyntaxPopover: HTMLElement | null = null
+  function openSyntaxPopover(anchorBtn: HTMLElement) {
+    if (_activeSyntaxPopover) { _activeSyntaxPopover.remove(); _activeSyntaxPopover = null }
+    const pop = document.createElement('div')
+    pop.className = 'ds-syntax-popover'
+    pop.innerHTML = SYNTAX_HTML
+    pop.querySelector('.ds-popover-close')?.addEventListener('click', () => { pop.remove(); _activeSyntaxPopover = null })
+    // Append first (hidden) so we can measure its natural size
+    pop.style.visibility = 'hidden'
+    document.body.appendChild(pop)
+
+    const rect = anchorBtn.getBoundingClientRect()
+    const pw = pop.offsetWidth
+    const ph = pop.offsetHeight
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const GAP = 8
+
+    // Horizontal: prefer aligning left edge with anchor, but clamp to viewport
+    let left = rect.left
+    if (left + pw + GAP > vw) left = vw - pw - GAP
+    if (left < GAP) left = GAP
+
+    // Vertical: prefer below anchor, flip above if not enough room
+    let top = rect.bottom + 6
+    if (top + ph + GAP > vh) top = rect.top - ph - 6
+    if (top < GAP) top = GAP
+
+    pop.style.position = 'fixed'
+    pop.style.left = left + 'px'
+    pop.style.top = top + 'px'
+    pop.style.visibility = ''
+    _activeSyntaxPopover = pop
+    // Close on outside click
+    setTimeout(() => {
+      const handler = (e: MouseEvent) => {
+        if (!pop.contains(e.target as Node) && e.target !== anchorBtn) {
+          pop.remove(); _activeSyntaxPopover = null
+          document.removeEventListener('click', handler)
+        }
+      }
+      document.addEventListener('click', handler)
+    }, 0)
+  }
+  document.getElementById('ds-title-syntax-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openSyntaxPopover(e.currentTarget as HTMLElement) })
+  document.getElementById('ds-info-syntax-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openSyntaxPopover(e.currentTarget as HTMLElement) })
+
   // Token chips
   buildTokenChips('ds-title-tokens', 'ds-title-tpl', DESIGNER_TOKENS)
   buildTokenChips('ds-info-tokens', 'ds-info-tpl', DESIGNER_TOKENS)
@@ -1271,6 +1658,28 @@ const { id } = Astro.params
 
   // Load persisted designer settings
   loadDesignerSettings()
+
+  // ─── Preview zoom ─────────────────────────────────────────────────────────
+
+  const ZOOM_KEY = 'filaman-label-zoom-v1'
+  let _previewZoom = 100
+  function applyZoom(z: number) {
+    _previewZoom = Math.min(300, Math.max(50, Math.round(z / 5) * 5))
+    const lp = document.getElementById('label-preview') as HTMLElement
+    if (lp) { lp.style.transform = `scale(${_previewZoom / 100})`; lp.style.transformOrigin = 'center center' }
+    ;(document.getElementById('preview-zoom-slider') as HTMLInputElement).value = String(_previewZoom)
+    const label = document.getElementById('preview-zoom-label')
+    if (label) label.textContent = _previewZoom + '%'
+    localStorage.setItem(ZOOM_KEY, String(_previewZoom))
+  }
+  document.getElementById('preview-zoom-slider')?.addEventListener('input', (e) => {
+    applyZoom(Number((e.target as HTMLInputElement).value))
+  })
+  document.getElementById('preview-zoom-in')?.addEventListener('click', () => applyZoom(_previewZoom + 10))
+  document.getElementById('preview-zoom-out')?.addEventListener('click', () => applyZoom(_previewZoom - 10))
+  document.getElementById('preview-zoom-reset')?.addEventListener('click', () => applyZoom(100))
+  // Restore persisted zoom level
+  ;(() => { const z = Number(localStorage.getItem(ZOOM_KEY)); if (z >= 50 && z <= 300) applyZoom(z) })()
 
   // ─── Presets ──────────────────────────────────────────────────────────────
 
@@ -1421,16 +1830,22 @@ const { id } = Astro.params
     // Apply to form
     ;(document.getElementById('ds-logo-show') as HTMLInputElement).checked = s.logo.show
     ;(document.getElementById('ds-logo-size') as HTMLInputElement).value = String(s.logo.sizeMm)
+    ;(document.getElementById('ds-logo-size-range') as HTMLInputElement).value = String(s.logo.sizeMm)
+    setAlignGroup('ds-logo-align-group', s.logo.align)
     ;(document.getElementById('ds-width') as HTMLInputElement).value = String(s.label.width)
     ;(document.getElementById('ds-height') as HTMLInputElement).value = String(s.label.height)
     ;(document.getElementById('ds-border') as HTMLInputElement).checked = s.label.border
     ;(document.getElementById('ds-title-show') as HTMLInputElement).checked = s.title.show
     ;(document.getElementById('ds-title-size') as HTMLInputElement).value = String(s.title.sizeMm)
+    ;(document.getElementById('ds-title-size-range') as HTMLInputElement).value = String(s.title.sizeMm)
     ;(document.getElementById('ds-title-fit') as HTMLInputElement).checked = s.title.fitToWidth
     setAlignGroup('ds-title-align-group', s.title.align)
     ;(document.getElementById('ds-title-tpl') as HTMLInputElement).value = s.title.template
+    ;(document.getElementById('ds-divider-above') as HTMLInputElement).checked = s.title.dividerAbove ?? false
+    ;(document.getElementById('ds-divider-below') as HTMLInputElement).checked = s.title.dividerBelow ?? true
     ;(document.getElementById('ds-qr-mode') as HTMLSelectElement).value = s.qr.mode
     ;(document.getElementById('ds-qr-size') as HTMLInputElement).value = String(s.qr.sizeMm)
+    ;(document.getElementById('ds-qr-size-range') as HTMLInputElement).value = String(s.qr.sizeMm)
     setPillGroup('ds-qr-pos-group', s.qr.position)
     setPillGroup('ds-qr-valign-group', s.qr.vAlign)
     setPillGroup('ds-qr-link-group', s.qr.linkMode)
@@ -1438,6 +1853,7 @@ const { id } = Astro.params
     ;(document.getElementById('ds-qr-url-wrap') as HTMLElement).style.display = s.qr.linkMode === 'url' ? '' : 'none'
     ;(document.getElementById('ds-info-show') as HTMLInputElement).checked = s.info.show
     ;(document.getElementById('ds-info-size') as HTMLInputElement).value = String(s.info.sizeMm)
+    ;(document.getElementById('ds-info-size-range') as HTMLInputElement).value = String(s.info.sizeMm)
     setAlignGroup('ds-info-align-group', s.info.hAlign)
     setPillGroup('ds-info-valign-group', s.info.vAlign)
     ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = s.info.template
@@ -1537,6 +1953,8 @@ const { id } = Astro.params
     const d = DESIGNER_DEFAULTS.logo
     ;(document.getElementById('ds-logo-show') as HTMLInputElement).checked = d.show
     ;(document.getElementById('ds-logo-size') as HTMLInputElement).value = String(d.sizeMm)
+    ;(document.getElementById('ds-logo-size-range') as HTMLInputElement).value = String(d.sizeMm)
+    setAlignGroup('ds-logo-align-group', d.align)
   })
 
   wireResetBtn('dsr-label', () => {
@@ -1550,15 +1968,19 @@ const { id } = Astro.params
     const d = DESIGNER_DEFAULTS.title
     ;(document.getElementById('ds-title-show') as HTMLInputElement).checked = d.show
     ;(document.getElementById('ds-title-size') as HTMLInputElement).value = String(d.sizeMm)
+    ;(document.getElementById('ds-title-size-range') as HTMLInputElement).value = String(d.sizeMm)
     ;(document.getElementById('ds-title-fit') as HTMLInputElement).checked = d.fitToWidth
     setAlignGroup('ds-title-align-group', d.align)
     ;(document.getElementById('ds-title-tpl') as HTMLInputElement).value = d.template
+    ;(document.getElementById('ds-divider-above') as HTMLInputElement).checked = d.dividerAbove
+    ;(document.getElementById('ds-divider-below') as HTMLInputElement).checked = d.dividerBelow
   })
 
   wireResetBtn('dsr-qr', () => {
     const d = DESIGNER_DEFAULTS.qr
     ;(document.getElementById('ds-qr-mode') as HTMLSelectElement).value = d.mode
     ;(document.getElementById('ds-qr-size') as HTMLInputElement).value = String(d.sizeMm)
+    ;(document.getElementById('ds-qr-size-range') as HTMLInputElement).value = String(d.sizeMm)
     setPillGroup('ds-qr-pos-group', d.position)
     setPillGroup('ds-qr-valign-group', d.vAlign)
     setPillGroup('ds-qr-link-group', d.linkMode)
@@ -1570,6 +1992,7 @@ const { id } = Astro.params
     const d = DESIGNER_DEFAULTS.info
     ;(document.getElementById('ds-info-show') as HTMLInputElement).checked = d.show
     ;(document.getElementById('ds-info-size') as HTMLInputElement).value = String(d.sizeMm)
+    ;(document.getElementById('ds-info-size-range') as HTMLInputElement).value = String(d.sizeMm)
     setAlignGroup('ds-info-align-group', d.hAlign)
     setPillGroup('ds-info-valign-group', d.vAlign)
     ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = d.template
@@ -1699,20 +2122,21 @@ const { id } = Astro.params
   document.getElementById('ds-preset-load-btn').textContent = t('spools.dsPresetsLoad', 'Load')
   document.getElementById('ds-preset-delete-btn').title = t('spools.dsPresetsDelete', 'Delete selected preset')
   document.getElementById('dsl-preset-name').textContent = t('spools.dsPresetsName', 'Preset name')
-  document.getElementById('dsh-logo').childNodes[0].textContent = t('spools.dsLogo', 'Logo')
-  document.getElementById('dsl-logo-show').textContent = t('spools.dsLogoShow', 'Show manufacturer logo')
+  document.getElementById('dsl-logo-label').textContent = t('spools.dsLogo', 'Logo')
   document.getElementById('dsl-logo-size').textContent = t('spools.dsLogoSize', 'Logo height (mm)')
-  document.getElementById('dsh-label').childNodes[0].textContent = t('spools.dsLabel', 'Label')
+  document.getElementById('dsl-label-label').textContent = t('spools.dsLabel', 'Label')
   document.getElementById('dsl-width').textContent = t('spools.labelWidth', 'Width (mm)')
   document.getElementById('dsl-height').textContent = t('spools.labelHeight', 'Height (mm)')
   document.getElementById('dsl-border').textContent = t('spools.dsBorder', 'Border')
-  document.getElementById('dsh-title').childNodes[0].textContent = t('spools.dsTitle', 'Title')
-  document.getElementById('dsl-title-show').textContent = t('spools.dsTitleShow', 'Show title')
+  document.getElementById('dsl-title-label').textContent = t('spools.dsTitle', 'Title')
+  // dsl-title-show is now the header span dsl-title-label (already set above)
   document.getElementById('dsl-title-size').textContent = t('spools.dsTitleSize', 'Max font size (mm)')
   document.getElementById('dsl-title-fit').textContent = t('spools.dsTitleFit', 'Fit to width')
+  document.getElementById('dsl-divider-above').textContent = t('spools.dsDividerAbove', 'Line above')
+  document.getElementById('dsl-divider-below').textContent = t('spools.dsDividerBelow', 'Line below')
   document.getElementById('dsl-title-align').textContent = t('spools.dsAlign', 'Alignment')
   document.getElementById('dsl-title-tpl').textContent = t('spools.dsTemplate', 'Template')
-  document.getElementById('dsh-qr').childNodes[0].textContent = t('spools.showQRCode', 'QR Code')
+  const qrLabelEl = document.getElementById('dsl-qr-label'); if (qrLabelEl) qrLabelEl.textContent = t('spools.showQRCode', 'QR Code')
   document.getElementById('dsl-qr-mode').textContent = t('spools.dsQrMode', 'Mode')
   document.getElementById('dso-qr-none').textContent = t('spools.dsQrNone', 'None')
   document.getElementById('dso-qr-simple').textContent = t('spools.dsQrSimple', 'Simple')
@@ -1729,8 +2153,7 @@ const { id } = Astro.params
   document.getElementById('dsp-qr-spool').textContent = t('spools.dsQrSpoolUrl', 'Spool URL')
   document.getElementById('dsp-qr-url').textContent = t('spools.dsQrCustomUrl', 'Custom URL')
   document.getElementById('dsl-qr-url-tpl').textContent = t('spools.dsTemplate', 'Template')
-  document.getElementById('dsh-info').childNodes[0].textContent = t('spools.dsInfo', 'Information')
-  document.getElementById('dsl-info-show').textContent = t('spools.dsInfoShow', 'Show information block')
+  document.getElementById('dsl-info-label').textContent = t('spools.dsInfo', 'Information')
   document.getElementById('dsl-info-size').textContent = t('spools.dsInfoSize', 'Text size (mm)')
   document.getElementById('dsl-info-halign').textContent = t('spools.dsHAlign', 'Horizontal align')
   document.getElementById('dsl-info-valign').textContent = t('spools.dsVAlign', 'Vertical align')
@@ -2016,75 +2439,82 @@ const { id } = Astro.params
     // Clear and rebuild preview in designer layout
     labelPreview.innerHTML = ''
 
-    // --- Header row: logo (if available) + title side-by-side ---
+    // --- Logo row (if logo enabled and available) ---
+    const makeRule = () => {
+      const r = document.createElement('div')
+      r.style.borderTop = '0.3mm solid black'
+      r.style.margin = '0 1mm'
+      return r
+    }
     const hasLogo = s.logo?.show !== false && labelLogoLoaded && labelLogoUrl
-    const hasTitle = s.title.show && s.title.template.trim()
+    const hasTitle = !!(s.title.show && s.title.template.trim())
 
-    if (hasLogo || hasTitle) {
-      const headerRow = document.createElement('div')
-      headerRow.style.display = 'flex'
-      headerRow.style.alignItems = 'center'
-      headerRow.style.gap = '1mm'
-      headerRow.style.padding = '1mm 1mm 0 1mm'
-      headerRow.style.overflow = 'hidden'
+    // Rule ABOVE logo/title block — no longer used here, moved below logo
+    // (kept for structure reference)
 
-      if (hasLogo) {
-        const logoImg = document.createElement('img')
-        logoImg.src = labelLogoUrl!
-        const logoSizeMm = s.logo?.sizeMm ?? 6
-        const logoH = Math.round(logoSizeMm * 3.7795)
-        logoImg.style.height = logoH + 'px'
-        logoImg.style.width = 'auto'
-        logoImg.style.flexShrink = '0'
-        logoImg.style.objectFit = 'contain'
-        headerRow.appendChild(logoImg)
-      }
+    if (hasLogo) {
+      const logoRow = document.createElement('div')
+      logoRow.style.padding = '1mm 1mm 0.5mm 1mm'
+      logoRow.style.display = 'flex'
+      logoRow.style.alignItems = 'center'
+      const logoAlign = s.logo?.align ?? 'left'
+      logoRow.style.justifyContent = logoAlign === 'center' ? 'center' : logoAlign === 'right' ? 'flex-end' : 'flex-start'
+      const logoImg = document.createElement('img')
+      logoImg.src = labelLogoUrl!
+      const logoSizeMm = s.logo?.sizeMm ?? 6
+      logoImg.style.height = Math.round(logoSizeMm * 3.7795) + 'px'
+      logoImg.style.width = 'auto'
+      logoImg.style.objectFit = 'contain'
+      logoRow.appendChild(logoImg)
+      labelPreview.appendChild(logoRow)
+    }
 
-      if (hasTitle) {
-        const titleEl = document.createElement('div')
-        titleEl.style.flex = '1'
-        titleEl.style.minWidth = '0'
-        titleEl.style.textAlign = s.title.align
-        titleEl.style.fontWeight = '700'
-        titleEl.style.overflow = 'hidden'
-        titleEl.style.whiteSpace = 'nowrap'
-        titleEl.style.textOverflow = 'ellipsis'
-        titleEl.style.color = 'black'
+    // --- Title row ---
+    // Rule ABOVE title (below logo if present)
+    if (s.title.dividerAbove && hasTitle) {
+      const r = makeRule(); r.style.marginBottom = '0.5mm'; labelPreview.appendChild(r)
+    }
+    if (hasTitle) {
+      const titleRow = document.createElement('div')
+      titleRow.style.padding = hasLogo ? '0 1mm 0 1mm' : '1mm 1mm 0 1mm'
+      titleRow.style.overflow = 'hidden'
 
-        const frag = parseTemplate(s.title.template, data)
-        titleEl.appendChild(frag)
+      const titleEl = document.createElement('div')
+      titleEl.style.textAlign = s.title.align
+      titleEl.style.fontWeight = '700'
+      titleEl.style.overflow = 'hidden'
+      titleEl.style.whiteSpace = 'nowrap'
+      titleEl.style.textOverflow = 'ellipsis'
+      titleEl.style.color = 'black'
+      const frag = parseTemplate(s.title.template, data)
+      titleEl.appendChild(frag)
+      titleRow.appendChild(titleEl)
+      labelPreview.appendChild(titleRow)
 
-        if (s.title.fitToWidth) {
-          headerRow.appendChild(titleEl)
-          labelPreview.appendChild(headerRow)
-          const maxPx = s.title.sizeMm * 3.78
-          let lo = 4, hi = maxPx, bestPx = lo
-          titleEl.style.fontSize = maxPx + 'px'
-          if (titleEl.scrollWidth <= titleEl.clientWidth) {
-            bestPx = maxPx
-          } else {
-            for (let i = 0; i < 12; i++) {
-              const mid = (lo + hi) / 2
-              titleEl.style.fontSize = mid + 'px'
-              if (titleEl.scrollWidth <= titleEl.clientWidth) { bestPx = mid; lo = mid }
-              else hi = mid
-            }
-          }
-          titleEl.style.fontSize = bestPx + 'px'
+      if (s.title.fitToWidth) {
+        const maxPx = s.title.sizeMm * 3.78
+        // Measure before appending causes 0 width; titleRow is already appended
+        titleEl.style.fontSize = maxPx + 'px'
+        let lo = 4, hi = maxPx, bestPx = lo
+        if (titleEl.scrollWidth <= titleRow.clientWidth) {
+          bestPx = maxPx
         } else {
-          titleEl.style.fontSize = s.title.sizeMm * 3.78 + 'px'
-          headerRow.appendChild(titleEl)
-          labelPreview.appendChild(headerRow)
+          for (let i = 0; i < 12; i++) {
+            const mid = (lo + hi) / 2
+            titleEl.style.fontSize = mid + 'px'
+            if (titleEl.scrollWidth <= titleRow.clientWidth) { bestPx = mid; lo = mid }
+            else hi = mid
+          }
         }
+        titleEl.style.fontSize = bestPx + 'px'
       } else {
-        labelPreview.appendChild(headerRow)
+        titleEl.style.fontSize = s.title.sizeMm * 3.78 + 'px'
       }
+    }
 
-      // Divider below header
-      const div = document.createElement('div')
-      div.style.borderTop = '0.3mm solid black'
-      div.style.margin = '0 1mm 0 1mm'
-      labelPreview.appendChild(div)
+    // Rule BELOW logo+title block
+    if (s.title.dividerBelow && (hasLogo || hasTitle)) {
+      const r = makeRule(); r.style.marginTop = '0.5mm'; labelPreview.appendChild(r)
     }
 
     // --- Main row: info (left/right) + QR (left/right) ---
@@ -2095,7 +2525,9 @@ const { id } = Astro.params
     mainRow.style.padding = '1mm'
     mainRow.style.gap = '1.5mm'
     mainRow.style.flexDirection = s.qr.position === 'left' ? 'row-reverse' : 'row'
-    mainRow.style.alignItems = s.info.vAlign === 'top' ? 'flex-start' : s.info.vAlign === 'center' ? 'center' : 'flex-end'
+    mainRow.style.alignItems = (s.info.show && s.info.template.trim())
+      ? (s.info.vAlign === 'top' ? 'flex-start' : s.info.vAlign === 'center' ? 'center' : 'flex-end')
+      : 'stretch'
     labelPreview.appendChild(mainRow)
 
     // Information block

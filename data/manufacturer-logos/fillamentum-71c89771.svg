@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="96" viewBox="0 0 320 96" role="img" aria-label="Fillamentum logo">
+  <rect width="320" height="96" fill="transparent" />
+  <rect x="18" y="22" width="12" height="52" rx="4" fill="#DB2777" /><rect x="34" y="22" width="12" height="52" rx="4" fill="#831843" />
+  <text x="94" y="58" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" fill="#831843" letter-spacing="0.5">Fillamentum</text>
+</svg>
