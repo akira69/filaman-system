@@ -21,6 +21,95 @@ import Layout from '../../layouts/Layout.astro'
       min-width: 200px;
       max-width: 400px;
     }
+    .manufacturer-modal-card {
+      max-height: min(90vh, 920px);
+      overflow-y: auto;
+    }
+    .manufacturer-logo-upload-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    .manufacturer-logo-code-input {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+      font-size: 0.8rem;
+      line-height: 1.2;
+      min-height: 0;
+      padding: 10px 14px;
+    }
+    .manufacturer-logo-section-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .manufacturer-logo-header-preview {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      min-height: 52px;
+      flex: 1;
+      min-width: 0;
+    }
+    .manufacturer-logo-file-trigger {
+      display: inline-flex;
+      width: auto;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+    .manufacturer-logo-file-column {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-self: end;
+      width: max-content;
+      max-width: 100%;
+    }
+    .manufacturer-logo-file-column .fm-label,
+    .manufacturer-logo-file-column .manufacturer-logo-upload-state {
+      width: auto;
+      text-align: left;
+    }
+    .manufacturer-clear-logo-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #f8d66d;
+      border-color: color-mix(in srgb, #f8d66d 45%, var(--border));
+      background: color-mix(in srgb, #f8d66d 10%, transparent);
+    }
+    .manufacturer-clear-logo-button:hover {
+      background: color-mix(in srgb, #f8d66d 16%, transparent);
+      border-color: color-mix(in srgb, #f8d66d 60%, var(--border));
+    }
+    .manufacturer-sync-logo-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+    }
+    .manufacturer-sync-logo-button:hover {
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+      border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    }
+    .manufacturer-logo-upload-state {
+      display: none;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
   </style>
   <style is:global>
     .pagination-container { display: flex; justify-content: space-between; align-items: center; }
@@ -87,8 +176,8 @@ import Layout from '../../layouts/Layout.astro'
   <div class="pagination-container" id="pagination" style="margin-top: 16px;"></div>
 
   <!-- Modal -->
-  <div id="modal-container" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 50;">
-    <div class="fm-card" style="width: 100%; max-width: 480px; margin: 16px;">
+  <div id="modal-container" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 50; overflow-y: auto; padding: 24px 16px; overscroll-behavior: contain;">
+    <div class="fm-card manufacturer-modal-card" style="width: 100%; max-width: 640px; margin: auto;">
       <h3 id="modal-title" style="font-size: 1.1rem; font-weight: 600; margin-bottom: 16px;" data-i18n="manufacturers.addManufacturer">Add Manufacturer</h3>
 
       <!-- Mode toggle: DB lookup vs manual (create mode) -->
@@ -198,6 +287,67 @@ import Layout from '../../layouts/Layout.astro'
             </div>
           </div>
         </div>
+
+        <div class="fm-card" style="padding: 16px; margin-top: 8px;">
+          <div class="manufacturer-logo-section-header">
+            <h3 class="fm-label" style="font-size: 1rem; margin: 0; color: var(--text);" data-i18n="manufacturers.logoSection">Logo</h3>
+            <div id="manufacturer-logo-preview" class="manufacturer-logo-header-preview"></div>
+          </div>
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 12px; align-items: start;">
+            <div>
+              <label for="manufacturer-logo-url" class="fm-label" data-i18n="manufacturers.uploadLogoFromUrl">Upload logo from URL</label>
+              <input
+                type="url"
+                id="manufacturer-logo-url"
+                class="fm-input manufacturer-logo-code-input"
+                data-i18n-placeholder="manufacturers.logoUrlPlaceholder"
+                placeholder="e.g. https://example.com/logo.png"
+              />
+            </div>
+            <div class="manufacturer-logo-file-column">
+              <label class="fm-label" data-i18n="manufacturers.uploadLogo">Upload logo file from disk</label>
+              <input type="file" id="manufacturer-logo-file" accept="image/*" class="manufacturer-logo-upload-input" />
+              <button type="button" id="manufacturer-logo-file-trigger" class="fm-btn fm-btn-outline manufacturer-logo-file-trigger">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 3v12"/>
+                  <path d="m17 8-5-5-5 5"/>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                </svg>
+                <span data-i18n="manufacturers.uploadLogoFileButton">Choose logo file</span>
+              </button>
+              <div id="manufacturer-logo-upload-state" class="manufacturer-logo-upload-state"></div>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; margin-top: 2px;">
+            <div>
+              <label for="manufacturer-logo-file-path" class="fm-label" data-i18n="manufacturers.logoFilePath">Stored file path</label>
+              <input type="text" id="manufacturer-logo-file-path" class="fm-input manufacturer-logo-code-input" readonly />
+            </div>
+            <button type="button" id="manufacturer-clear-logo" class="fm-btn fm-btn-outline manufacturer-clear-logo-button">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m7 21 9.4-9.4c.5-.5.5-1.3 0-1.8L14.2 7.6c-.5-.5-1.3-.5-1.8 0L3 17"/>
+                <path d="m18 13 3-3a1.7 1.7 0 0 0 0-2.4l-4.6-4.6a1.7 1.7 0 0 0-2.4 0l-3 3"/>
+                <path d="M8 22h12"/>
+                <path d="m5 16 7 7"/>
+              </svg>
+              <span data-i18n="manufacturers.clearLogo">Clear Logo</span>
+            </button>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
+            <div id="manufacturer-resync-logo-hint" style="display: none; font-size: 0.8rem; color: var(--text-muted);" data-i18n="manufacturers.reSyncLogoHint">
+              Re-fetch the latest logo from FilaManDB and replace the current one.
+            </div>
+            <button type="button" id="manufacturer-resync-logo" class="fm-btn fm-btn-outline manufacturer-sync-logo-button" style="display: none;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 2v6h-6"/>
+                <path d="M3 12a9 9 0 0 1 15.3-6.36L21 8"/>
+                <path d="M3 22v-6h6"/>
+                <path d="M21 12a9 9 0 0 1-15.3 6.36L3 16"/>
+              </svg>
+              <span data-i18n="manufacturers.reSyncLogo">Re-sync from FilaManDB</span>
+            </button>
+          </div>
+        </div>
         
         <div id="modal-error" class="fm-alert-error hidden"></div>
         <div style="display: flex; gap: 12px;">
@@ -233,6 +383,7 @@ import Layout from '../../layouts/Layout.astro'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
     import { initColumnReorder } from '../../lib/column-reorder'
+    import { normalizeOptionalString, renderManufacturerLogo } from '../../lib/manufacturer-logo'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive, fuzzyTokenScore } from '../../lib/filamentdb-lookup'
     await initI18n()
@@ -241,9 +392,12 @@ import Layout from '../../layouts/Layout.astro'
     let mfrLookup: LookupInstance | null = null
     const filamentDbActive = await checkFilamentDbActive()
 
-    // Track FilamentDB logo info for download after create
+    // Track logo actions to apply after save
     let pendingLogoSlug: string | null = null
     let pendingHasLabelLogo = false
+    let pendingLogoFile: File | null = null
+    let pendingLogoPreviewUrl: string | null = null
+    let shouldClearLogo = false
 
     let manufacturers: any[] = []
     let sortKey: string | null = 'name'
@@ -333,6 +487,56 @@ import Layout from '../../layouts/Layout.astro'
     function getCsrfToken(): string {
       const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
       return match ? decodeURIComponent(match[1]) : ''
+    }
+
+    function resetPendingLogoPreviewUrl() {
+      if (pendingLogoPreviewUrl) {
+        URL.revokeObjectURL(pendingLogoPreviewUrl)
+      }
+      pendingLogoPreviewUrl = null
+    }
+
+    function renderModalLogoPreview() {
+      const preview = document.getElementById('manufacturer-logo-preview') as HTMLDivElement | null
+      const uploadState = document.getElementById('manufacturer-logo-upload-state') as HTMLDivElement | null
+      const filePathInput = document.getElementById('manufacturer-logo-file-path') as HTMLInputElement | null
+      const logoUrlInput = document.getElementById('manufacturer-logo-url') as HTMLInputElement | null
+      const nameInput = document.getElementById('manufacturer-name') as HTMLInputElement | null
+      if (!preview || !uploadState || !filePathInput || !logoUrlInput || !nameInput) return
+
+      const typedLogoUrl = normalizeOptionalString(logoUrlInput.value)
+      const currentPath = shouldClearLogo ? null : normalizeOptionalString(filePathInput.dataset.currentPath)
+      const currentLogoUrl = shouldClearLogo ? null : normalizeOptionalString(preview.dataset.currentUrl)
+      const manufacturerName = normalizeOptionalString(nameInput.value) || t('manufacturers.name')
+      const previewUrl = pendingLogoPreviewUrl || typedLogoUrl || currentLogoUrl
+      const tooltipText = pendingLogoFile?.name || typedLogoUrl || currentPath || t('manufacturers.noLogoConfigured')
+
+      preview.innerHTML = renderManufacturerLogo(
+        { name: manufacturerName, logo_file: currentPath, logo_url: currentLogoUrl },
+        {
+          width: 188,
+          height: 52,
+          tooltipText,
+          previewUrl,
+          withPill: true,
+          pillWidth: 210,
+          flexibleWidth: true,
+        },
+      )
+
+      if (pendingLogoFile) {
+        uploadState.textContent = t('manufacturers.pendingUploadSelected', { name: pendingLogoFile.name })
+        uploadState.style.display = 'block'
+      } else if (shouldClearLogo && currentPath) {
+        uploadState.textContent = t('manufacturers.logoWillBeCleared')
+        uploadState.style.display = 'block'
+      } else if (typedLogoUrl) {
+        uploadState.textContent = t('manufacturers.logoUrlWillBeImported')
+        uploadState.style.display = 'block'
+      } else {
+        uploadState.textContent = ''
+        uploadState.style.display = 'none'
+      }
     }
 
     function getFilterValues() {
@@ -638,6 +842,12 @@ import Layout from '../../layouts/Layout.astro'
       const materialInput = document.getElementById('manufacturer-material') as HTMLSelectElement
       const outerDiameterInput = document.getElementById('manufacturer-outer-diameter') as HTMLInputElement
       const widthInput = document.getElementById('manufacturer-width') as HTMLInputElement
+      const logoUrlInput = document.getElementById('manufacturer-logo-url') as HTMLInputElement
+      const logoFileInput = document.getElementById('manufacturer-logo-file') as HTMLInputElement
+      const logoFilePathInput = document.getElementById('manufacturer-logo-file-path') as HTMLInputElement
+      const logoPreview = document.getElementById('manufacturer-logo-preview') as HTMLDivElement
+      const resyncLogoButton = document.getElementById('manufacturer-resync-logo') as HTMLButtonElement
+      const resyncLogoHint = document.getElementById('manufacturer-resync-logo-hint') as HTMLDivElement
       const error = document.getElementById('modal-error')!
 
       // Mode toggle: show only for create (not edit)
@@ -656,6 +866,9 @@ import Layout from '../../layouts/Layout.astro'
       lookupToast.style.display = 'none'
       pendingLogoSlug = null
       pendingHasLabelLogo = false
+      pendingLogoFile = null
+      shouldClearLogo = false
+      resetPendingLogoPreviewUrl()
 
       // Shared renderItem & onSelect for both create & edit
       const renderMfrItem = (item: any) => {
@@ -666,17 +879,23 @@ import Layout from '../../layouts/Layout.astro'
       const onMfrSelect = (item: any) => {
         nameInput.value = item.name || ''
         urlInput.value = item.website || ''
+        shouldClearLogo = false
         pendingLogoSlug = (item.has_web_logo || item.has_label_logo) ? (item.slug || null) : null
         pendingHasLabelLogo = item.has_label_logo || false
+        resyncLogoButton.dataset.currentSlug = pendingLogoSlug || ''
+        resyncLogoButton.dataset.hasLabelLogo = String(pendingHasLabelLogo)
         lookupToast.className = 'fdb-toast fdb-toast-success'
         lookupToast.textContent = t('filamentdbLookup.prefillSuccess')
         lookupToast.style.display = ''
+        renderModalLogoPreview()
       }
 
       if (mf) {
         // Edit mode: hide create toggle, show lookup directly if FilamentDB active
         modeToggle.style.display = 'none'
         editLookupBtn.style.display = 'none'
+        resyncLogoButton.style.display = filamentDbActive ? 'inline-flex' : 'none'
+        resyncLogoHint.style.display = filamentDbActive ? 'block' : 'none'
 
         if (filamentDbActive) {
           // Create lookup with initial fuzzy search using current manufacturer name
@@ -694,6 +913,8 @@ import Layout from '../../layouts/Layout.astro'
       } else {
         // Create mode: show toggle only if FilamentDB plugin is active
         editLookupBtn.style.display = 'none'
+        resyncLogoButton.style.display = 'none'
+        resyncLogoHint.style.display = 'none'
         modeToggle.style.display = filamentDbActive ? 'flex' : 'none'
         const manualRadio = modeToggle.querySelector('input[value="manual"]') as HTMLInputElement
         manualRadio.checked = true
@@ -724,6 +945,7 @@ import Layout from '../../layouts/Layout.astro'
               pendingHasLabelLogo = false
             }
             lookupToast.style.display = 'none'
+            renderModalLogoPreview()
           })
         })
       }
@@ -745,6 +967,18 @@ import Layout from '../../layouts/Layout.astro'
         outerDiameterInput.value = '200'
         widthInput.value = '65'
       }
+
+      const currentLogoPath = mf ? normalizeOptionalString(mf.logo_file) : null
+      const currentLogoUrl = mf ? normalizeOptionalString(mf.logo_url) : null
+      const currentLogoSlug = mf ? normalizeOptionalString(mf.custom_fields?.logo_slug) : null
+      logoUrlInput.value = ''
+      logoFileInput.value = ''
+      logoFilePathInput.value = currentLogoPath || ''
+      logoFilePathInput.dataset.currentPath = currentLogoPath || ''
+      logoPreview.dataset.currentUrl = currentLogoUrl || ''
+      resyncLogoButton.dataset.currentSlug = currentLogoSlug || ''
+      resyncLogoButton.dataset.hasLabelLogo = String(Boolean(mf?.label_logo_file))
+      renderModalLogoPreview()
       
       error.classList.add('hidden')
 
@@ -754,6 +988,9 @@ import Layout from '../../layouts/Layout.astro'
 
     function closeModal() {
       document.getElementById('modal-container')!.style.display = 'none'
+      resetPendingLogoPreviewUrl()
+      pendingLogoFile = null
+      shouldClearLogo = false
       if (mfrLookup) { mfrLookup.destroy(); mfrLookup = null }
     }
 
@@ -834,6 +1071,141 @@ import Layout from '../../layouts/Layout.astro'
       }
     })
 
+    document.getElementById('manufacturer-name')?.addEventListener('input', renderModalLogoPreview)
+    document.getElementById('manufacturer-logo-url')?.addEventListener('input', () => {
+      shouldClearLogo = false
+      renderModalLogoPreview()
+    })
+    document.getElementById('manufacturer-logo-file-trigger')?.addEventListener('click', () => {
+      ;(document.getElementById('manufacturer-logo-file') as HTMLInputElement)?.click()
+    })
+    document.getElementById('manufacturer-clear-logo')?.addEventListener('click', () => {
+      const logoUrlInput = document.getElementById('manufacturer-logo-url') as HTMLInputElement
+      const logoFileInput = document.getElementById('manufacturer-logo-file') as HTMLInputElement
+      const filePathInput = document.getElementById('manufacturer-logo-file-path') as HTMLInputElement
+      const hasStoredLogo = !!normalizeOptionalString(filePathInput.dataset.currentPath)
+
+      shouldClearLogo = true
+      pendingLogoFile = null
+      pendingLogoSlug = null
+      pendingHasLabelLogo = false
+      logoUrlInput.value = ''
+      logoFileInput.value = ''
+      resetPendingLogoPreviewUrl()
+
+      if (!hasStoredLogo) {
+        shouldClearLogo = false
+      }
+      renderModalLogoPreview()
+    })
+    document.getElementById('manufacturer-logo-file')?.addEventListener('change', (event) => {
+      const input = event.currentTarget as HTMLInputElement
+      const selectedFile = input.files?.[0] || null
+      shouldClearLogo = false
+      pendingLogoFile = selectedFile
+      resetPendingLogoPreviewUrl()
+      if (selectedFile) {
+        pendingLogoPreviewUrl = URL.createObjectURL(selectedFile)
+      }
+      renderModalLogoPreview()
+    })
+    document.getElementById('manufacturer-resync-logo')?.addEventListener('click', async () => {
+      const manufacturerId = (document.getElementById('manufacturer-id') as HTMLInputElement).value
+      const button = document.getElementById('manufacturer-resync-logo') as HTMLButtonElement
+      const uploadState = document.getElementById('manufacturer-logo-upload-state') as HTMLDivElement
+      const lookupToast = document.getElementById('mfr-lookup-toast') as HTMLDivElement
+      const dbLookup = document.getElementById('mfr-db-lookup') as HTMLDivElement
+      const logoUrlInput = document.getElementById('manufacturer-logo-url') as HTMLInputElement
+      const logoFileInput = document.getElementById('manufacturer-logo-file') as HTMLInputElement
+      const logoFilePathInput = document.getElementById('manufacturer-logo-file-path') as HTMLInputElement
+      const logoPreview = document.getElementById('manufacturer-logo-preview') as HTMLDivElement
+
+      if (!manufacturerId) return
+
+      const syncSlug = pendingLogoSlug || normalizeOptionalString(button.dataset.currentSlug)
+      const hasLabelLogo = pendingHasLabelLogo || button.dataset.hasLabelLogo === 'true'
+
+      if (!syncSlug) {
+        dbLookup.style.display = ''
+        lookupToast.className = 'fdb-toast'
+        lookupToast.textContent = t('manufacturers.reSyncLogoNeedsMatch')
+        lookupToast.style.display = ''
+        uploadState.textContent = t('manufacturers.reSyncLogoNeedsMatch')
+        uploadState.style.display = 'block'
+        return
+      }
+
+      const shouldProceed = await (window as any).__fmConfirm(
+        t('manufacturers.reSyncLogoConfirm'),
+        { title: t('manufacturers.reSyncLogo') },
+      )
+      if (!shouldProceed) return
+
+      const originalLabel = button.querySelector('span')?.textContent || t('manufacturers.reSyncLogo')
+      button.disabled = true
+      if (button.querySelector('span')) {
+        button.querySelector('span')!.textContent = t('manufacturers.reSyncingLogo')
+      }
+
+      try {
+        const response = await fetch(`/api/v1/manufacturers/${manufacturerId}/download-logo`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': getCsrfToken(),
+          },
+          credentials: 'include',
+          body: JSON.stringify({ slug: syncSlug, has_label_logo: hasLabelLogo, replace_existing: true }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.detail?.message || errorData.message || t('manufacturers.failedLogoUpload'))
+        }
+
+        const refreshedResponse = await fetch(`/api/v1/manufacturers/${manufacturerId}`, {
+          credentials: 'include',
+          signal: getAbortSignal(),
+        })
+        if (refreshedResponse.ok) {
+          const refreshed = await refreshedResponse.json()
+          const refreshedLogoPath = normalizeOptionalString(refreshed.logo_file)
+          const refreshedLogoUrl = normalizeOptionalString(refreshed.logo_url)
+          const refreshedLogoSlug = normalizeOptionalString(refreshed.custom_fields?.logo_slug) || syncSlug
+
+          pendingLogoSlug = refreshedLogoSlug
+          pendingHasLabelLogo = Boolean(refreshed.label_logo_file) || hasLabelLogo
+          pendingLogoFile = null
+          shouldClearLogo = false
+          logoUrlInput.value = ''
+          logoFileInput.value = ''
+          resetPendingLogoPreviewUrl()
+          logoFilePathInput.value = refreshedLogoPath || ''
+          logoFilePathInput.dataset.currentPath = refreshedLogoPath || ''
+          logoPreview.dataset.currentUrl = refreshedLogoUrl ? `${refreshedLogoUrl}?ts=${Date.now()}` : ''
+          button.dataset.currentSlug = refreshedLogoSlug || ''
+          button.dataset.hasLabelLogo = String(pendingHasLabelLogo)
+          renderModalLogoPreview()
+        }
+
+        uploadState.textContent = t('manufacturers.logoResynced')
+        uploadState.style.display = 'block'
+        lookupToast.className = 'fdb-toast fdb-toast-success'
+        lookupToast.textContent = t('manufacturers.logoResynced')
+        lookupToast.style.display = ''
+        invalidateCachePrefix(CACHE_KEYS.MANUFACTURERS)
+        loadManufacturers()
+      } catch (err: any) {
+        uploadState.textContent = err.message || t('manufacturers.failedLogoUpload')
+        uploadState.style.display = 'block'
+      } finally {
+        button.disabled = false
+        if (button.querySelector('span')) {
+          button.querySelector('span')!.textContent = originalLabel
+        }
+      }
+    })
+
     document.getElementById('modal-form')?.addEventListener('submit', async (e) => {
       e.preventDefault()
 
@@ -880,14 +1252,55 @@ import Layout from '../../layouts/Layout.astro'
           throw new Error(errorData.detail?.message || errorData.message || t('manufacturers.failedSave'))
         }
 
-        // Download logo from FilamentDB if a manufacturer was selected from FilaManDB
-        if (pendingLogoSlug) {
+        const savedManufacturer = await response.json().catch(() => null)
+        const manufacturerId = id || savedManufacturer?.id
+        if (!manufacturerId) {
+          throw new Error(t('manufacturers.failedSave'))
+        }
+
+        const logoUrl = normalizeOptionalString((document.getElementById('manufacturer-logo-url') as HTMLInputElement).value)
+
+        if (shouldClearLogo && !pendingLogoFile && !logoUrl) {
+          const clearResponse = await fetch(`/api/v1/manufacturers/${manufacturerId}/logo`, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': getCsrfToken() },
+            credentials: 'include',
+          })
+          if (!clearResponse.ok) {
+            const clearError = await clearResponse.json().catch(() => ({}))
+            throw new Error(clearError.detail?.message || clearError.message || t('manufacturers.failedLogoUpload'))
+          }
+        }
+
+        if (pendingLogoFile) {
+          const formData = new FormData()
+          formData.append('file', pendingLogoFile)
+          const uploadResponse = await fetch(`/api/v1/manufacturers/${manufacturerId}/logo`, {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': getCsrfToken() },
+            credentials: 'include',
+            body: formData,
+          })
+          if (!uploadResponse.ok) {
+            const uploadError = await uploadResponse.json().catch(() => ({}))
+            throw new Error(uploadError.detail?.message || uploadError.message || t('manufacturers.failedLogoUpload'))
+          }
+        } else if (logoUrl) {
+          const importResponse = await fetch(`/api/v1/manufacturers/${manufacturerId}/logo-from-url`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': getCsrfToken(),
+            },
+            credentials: 'include',
+            body: JSON.stringify({ url: logoUrl }),
+          })
+          if (!importResponse.ok) {
+            const importError = await importResponse.json().catch(() => ({}))
+            throw new Error(importError.detail?.message || importError.message || t('manufacturers.failedLogoUpload'))
+          }
+        } else if (pendingLogoSlug) {
           try {
-            let manufacturerId = id
-            if (!manufacturerId) {
-              const created = await response.json()
-              manufacturerId = created.id
-            }
             await fetch(`/api/v1/manufacturers/${manufacturerId}/download-logo`, {
               method: 'POST',
               headers: {
@@ -901,9 +1314,12 @@ import Layout from '../../layouts/Layout.astro'
             // Logo download failure is non-critical — don't block the save
             console.warn('Logo download failed (non-critical)')
           }
-          pendingLogoSlug = null
-          pendingHasLabelLogo = false
         }
+
+        pendingLogoSlug = null
+        pendingHasLabelLogo = false
+        pendingLogoFile = null
+        shouldClearLogo = false
 
         // Invalidate cache after successful save
         invalidateCachePrefix(CACHE_KEYS.MANUFACTURERS)
