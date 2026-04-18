@@ -89,7 +89,7 @@ const { id } = Astro.params
 
         <!-- Section: Label -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-label">Label</summary>
+          <summary class="ds-section-header" id="dsh-label">Label<button class="ds-reset-btn" id="dsr-label" title="Reset section">↺</button></summary>
           <div class="ds-section-body">
             <div>
               <label class="fm-label" id="dsl-width">Width (mm)</label>
@@ -108,7 +108,7 @@ const { id } = Astro.params
 
         <!-- Section: Title -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-title">Title</summary>
+          <summary class="ds-section-header" id="dsh-title">Title<button class="ds-reset-btn" id="dsr-title" title="Reset section">↺</button></summary>
           <div class="ds-section-body">
             <label class="fm-checkbox-group">
               <input type="checkbox" id="ds-title-show" checked>
@@ -146,7 +146,7 @@ const { id } = Astro.params
 
         <!-- Section: QR Code -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-qr">QR Code</summary>
+          <summary class="ds-section-header" id="dsh-qr">QR Code<button class="ds-reset-btn" id="dsr-qr" title="Reset section">↺</button></summary>
           <div class="ds-section-body">
             <div>
               <label class="fm-label" id="dsl-qr-mode">Mode</label>
@@ -192,7 +192,7 @@ const { id } = Astro.params
 
         <!-- Section: Information -->
         <details class="ds-section" open>
-          <summary class="ds-section-header" id="dsh-info">Information</summary>
+          <summary class="ds-section-header" id="dsh-info">Information<button class="ds-reset-btn" id="dsr-info" title="Reset section">↺</button></summary>
           <div class="ds-section-body">
             <label class="fm-checkbox-group">
               <input type="checkbox" id="ds-info-show" checked>
@@ -647,6 +647,22 @@ Bed: {filament.bed_temp}°C</textarea>
   details.ds-section[open] > .ds-section-header::after {
     transform: rotate(-180deg);
   }
+
+  .ds-reset-btn {
+    margin-left: auto;
+    margin-right: 20px; /* leave room for chevron */
+    padding: 2px 6px;
+    font-size: 0.7rem;
+    line-height: 1;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity var(--transition), color var(--transition);
+  }
+  .ds-reset-btn:hover { opacity: 1; color: var(--accent); }
 
   .ds-section-body {
     padding: 14px;
@@ -1139,6 +1155,55 @@ Bed: {filament.bed_temp}°C</textarea>
 
   // Load persisted designer settings
   loadDesignerSettings()
+
+  // Per-section reset buttons
+  function wireResetBtn(id: string, applyDefaults: () => void) {
+    const btn = document.getElementById(id) as HTMLButtonElement | null
+    if (!btn) return
+    btn.addEventListener('click', (e) => {
+      e.preventDefault()    // prevent <details> toggle
+      e.stopPropagation()
+      applyDefaults()
+      saveDesignerSettings()
+      updateDesignerPreview()
+    })
+  }
+
+  wireResetBtn('dsr-label', () => {
+    const d = DESIGNER_DEFAULTS.label
+    ;(document.getElementById('ds-width') as HTMLInputElement).value = String(d.width)
+    ;(document.getElementById('ds-height') as HTMLInputElement).value = String(d.height)
+    ;(document.getElementById('ds-border') as HTMLInputElement).checked = d.border
+  })
+
+  wireResetBtn('dsr-title', () => {
+    const d = DESIGNER_DEFAULTS.title
+    ;(document.getElementById('ds-title-show') as HTMLInputElement).checked = d.show
+    ;(document.getElementById('ds-title-size') as HTMLInputElement).value = String(d.sizeMm)
+    ;(document.getElementById('ds-title-fit') as HTMLInputElement).checked = d.fitToWidth
+    setAlignGroup('ds-title-align-group', d.align)
+    ;(document.getElementById('ds-title-tpl') as HTMLInputElement).value = d.template
+  })
+
+  wireResetBtn('dsr-qr', () => {
+    const d = DESIGNER_DEFAULTS.qr
+    ;(document.getElementById('ds-qr-mode') as HTMLSelectElement).value = d.mode
+    ;(document.getElementById('ds-qr-size') as HTMLInputElement).value = String(d.sizeMm)
+    setPillGroup('ds-qr-pos-group', d.position)
+    setPillGroup('ds-qr-valign-group', d.vAlign)
+    setPillGroup('ds-qr-link-group', d.linkMode)
+    ;(document.getElementById('ds-qr-url-tpl') as HTMLInputElement).value = d.urlTemplate
+    ;(document.getElementById('ds-qr-url-wrap') as HTMLElement).style.display = 'none'
+  })
+
+  wireResetBtn('dsr-info', () => {
+    const d = DESIGNER_DEFAULTS.info
+    ;(document.getElementById('ds-info-show') as HTMLInputElement).checked = d.show
+    ;(document.getElementById('ds-info-size') as HTMLInputElement).value = String(d.sizeMm)
+    setAlignGroup('ds-info-align-group', d.hAlign)
+    setPillGroup('ds-info-valign-group', d.vAlign)
+    ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = d.template
+  })
 
   // ─── End Label Designer ────────────────────────────────────────────────────
 
