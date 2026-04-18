@@ -361,6 +361,8 @@
     "qrSize": "QR Size",
     "extraFieldsLabel": "Extra Fields",
     "resetDefaults": "Defaults",
+    "labelDesigner": "Label Designer",
+    "labelDesignerComingSoon": "Section controls coming soon.",
     "quickActions": "Quick Actions",
     "printerSlots": "Printer Slots",
     "slotAssignSpool": "Assign spool to this tray",

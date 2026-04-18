@@ -363,6 +363,8 @@
     "qrSize": "QR-Größe",
     "extraFieldsLabel": "Extra-Felder",
     "resetDefaults": "Standardwerte",
+    "labelDesigner": "Label Designer",
+    "labelDesignerComingSoon": "Abschnittssteuerung folgt in Kürze.",
     "quickActions": "Schnellaktionen",
     "printerSlots": "Drucker Slots",
     "slotAssignSpool": "Spule diesem Tray zuordnen",
