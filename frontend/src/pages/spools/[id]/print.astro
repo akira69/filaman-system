@@ -109,6 +109,21 @@ const { id } = Astro.params
           </div>
         </details>
 
+        <!-- Section: Logo -->
+        <details class="ds-section" open>
+          <summary class="ds-section-header" id="dsh-logo">Logo<button class="ds-reset-btn" id="dsr-logo" title="Reset section">↺</button></summary>
+          <div class="ds-section-body">
+            <label class="fm-checkbox-group">
+              <input type="checkbox" id="ds-logo-show" checked>
+              <span id="dsl-logo-show">Show manufacturer logo</span>
+            </label>
+            <div id="ds-logo-size-wrap">
+              <label class="fm-label" id="dsl-logo-size">Logo height (mm)</label>
+              <input type="number" id="ds-logo-size" value="6" step="0.5" min="2" max="20" class="fm-input">
+            </div>
+          </div>
+        </details>
+
         <!-- Section: Label -->
         <details class="ds-section" open>
           <summary class="ds-section-header" id="dsh-label">Label<button class="ds-reset-btn" id="dsr-label" title="Reset section">↺</button></summary>
@@ -248,10 +263,7 @@ const { id } = Astro.params
             </div>
             <div>
               <label class="fm-label" id="dsl-info-tpl">Template</label>
-              <textarea id="ds-info-tpl" class="fm-input ds-tpl-input" rows="4" placeholder="{filament.material}&#10;{filament.color}&#10;Ext: {filament.extruder_temp}°C&#10;Bed: {filament.bed_temp}°C">{filament.material}
-{filament.color}
-Ext: {filament.extruder_temp}°C
-Bed: {filament.bed_temp}°C</textarea>
+              <textarea id="ds-info-tpl" class="fm-input ds-tpl-input" rows="4" placeholder="{filament.material}&#10;{filament.color}&#10;Ext: {filament.extruder_temp}°C&#10;Bed: {filament.bed_temp}°C"></textarea>
               <div class="ds-token-hints" id="ds-info-tokens"></div>
             </div>
           </div>
@@ -309,6 +321,7 @@ Bed: {filament.bed_temp}°C</textarea>
 
   .print-sidebar {
     width: 320px;
+    transition: width 0.2s ease;
     background: var(--bg-elevated);
     border-right: 1px solid var(--border);
     padding: 24px;
@@ -387,6 +400,10 @@ Bed: {filament.bed_temp}°C</textarea>
     gap: 2mm;
     padding-bottom: 1mm;
     min-height: 0;
+  }
+
+  .print-sidebar.sidebar-wide {
+    width: 420px;
   }
 
   .label-logo {
@@ -1050,6 +1067,8 @@ Bed: {filament.bed_temp}°C</textarea>
     tabPanelPrint.style.display = tab === 'print' ? '' : 'none'
     tabPanelDesigner.style.display = tab === 'designer' ? '' : 'none'
     localStorage.setItem(ACTIVE_TAB_KEY, tab)
+    // Widen sidebar for designer, narrow for print settings
+    document.querySelector<HTMLElement>('.print-sidebar')?.classList.toggle('sidebar-wide', tab === 'designer')
     // Trigger the appropriate preview when switching tabs
     if (tab === 'designer') updateDesignerPreview()
     else updatePreview()
@@ -1068,6 +1087,7 @@ Bed: {filament.bed_temp}°C</textarea>
   const DESIGNER_KEY = 'filaman-label-designer-v1'
 
   interface LabelDesignerSettings {
+    logo:   { show: boolean; sizeMm: number }
     label:  { width: number; height: number; border: boolean }
     title:  { show: boolean; sizeMm: number; fitToWidth: boolean; align: 'left'|'center'|'right'; template: string }
     qr:     { mode: 'none'|'simple'|'icon'; sizeMm: number; position: 'left'|'right'; vAlign: 'top'|'center'|'bottom'; linkMode: 'spool'|'url'; urlTemplate: string }
@@ -1075,6 +1095,7 @@ Bed: {filament.bed_temp}°C</textarea>
   }
 
   const DESIGNER_DEFAULTS: LabelDesignerSettings = {
+    logo:   { show: true, sizeMm: 6 },
     label:  { width: 60, height: 40, border: false },
     title:  { show: true, sizeMm: 4, fitToWidth: true, align: 'left', template: '{filament.name}' },
     qr:     { mode: 'simple', sizeMm: 18, position: 'right', vAlign: 'bottom', linkMode: 'spool', urlTemplate: '' },
@@ -1091,6 +1112,10 @@ Bed: {filament.bed_temp}°C</textarea>
 
   function saveDesignerSettings() {
     const s: LabelDesignerSettings = {
+      logo: {
+        show:   (document.getElementById('ds-logo-show') as HTMLInputElement).checked,
+        sizeMm: Number((document.getElementById('ds-logo-size') as HTMLInputElement).value),
+      },
       label: {
         width:  Number((document.getElementById('ds-width') as HTMLInputElement).value),
         height: Number((document.getElementById('ds-height') as HTMLInputElement).value),
@@ -1226,8 +1251,8 @@ Bed: {filament.bed_temp}°C</textarea>
     ;(document.getElementById('ds-qr-url-wrap') as HTMLElement).style.display = val === 'url' ? '' : 'none'
   })
 
-  const dsInputIds = ['ds-width','ds-height','ds-title-size','ds-qr-size','ds-info-size','ds-title-tpl','ds-qr-url-tpl','ds-info-tpl']
-  const dsCheckIds = ['ds-border','ds-title-show','ds-title-fit','ds-info-show']
+  const dsInputIds = ['ds-width','ds-height','ds-logo-size','ds-title-size','ds-qr-size','ds-info-size','ds-title-tpl','ds-qr-url-tpl','ds-info-tpl']
+  const dsCheckIds = ['ds-border','ds-logo-show','ds-title-show','ds-title-fit','ds-info-show']
   const dsSelectIds = ['ds-qr-mode']
   ;[...dsInputIds, ...dsCheckIds, ...dsSelectIds].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => { saveDesignerSettings(); updateDesignerPreview() })
@@ -1387,12 +1412,15 @@ Bed: {filament.bed_temp}°C</textarea>
     const s: LabelDesignerSettings = {
       ...DESIGNER_DEFAULTS,
       ...preset.settings,
+      logo:   { ...DESIGNER_DEFAULTS.logo,   ...preset.settings.logo },
       label:  { ...DESIGNER_DEFAULTS.label,  ...preset.settings.label },
       title:  { ...DESIGNER_DEFAULTS.title,  ...preset.settings.title },
       qr:     { ...DESIGNER_DEFAULTS.qr,     ...preset.settings.qr },
       info:   { ...DESIGNER_DEFAULTS.info,   ...preset.settings.info },
     }
     // Apply to form
+    ;(document.getElementById('ds-logo-show') as HTMLInputElement).checked = s.logo.show
+    ;(document.getElementById('ds-logo-size') as HTMLInputElement).value = String(s.logo.sizeMm)
     ;(document.getElementById('ds-width') as HTMLInputElement).value = String(s.label.width)
     ;(document.getElementById('ds-height') as HTMLInputElement).value = String(s.label.height)
     ;(document.getElementById('ds-border') as HTMLInputElement).checked = s.label.border
@@ -1455,7 +1483,42 @@ Bed: {filament.bed_temp}°C</textarea>
 
   refreshPresetList()
 
-  // ─── End Presets ──────────────────────────────────────────────────────────
+  // Seed the built-in "Default" preset if it doesn't already exist
+  ;(() => {
+    const presets = loadPresets()
+    if (!presets.some(p => p.name === 'Default')) {
+      const defaultPreset: LabelPreset = {
+        name: 'Default',
+        settings: {
+          label: { width: 50, height: 30, border: true },
+          title: {
+            show: true,
+            sizeMm: 6,
+            fitToWidth: true,
+            align: 'left',
+            template: '**{filament.material} {filament.color}**  {filament.color_hex}',
+          },
+          qr: {
+            mode: 'icon',
+            sizeMm: 14,
+            position: 'right',
+            vAlign: 'bottom',
+            linkMode: 'spool',
+            urlTemplate: '',
+          },
+          info: {
+            show: true,
+            sizeMm: 2.2,
+            hAlign: 'left',
+            vAlign: 'top',
+            template: 'Spool ID: #{id}\nSpool Weight: {filament.weight} g\nET: {filament.extruder_temp} °C\nBT: {filament.bed_temp} °C',
+          },
+        },
+      }
+      savePresets([defaultPreset, ...presets])
+      refreshPresetList('Default')
+    }
+  })()
 
   // Per-section reset buttons
   function wireResetBtn(id: string, applyDefaults: () => void) {
@@ -1469,6 +1532,12 @@ Bed: {filament.bed_temp}°C</textarea>
       updateDesignerPreview()
     })
   }
+
+  wireResetBtn('dsr-logo', () => {
+    const d = DESIGNER_DEFAULTS.logo
+    ;(document.getElementById('ds-logo-show') as HTMLInputElement).checked = d.show
+    ;(document.getElementById('ds-logo-size') as HTMLInputElement).value = String(d.sizeMm)
+  })
 
   wireResetBtn('dsr-label', () => {
     const d = DESIGNER_DEFAULTS.label
@@ -1630,6 +1699,9 @@ Bed: {filament.bed_temp}°C</textarea>
   document.getElementById('ds-preset-load-btn').textContent = t('spools.dsPresetsLoad', 'Load')
   document.getElementById('ds-preset-delete-btn').title = t('spools.dsPresetsDelete', 'Delete selected preset')
   document.getElementById('dsl-preset-name').textContent = t('spools.dsPresetsName', 'Preset name')
+  document.getElementById('dsh-logo').childNodes[0].textContent = t('spools.dsLogo', 'Logo')
+  document.getElementById('dsl-logo-show').textContent = t('spools.dsLogoShow', 'Show manufacturer logo')
+  document.getElementById('dsl-logo-size').textContent = t('spools.dsLogoSize', 'Logo height (mm)')
   document.getElementById('dsh-label').childNodes[0].textContent = t('spools.dsLabel', 'Label')
   document.getElementById('dsl-width').textContent = t('spools.labelWidth', 'Width (mm)')
   document.getElementById('dsl-height').textContent = t('spools.labelHeight', 'Height (mm)')
@@ -1944,52 +2016,74 @@ Bed: {filament.bed_temp}°C</textarea>
     // Clear and rebuild preview in designer layout
     labelPreview.innerHTML = ''
 
-    // --- Title block ---
-    if (s.title.show && s.title.template.trim()) {
-      const titleEl = document.createElement('div')
-      titleEl.className = 'ds-prev-title'
-      titleEl.style.textAlign = s.title.align
-      titleEl.style.fontWeight = '700'
-      titleEl.style.overflow = 'hidden'
-      titleEl.style.whiteSpace = 'nowrap'
-      titleEl.style.textOverflow = 'ellipsis'
-      titleEl.style.padding = '0.5mm 1mm 0 1mm'
-      titleEl.style.color = 'black'
+    // --- Header row: logo (if available) + title side-by-side ---
+    const hasLogo = s.logo?.show !== false && labelLogoLoaded && labelLogoUrl
+    const hasTitle = s.title.show && s.title.template.trim()
 
-      // Build content
-      const frag = parseTemplate(s.title.template, data)
-      titleEl.appendChild(frag)
+    if (hasLogo || hasTitle) {
+      const headerRow = document.createElement('div')
+      headerRow.style.display = 'flex'
+      headerRow.style.alignItems = 'center'
+      headerRow.style.gap = '1mm'
+      headerRow.style.padding = '1mm 1mm 0 1mm'
+      headerRow.style.overflow = 'hidden'
 
-      // Fit-to-width: binary search for the font size that fills the label width
-      if (s.title.fitToWidth) {
-        labelPreview.appendChild(titleEl)
-        const maxPx = s.title.sizeMm * 3.78
-        let lo = 4, hi = maxPx, bestPx = lo
-        titleEl.style.fontSize = maxPx + 'px'
-        if (titleEl.scrollWidth <= titleEl.clientWidth) {
-          bestPx = maxPx
-        } else {
-          for (let i = 0; i < 12; i++) {
-            const mid = (lo + hi) / 2
-            titleEl.style.fontSize = mid + 'px'
-            if (titleEl.scrollWidth <= titleEl.clientWidth) {
-              bestPx = mid
-              lo = mid
-            } else {
-              hi = mid
-            }
-          }
-        }
-        titleEl.style.fontSize = bestPx + 'px'
-      } else {
-        titleEl.style.fontSize = s.title.sizeMm * 3.78 + 'px'
-        labelPreview.appendChild(titleEl)
+      if (hasLogo) {
+        const logoImg = document.createElement('img')
+        logoImg.src = labelLogoUrl!
+        const logoSizeMm = s.logo?.sizeMm ?? 6
+        const logoH = Math.round(logoSizeMm * 3.7795)
+        logoImg.style.height = logoH + 'px'
+        logoImg.style.width = 'auto'
+        logoImg.style.flexShrink = '0'
+        logoImg.style.objectFit = 'contain'
+        headerRow.appendChild(logoImg)
       }
 
-      // Divider below title
+      if (hasTitle) {
+        const titleEl = document.createElement('div')
+        titleEl.style.flex = '1'
+        titleEl.style.minWidth = '0'
+        titleEl.style.textAlign = s.title.align
+        titleEl.style.fontWeight = '700'
+        titleEl.style.overflow = 'hidden'
+        titleEl.style.whiteSpace = 'nowrap'
+        titleEl.style.textOverflow = 'ellipsis'
+        titleEl.style.color = 'black'
+
+        const frag = parseTemplate(s.title.template, data)
+        titleEl.appendChild(frag)
+
+        if (s.title.fitToWidth) {
+          headerRow.appendChild(titleEl)
+          labelPreview.appendChild(headerRow)
+          const maxPx = s.title.sizeMm * 3.78
+          let lo = 4, hi = maxPx, bestPx = lo
+          titleEl.style.fontSize = maxPx + 'px'
+          if (titleEl.scrollWidth <= titleEl.clientWidth) {
+            bestPx = maxPx
+          } else {
+            for (let i = 0; i < 12; i++) {
+              const mid = (lo + hi) / 2
+              titleEl.style.fontSize = mid + 'px'
+              if (titleEl.scrollWidth <= titleEl.clientWidth) { bestPx = mid; lo = mid }
+              else hi = mid
+            }
+          }
+          titleEl.style.fontSize = bestPx + 'px'
+        } else {
+          titleEl.style.fontSize = s.title.sizeMm * 3.78 + 'px'
+          headerRow.appendChild(titleEl)
+          labelPreview.appendChild(headerRow)
+        }
+      } else {
+        labelPreview.appendChild(headerRow)
+      }
+
+      // Divider below header
       const div = document.createElement('div')
       div.style.borderTop = '0.3mm solid black'
-      div.style.margin = '0.5mm 1mm'
+      div.style.margin = '0 1mm 0 1mm'
       labelPreview.appendChild(div)
     }
 
