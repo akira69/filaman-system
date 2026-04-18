@@ -882,6 +882,9 @@ Bed: {filament.bed_temp}°C</textarea>
     color: params.get('color') || '',
     mfr_id: params.get('mfr_id') || '',
     hex_code: params.get('hex_code') || '',
+    extruder_temp: params.get('extruder_temp') || '',
+    bed_temp: params.get('bed_temp') || '',
+    weight: params.get('weight') || '',
   }
 
   let extraFields: {key: string, label: string, value: string, source?: string}[] = []
@@ -889,6 +892,25 @@ Bed: {filament.bed_temp}°C</textarea>
     const stored = sessionStorage.getItem('filaman-label-extra-fields')
     if (stored) extraFields = JSON.parse(stored)
   } catch(e) { /* ignore */ }
+
+  // Flat SpoolData object consumed by the template parser (Phase 3)
+  // Keys match the {token} names used in designer templates.
+  function buildSpoolData() {
+    const extra: Record<string, string> = {}
+    for (const ef of extraFields) extra[ef.key] = ef.value
+    return {
+      id: labelData.id,
+      'filament.name': labelData.designation,
+      'filament.material': labelData.type,
+      'filament.color': labelData.color,
+      'filament.color_hex': labelData.hex_code,
+      'filament.manufacturer': labelData.manufacturer,
+      'filament.extruder_temp': labelData.extruder_temp,
+      'filament.bed_temp': labelData.bed_temp,
+      'filament.weight': labelData.weight,
+      extra,
+    }
+  }
 
   // DOM references
   const widthInput = document.getElementById('input-width')
