@@ -87,6 +87,28 @@ const { id } = Astro.params
       <!-- Label Designer panel -->
       <div id="tab-panel-designer" class="settings-section" style="display: none;">
 
+        <!-- Section: Presets -->
+        <details class="ds-section" open>
+          <summary class="ds-section-header" id="dsh-presets"><span id="dsh-presets-text">Presets/span></summary>
+          <div class="ds-section-body">
+            <div>
+              <label class="fm-label" id="dsl-preset-saved">Saved presets</label>
+              <div class="ds-preset-row">
+                <select id="ds-preset-list" class="fm-input fm-select ds-preset-select"></select>
+                <button id="ds-preset-load-btn" class="ds-action-btn">Load</button>
+                <button id="ds-preset-delete-btn" class="ds-action-btn ds-action-btn-danger" title="Delete selected preset">✕</button>
+              </div>
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-preset-name">Preset name</label>
+              <div class="ds-preset-row">
+                <input type="text" id="ds-preset-name-input" class="fm-input ds-preset-name-input" placeholder="My label">
+                <button id="ds-preset-save-btn" class="ds-action-btn ds-action-btn-primary">Save as New</button>
+              </div>
+            </div>
+          </div>
+        </details>
+
         <!-- Section: Label -->
         <details class="ds-section" open>
           <summary class="ds-section-header" id="dsh-label">Label<button class="ds-reset-btn" id="dsr-label" title="Reset section">↺</button></summary>
@@ -664,6 +686,75 @@ Bed: {filament.bed_temp}°C</textarea>
   }
   .ds-reset-btn:hover { opacity: 1; color: var(--accent); }
 
+  /* Template save/load row */
+  .ds-preset-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .ds-preset-select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ds-preset-name-input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ds-action-btn {
+    flex-shrink: 0;
+    padding: 5px 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+  }
+
+  .ds-action-btn:hover {
+    background: var(--bg-elevated);
+  }
+
+  .ds-action-btn-primary {
+    background: var(--accent);
+    color: var(--btn-primary-text);
+    border-color: var(--accent);
+  }
+
+  .ds-action-btn-primary:hover {
+    opacity: 0.88;
+  }
+
+  .ds-action-btn-overwrite {
+    background: var(--warning, #f59e0b);
+    color: #fff;
+    border-color: var(--warning, #f59e0b);
+  }
+
+  .ds-action-btn-overwrite:hover {
+    opacity: 0.88;
+  }
+
+  .ds-action-btn-danger {
+    color: var(--danger, #ef4444);
+    border-color: var(--danger, #ef4444);
+  }
+
+  .ds-action-btn-danger:hover {
+    background: var(--danger, #ef4444);
+    color: #fff;
+  }
+
+  .ds-preset-dirty {
+    color: var(--accent);
+  }
+
   .ds-section-body {
     padding: 14px;
     display: flex;
@@ -1156,6 +1247,216 @@ Bed: {filament.bed_temp}°C</textarea>
   // Load persisted designer settings
   loadDesignerSettings()
 
+  // ─── Presets ──────────────────────────────────────────────────────────────
+
+  const PRESETS_KEY = 'filaman-label-presets-v1'
+
+  interface LabelPreset {
+    name: string
+    settings: LabelDesignerSettings
+  }
+
+  function loadPresets(): LabelPreset[] {
+    try {
+      const raw = localStorage.getItem(PRESETS_KEY)
+      if (raw) return JSON.parse(raw) as LabelPreset[]
+    } catch { /* ignore */ }
+    return []
+  }
+
+  function savePresets(presets: LabelPreset[]) {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(presets))
+  }
+
+  // Track which preset is currently loaded (for dirty detection)
+  let _activePresetName: string | null = null
+
+  function markPresetDirty(dirty: boolean) {
+    const hdr = document.getElementById('dsh-presets-text')
+    if (!hdr) return
+    const label = (window as any).__t('spools.dsPresets') || 'Presets'
+    hdr.textContent = dirty ? `● ${label}` : label
+    hdr.classList.toggle('ds-preset-dirty', dirty)
+  }
+
+  function refreshPresetList(selectName?: string) {
+    const list = document.getElementById('ds-preset-list') as HTMLSelectElement
+    if (!list) return
+    const presets = loadPresets()
+    list.innerHTML = ''
+    if (presets.length === 0) {
+      const opt = document.createElement('option')
+      opt.value = ''
+      opt.textContent = '— no saved presets —'
+      opt.disabled = true
+      opt.selected = true
+      list.appendChild(opt)
+    } else {
+      for (const p of presets) {
+        const opt = document.createElement('option')
+        opt.value = p.name
+        opt.textContent = p.name
+        list.appendChild(opt)
+      }
+      if (selectName) list.value = selectName
+    }
+    updateSaveBtn()
+  }
+
+  function updateSaveBtn() {
+    const btn = document.getElementById('ds-preset-save-btn') as HTMLButtonElement
+    const nameInput = document.getElementById('ds-preset-name-input') as HTMLInputElement
+    if (!btn || !nameInput) return
+    const name = nameInput.value.trim()
+    const presets = loadPresets()
+    const exists = presets.some(p => p.name === name)
+    const tSaveNew = (window as any).__t('spools.dsPresetsSaveNew') || 'Save as New'
+    const tOverwrite = (window as any).__t('spools.dsPresetsOverwrite') || 'Overwrite'
+    if (!name) {
+      btn.textContent = tSaveNew
+      btn.className = 'ds-action-btn ds-action-btn-primary'
+      btn.disabled = true
+    } else if (exists) {
+      btn.textContent = tOverwrite
+      btn.className = 'ds-action-btn ds-action-btn-overwrite'
+      btn.disabled = false
+    } else {
+      btn.textContent = tSaveNew
+      btn.className = 'ds-action-btn ds-action-btn-primary'
+      btn.disabled = false
+    }
+  }
+
+  // Wire preset controls
+  const presetList = document.getElementById('ds-preset-list') as HTMLSelectElement
+  const presetNameInput = document.getElementById('ds-preset-name-input') as HTMLInputElement
+  const presetSaveBtn = document.getElementById('ds-preset-save-btn') as HTMLButtonElement
+  const presetLoadBtn = document.getElementById('ds-preset-load-btn') as HTMLButtonElement
+  const presetDeleteBtn = document.getElementById('ds-preset-delete-btn') as HTMLButtonElement
+
+  presetNameInput?.addEventListener('input', updateSaveBtn)
+
+  presetList?.addEventListener('change', () => {
+    // Pre-fill the name input with the selected preset name
+    presetNameInput.value = presetList.value
+    updateSaveBtn()
+  })
+
+  presetSaveBtn?.addEventListener('click', () => {
+    const name = presetNameInput.value.trim()
+    if (!name) return
+    const presets = loadPresets()
+    const idx = presets.findIndex(p => p.name === name)
+    const settings = (() => {
+      try {
+        const raw = localStorage.getItem(DESIGNER_KEY)
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          return {
+            ...DESIGNER_DEFAULTS,
+            ...parsed,
+            logo:  { ...DESIGNER_DEFAULTS.logo,  ...parsed.logo },
+            label: { ...DESIGNER_DEFAULTS.label, ...parsed.label },
+            title: { ...DESIGNER_DEFAULTS.title, ...parsed.title },
+            qr:    { ...DESIGNER_DEFAULTS.qr,    ...parsed.qr },
+            info:  { ...DESIGNER_DEFAULTS.info,  ...parsed.info },
+            info2: { ...DESIGNER_DEFAULTS.info2, ...(parsed.info2 ?? {}) },
+          } as LabelDesignerSettings
+        }
+      } catch { /* ignore */ }
+      return DESIGNER_DEFAULTS
+    })()
+    if (idx >= 0) {
+      presets[idx].settings = settings
+    } else {
+      presets.push({ name, settings })
+    }
+    savePresets(presets)
+    _activePresetName = name
+    markPresetDirty(false)
+    refreshPresetList(name)
+  })
+
+  presetLoadBtn?.addEventListener('click', () => {
+    const name = presetList.value
+    if (!name) return
+    const presets = loadPresets()
+    const preset = presets.find(p => p.name === name)
+    if (!preset) return
+    // Deep merge into defaults then apply
+    const s: LabelDesignerSettings = {
+      ...DESIGNER_DEFAULTS,
+      ...preset.settings,
+      label:  { ...DESIGNER_DEFAULTS.label,  ...preset.settings.label },
+      title:  { ...DESIGNER_DEFAULTS.title,  ...preset.settings.title },
+      qr:     { ...DESIGNER_DEFAULTS.qr,     ...preset.settings.qr },
+      info:   { ...DESIGNER_DEFAULTS.info,   ...preset.settings.info },
+    }
+    // Apply to form
+    ;(document.getElementById('ds-width') as HTMLInputElement).value = String(s.label.width)
+    ;(document.getElementById('ds-height') as HTMLInputElement).value = String(s.label.height)
+    ;(document.getElementById('ds-border') as HTMLInputElement).checked = s.label.border
+    ;(document.getElementById('ds-title-show') as HTMLInputElement).checked = s.title.show
+    ;(document.getElementById('ds-title-size') as HTMLInputElement).value = String(s.title.sizeMm)
+    ;(document.getElementById('ds-title-fit') as HTMLInputElement).checked = s.title.fitToWidth
+    setAlignGroup('ds-title-align-group', s.title.align)
+    ;(document.getElementById('ds-title-tpl') as HTMLInputElement).value = s.title.template
+    ;(document.getElementById('ds-qr-mode') as HTMLSelectElement).value = s.qr.mode
+    ;(document.getElementById('ds-qr-size') as HTMLInputElement).value = String(s.qr.sizeMm)
+    setPillGroup('ds-qr-pos-group', s.qr.position)
+    setPillGroup('ds-qr-valign-group', s.qr.vAlign)
+    setPillGroup('ds-qr-link-group', s.qr.linkMode)
+    ;(document.getElementById('ds-qr-url-tpl') as HTMLInputElement).value = s.qr.urlTemplate
+    ;(document.getElementById('ds-qr-url-wrap') as HTMLElement).style.display = s.qr.linkMode === 'url' ? '' : 'none'
+    ;(document.getElementById('ds-info-show') as HTMLInputElement).checked = s.info.show
+    ;(document.getElementById('ds-info-size') as HTMLInputElement).value = String(s.info.sizeMm)
+    setAlignGroup('ds-info-align-group', s.info.hAlign)
+    setPillGroup('ds-info-valign-group', s.info.vAlign)
+    ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = s.info.template
+    saveDesignerSettings()
+    _activePresetName = name
+    presetNameInput.value = name
+    markPresetDirty(false)
+    updateSaveBtn()
+    updateDesignerPreview()
+  })
+
+  presetDeleteBtn?.addEventListener('click', () => {
+    const name = presetList.value
+    if (!name) return
+    const presets = loadPresets().filter(p => p.name !== name)
+    savePresets(presets)
+    if (_activePresetName === name) {
+      _activePresetName = null
+      markPresetDirty(false)
+    }
+    presetNameInput.value = ''
+    refreshPresetList()
+  })
+
+  // Detect changes to any designer control → mark dirty if a preset is loaded
+  function onDesignerChange() {
+    if (_activePresetName !== null) markPresetDirty(true)
+  }
+
+  // Attach dirty listener to all designer inputs (after preset wiring, so order doesn't matter)
+  document.querySelectorAll<HTMLElement>(
+    '#tab-panel-designer input, #tab-panel-designer select, #tab-panel-designer textarea'
+  ).forEach(el => {
+    if (el.id === 'ds-preset-name-input') return  // not a settings input
+    el.addEventListener('change', onDesignerChange)
+    if ((el as HTMLInputElement).type === 'range' || (el as HTMLInputElement).type === 'number' || el.tagName === 'TEXTAREA') {
+      el.addEventListener('input', onDesignerChange)
+    }
+  })
+  // Also dirty on align/pill btn group clicks (those fire click, not change)
+  document.querySelectorAll<HTMLButtonElement>('#tab-panel-designer .ds-align-btn, #tab-panel-designer .ds-pill-btn')
+    .forEach(btn => btn.addEventListener('click', onDesignerChange))
+
+  refreshPresetList()
+
+  // ─── End Presets ──────────────────────────────────────────────────────────
+
   // Per-section reset buttons
   function wireResetBtn(id: string, applyDefaults: () => void) {
     const btn = document.getElementById(id) as HTMLButtonElement | null
@@ -1324,6 +1625,11 @@ Bed: {filament.bed_temp}°C</textarea>
 
   // Designer section headers + labels
   const t = (key: string, fallback: string) => (window as any).__t(key) || fallback
+  document.getElementById('dsh-presets-text').textContent = t('spools.dsPresets', 'Presets')
+  document.getElementById('dsl-preset-saved').textContent = t('spools.dsPresetsSaved', 'Saved presets')
+  document.getElementById('ds-preset-load-btn').textContent = t('spools.dsPresetsLoad', 'Load')
+  document.getElementById('ds-preset-delete-btn').title = t('spools.dsPresetsDelete', 'Delete selected preset')
+  document.getElementById('dsl-preset-name').textContent = t('spools.dsPresetsName', 'Preset name')
   document.getElementById('dsh-label').childNodes[0].textContent = t('spools.dsLabel', 'Label')
   document.getElementById('dsl-width').textContent = t('spools.labelWidth', 'Width (mm)')
   document.getElementById('dsl-height').textContent = t('spools.labelHeight', 'Height (mm)')
