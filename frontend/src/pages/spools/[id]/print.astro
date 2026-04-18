@@ -86,8 +86,155 @@ const { id } = Astro.params
 
       <!-- Label Designer panel -->
       <div id="tab-panel-designer" class="settings-section" style="display: none;">
-        <h3 id="title-designer">Label Designer</h3>
-        <p class="designer-coming-soon" id="designer-coming-soon">Section controls coming in Phase 2.</p>
+
+        <!-- Section: Label -->
+        <details class="ds-section" open>
+          <summary class="ds-section-header" id="dsh-label">Label</summary>
+          <div class="ds-section-body">
+            <div>
+              <label class="fm-label" id="dsl-width">Width (mm)</label>
+              <input type="number" id="ds-width" value="60" class="fm-input">
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-height">Height (mm)</label>
+              <input type="number" id="ds-height" value="40" class="fm-input">
+            </div>
+            <label class="fm-checkbox-group">
+              <input type="checkbox" id="ds-border">
+              <span id="dsl-border">Border</span>
+            </label>
+          </div>
+        </details>
+
+        <!-- Section: Title -->
+        <details class="ds-section" open>
+          <summary class="ds-section-header" id="dsh-title">Title</summary>
+          <div class="ds-section-body">
+            <label class="fm-checkbox-group">
+              <input type="checkbox" id="ds-title-show" checked>
+              <span id="dsl-title-show">Show title</span>
+            </label>
+            <div>
+              <label class="fm-label" id="dsl-title-size">Max font size (mm)</label>
+              <input type="number" id="ds-title-size" value="4" step="0.5" min="1" max="20" class="fm-input">
+            </div>
+            <label class="fm-checkbox-group">
+              <input type="checkbox" id="ds-title-fit" checked>
+              <span id="dsl-title-fit">Fit to width</span>
+            </label>
+            <div>
+              <label class="fm-label" id="dsl-title-align">Alignment</label>
+              <div class="ds-align-group" id="ds-title-align-group" data-value="left">
+                <button class="ds-align-btn active" data-align="left" title="Left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+                </button>
+                <button class="ds-align-btn" data-align="center" title="Center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                </button>
+                <button class="ds-align-btn" data-align="right" title="Right">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-title-tpl">Template</label>
+              <input type="text" id="ds-title-tpl" value="{filament.name}" class="fm-input ds-tpl-input" placeholder="{filament.name}">
+              <div class="ds-token-hints" id="ds-title-tokens"></div>
+            </div>
+          </div>
+        </details>
+
+        <!-- Section: QR Code -->
+        <details class="ds-section" open>
+          <summary class="ds-section-header" id="dsh-qr">QR Code</summary>
+          <div class="ds-section-body">
+            <div>
+              <label class="fm-label" id="dsl-qr-mode">Mode</label>
+              <select id="ds-qr-mode" class="fm-input fm-select">
+                <option value="none" id="dso-qr-none">None</option>
+                <option value="simple" selected id="dso-qr-simple">Simple</option>
+                <option value="icon" id="dso-qr-icon">With icon</option>
+              </select>
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-qr-size">Size (mm)</label>
+              <input type="number" id="ds-qr-size" value="18" step="1" min="5" max="60" class="fm-input">
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-qr-pos">Position</label>
+              <div class="ds-pill-group" id="ds-qr-pos-group" data-value="right">
+                <button class="ds-pill-btn" data-val="left" id="dsp-qr-left">Left</button>
+                <button class="ds-pill-btn active" data-val="right" id="dsp-qr-right">Right</button>
+              </div>
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-qr-valign">Vertical align</label>
+              <div class="ds-pill-group" id="ds-qr-valign-group" data-value="bottom">
+                <button class="ds-pill-btn" data-val="top" id="dsp-qr-top">Top</button>
+                <button class="ds-pill-btn" data-val="center" id="dsp-qr-mid">Mid</button>
+                <button class="ds-pill-btn active" data-val="bottom" id="dsp-qr-bot">Bot</button>
+              </div>
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-qr-link">Link mode</label>
+              <div class="ds-pill-group" id="ds-qr-link-group" data-value="spool">
+                <button class="ds-pill-btn active" data-val="spool" id="dsp-qr-spool">Spool URL</button>
+                <button class="ds-pill-btn" data-val="url" id="dsp-qr-url">Custom URL</button>
+              </div>
+            </div>
+            <div id="ds-qr-url-wrap" style="display:none;">
+              <label class="fm-label" id="dsl-qr-url-tpl">URL template</label>
+              <input type="text" id="ds-qr-url-tpl" class="fm-input ds-tpl-input" placeholder="https://example.com/{id}">
+              <div class="ds-token-hints" id="ds-qr-tokens"></div>
+            </div>
+          </div>
+        </details>
+
+        <!-- Section: Information -->
+        <details class="ds-section" open>
+          <summary class="ds-section-header" id="dsh-info">Information</summary>
+          <div class="ds-section-body">
+            <label class="fm-checkbox-group">
+              <input type="checkbox" id="ds-info-show" checked>
+              <span id="dsl-info-show">Show information block</span>
+            </label>
+            <div>
+              <label class="fm-label" id="dsl-info-size">Text size (mm)</label>
+              <input type="number" id="ds-info-size" value="2.5" step="0.5" min="1" max="10" class="fm-input">
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-info-halign">Horizontal align</label>
+              <div class="ds-align-group" id="ds-info-align-group" data-value="left">
+                <button class="ds-align-btn active" data-align="left" title="Left">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+                </button>
+                <button class="ds-align-btn" data-align="center" title="Center">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                </button>
+                <button class="ds-align-btn" data-align="right" title="Right">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-info-valign">Vertical align</label>
+              <div class="ds-pill-group" id="ds-info-valign-group" data-value="bottom">
+                <button class="ds-pill-btn" data-val="top" id="dsip-top">Top</button>
+                <button class="ds-pill-btn" data-val="center" id="dsip-mid">Mid</button>
+                <button class="ds-pill-btn active" data-val="bottom" id="dsip-bot">Bot</button>
+              </div>
+            </div>
+            <div>
+              <label class="fm-label" id="dsl-info-tpl">Template</label>
+              <textarea id="ds-info-tpl" class="fm-input ds-tpl-input" rows="4" placeholder="{filament.material}&#10;{filament.color}&#10;Ext: {filament.extruder_temp}°C&#10;Bed: {filament.bed_temp}°C">{filament.material}
+{filament.color}
+Ext: {filament.extruder_temp}°C
+Bed: {filament.bed_temp}°C</textarea>
+              <div class="ds-token-hints" id="ds-info-tokens"></div>
+            </div>
+          </div>
+        </details>
+
       </div>
 
       <div class="action-buttons">
@@ -466,11 +613,147 @@ const { id } = Astro.params
     box-shadow: 0 1px 3px rgba(0,0,0,0.12);
   }
 
-  .designer-coming-soon {
-    font-size: 0.85rem;
+  /* Designer sections */
+  .ds-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .ds-section-header {
+    padding: 10px 14px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
     color: var(--text-muted);
-    margin: 0;
-    padding: 8px 0;
+    background: var(--bg-soft);
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+  }
+
+  .ds-section-header::-webkit-details-marker { display: none; }
+
+  .ds-section-header::after {
+    content: '▾';
+    font-size: 0.7rem;
+    transition: transform var(--transition);
+  }
+
+  details.ds-section[open] > .ds-section-header::after {
+    transform: rotate(-180deg);
+  }
+
+  .ds-section-body {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--bg-elevated);
+  }
+
+  /* Align button group (L/C/R icons) */
+  .ds-align-group {
+    display: flex;
+    gap: 4px;
+  }
+
+  .ds-align-btn {
+    flex: 1;
+    padding: 7px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--input-bg);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+  }
+
+  .ds-align-btn:hover { color: var(--text); }
+
+  .ds-align-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--btn-primary-text);
+  }
+
+  /* Pill button group (Left/Right, Top/Mid/Bot etc.) */
+  .ds-pill-group {
+    display: flex;
+    gap: 4px;
+  }
+
+  .ds-pill-btn {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--input-bg);
+    color: var(--text-muted);
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+  }
+
+  .ds-pill-btn:hover { color: var(--text); }
+
+  .ds-pill-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--btn-primary-text);
+  }
+
+  .fm-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+
+  .ds-tpl-input {
+    font-family: 'Space Mono', 'Courier New', monospace;
+    font-size: 0.8rem;
+    height: auto;
+    resize: vertical;
+  }
+
+  /* Token hint chips below template inputs */
+  .ds-token-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+  .ds-token-chip {
+    font-family: 'Space Mono', 'Courier New', monospace;
+    font-size: 0.68rem;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background var(--transition), color var(--transition);
+    white-space: nowrap;
+  }
+
+  .ds-token-chip:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--btn-primary-text);
   }
 </style>
 
@@ -645,6 +928,191 @@ const { id } = Astro.params
   const savedTab = localStorage.getItem(ACTIVE_TAB_KEY)
   if (savedTab === 'designer') activateTab('designer')
 
+  // ─── Label Designer ────────────────────────────────────────────────────────
+
+  const DESIGNER_KEY = 'filaman-label-designer-v1'
+
+  interface LabelDesignerSettings {
+    label:  { width: number; height: number; border: boolean }
+    title:  { show: boolean; sizeMm: number; fitToWidth: boolean; align: 'left'|'center'|'right'; template: string }
+    qr:     { mode: 'none'|'simple'|'icon'; sizeMm: number; position: 'left'|'right'; vAlign: 'top'|'center'|'bottom'; linkMode: 'spool'|'url'; urlTemplate: string }
+    info:   { show: boolean; sizeMm: number; hAlign: 'left'|'center'|'right'; vAlign: 'top'|'center'|'bottom'; template: string }
+  }
+
+  const DESIGNER_DEFAULTS: LabelDesignerSettings = {
+    label:  { width: 60, height: 40, border: false },
+    title:  { show: true, sizeMm: 4, fitToWidth: true, align: 'left', template: '{filament.name}' },
+    qr:     { mode: 'simple', sizeMm: 18, position: 'right', vAlign: 'bottom', linkMode: 'spool', urlTemplate: '' },
+    info:   { show: true, sizeMm: 2.5, hAlign: 'left', vAlign: 'bottom',
+              template: '{filament.material}\n{filament.color}\nExt: {filament.extruder_temp}°C\nBed: {filament.bed_temp}°C' },
+  }
+
+  // All available tokens for the token-chip hints
+  const DESIGNER_TOKENS = [
+    '{id}', '{filament.name}', '{filament.material}', '{filament.color}',
+    '{filament.color_hex}', '{filament.manufacturer}',
+    '{filament.extruder_temp}', '{filament.bed_temp}', '{filament.weight}',
+  ]
+
+  function saveDesignerSettings() {
+    const s: LabelDesignerSettings = {
+      label: {
+        width:  Number((document.getElementById('ds-width') as HTMLInputElement).value),
+        height: Number((document.getElementById('ds-height') as HTMLInputElement).value),
+        border: (document.getElementById('ds-border') as HTMLInputElement).checked,
+      },
+      title: {
+        show:       (document.getElementById('ds-title-show') as HTMLInputElement).checked,
+        sizeMm:     Number((document.getElementById('ds-title-size') as HTMLInputElement).value),
+        fitToWidth: (document.getElementById('ds-title-fit') as HTMLInputElement).checked,
+        align:      (document.getElementById('ds-title-align-group') as HTMLElement).dataset.value as 'left'|'center'|'right',
+        template:   (document.getElementById('ds-title-tpl') as HTMLInputElement).value,
+      },
+      qr: {
+        mode:        (document.getElementById('ds-qr-mode') as HTMLSelectElement).value as 'none'|'simple'|'icon',
+        sizeMm:      Number((document.getElementById('ds-qr-size') as HTMLInputElement).value),
+        position:    (document.getElementById('ds-qr-pos-group') as HTMLElement).dataset.value as 'left'|'right',
+        vAlign:      (document.getElementById('ds-qr-valign-group') as HTMLElement).dataset.value as 'top'|'center'|'bottom',
+        linkMode:    (document.getElementById('ds-qr-link-group') as HTMLElement).dataset.value as 'spool'|'url',
+        urlTemplate: (document.getElementById('ds-qr-url-tpl') as HTMLInputElement).value,
+      },
+      info: {
+        show:   (document.getElementById('ds-info-show') as HTMLInputElement).checked,
+        sizeMm: Number((document.getElementById('ds-info-size') as HTMLInputElement).value),
+        hAlign: (document.getElementById('ds-info-align-group') as HTMLElement).dataset.value as 'left'|'center'|'right',
+        vAlign: (document.getElementById('ds-info-valign-group') as HTMLElement).dataset.value as 'top'|'center'|'bottom',
+        template: (document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value,
+      },
+    }
+    localStorage.setItem(DESIGNER_KEY, JSON.stringify(s))
+  }
+
+  function loadDesignerSettings() {
+    let s: LabelDesignerSettings = DESIGNER_DEFAULTS
+    try {
+      const raw = localStorage.getItem(DESIGNER_KEY)
+      if (raw) s = { ...DESIGNER_DEFAULTS, ...JSON.parse(raw) }
+    } catch { /* ignore */ }
+
+    ;(document.getElementById('ds-width') as HTMLInputElement).value = String(s.label.width)
+    ;(document.getElementById('ds-height') as HTMLInputElement).value = String(s.label.height)
+    ;(document.getElementById('ds-border') as HTMLInputElement).checked = s.label.border
+
+    ;(document.getElementById('ds-title-show') as HTMLInputElement).checked = s.title.show
+    ;(document.getElementById('ds-title-size') as HTMLInputElement).value = String(s.title.sizeMm)
+    ;(document.getElementById('ds-title-fit') as HTMLInputElement).checked = s.title.fitToWidth
+    setAlignGroup('ds-title-align-group', s.title.align)
+    ;(document.getElementById('ds-title-tpl') as HTMLInputElement).value = s.title.template
+
+    ;(document.getElementById('ds-qr-mode') as HTMLSelectElement).value = s.qr.mode
+    ;(document.getElementById('ds-qr-size') as HTMLInputElement).value = String(s.qr.sizeMm)
+    setPillGroup('ds-qr-pos-group', s.qr.position)
+    setPillGroup('ds-qr-valign-group', s.qr.vAlign)
+    setPillGroup('ds-qr-link-group', s.qr.linkMode)
+    ;(document.getElementById('ds-qr-url-tpl') as HTMLInputElement).value = s.qr.urlTemplate
+    ;(document.getElementById('ds-qr-url-wrap') as HTMLElement).style.display = s.qr.linkMode === 'url' ? '' : 'none'
+
+    ;(document.getElementById('ds-info-show') as HTMLInputElement).checked = s.info.show
+    ;(document.getElementById('ds-info-size') as HTMLInputElement).value = String(s.info.sizeMm)
+    setAlignGroup('ds-info-align-group', s.info.hAlign)
+    setPillGroup('ds-info-valign-group', s.info.vAlign)
+    ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = s.info.template
+  }
+
+  // Helpers for button groups
+  function setAlignGroup(groupId: string, value: string) {
+    const group = document.getElementById(groupId)
+    if (!group) return
+    group.dataset.value = value
+    group.querySelectorAll<HTMLButtonElement>('.ds-align-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.align === value)
+    })
+  }
+
+  function setPillGroup(groupId: string, value: string) {
+    const group = document.getElementById(groupId)
+    if (!group) return
+    group.dataset.value = value
+    group.querySelectorAll<HTMLButtonElement>('.ds-pill-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.val === value)
+    })
+  }
+
+  function wireAlignGroup(groupId: string) {
+    const group = document.getElementById(groupId)
+    if (!group) return
+    group.querySelectorAll<HTMLButtonElement>('.ds-align-btn').forEach(btn => {
+      btn.addEventListener('click', () => { setAlignGroup(groupId, btn.dataset.align!); saveDesignerSettings() })
+    })
+  }
+
+  function wirePillGroup(groupId: string, onChange?: (val: string) => void) {
+    const group = document.getElementById(groupId)
+    if (!group) return
+    group.querySelectorAll<HTMLButtonElement>('.ds-pill-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        setPillGroup(groupId, btn.dataset.val!)
+        saveDesignerSettings()
+        onChange?.(btn.dataset.val!)
+      })
+    })
+  }
+
+  function buildTokenChips(containerId: string, targetId: string, tokens: string[]) {
+    const container = document.getElementById(containerId)
+    if (!container) return
+    for (const tok of tokens) {
+      const chip = document.createElement('button')
+      chip.className = 'ds-token-chip'
+      chip.textContent = tok
+      chip.title = tok
+      chip.addEventListener('click', () => {
+        const el = document.getElementById(targetId) as HTMLInputElement | HTMLTextAreaElement
+        if (!el) return
+        const start = el.selectionStart ?? el.value.length
+        const end = el.selectionEnd ?? el.value.length
+        el.value = el.value.slice(0, start) + tok + el.value.slice(end)
+        el.selectionStart = el.selectionEnd = start + tok.length
+        el.focus()
+        saveDesignerSettings()
+      })
+      container.appendChild(chip)
+    }
+  }
+
+  // Wire up all designer controls
+  wireAlignGroup('ds-title-align-group')
+  wireAlignGroup('ds-info-align-group')
+  wirePillGroup('ds-qr-pos-group')
+  wirePillGroup('ds-qr-valign-group')
+  wirePillGroup('ds-info-valign-group')
+  wirePillGroup('ds-qr-link-group', (val) => {
+    ;(document.getElementById('ds-qr-url-wrap') as HTMLElement).style.display = val === 'url' ? '' : 'none'
+  })
+
+  const dsInputIds = ['ds-width','ds-height','ds-title-size','ds-qr-size','ds-info-size','ds-title-tpl','ds-qr-url-tpl','ds-info-tpl']
+  const dsCheckIds = ['ds-border','ds-title-show','ds-title-fit','ds-info-show']
+  const dsSelectIds = ['ds-qr-mode']
+  ;[...dsInputIds, ...dsCheckIds, ...dsSelectIds].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', saveDesignerSettings)
+  })
+  dsInputIds.forEach(id => {
+    const el = document.getElementById(id)
+    if (el && (el as HTMLInputElement).type !== 'checkbox') {
+      el.addEventListener('input', saveDesignerSettings)
+    }
+  })
+
+  // Token chips
+  buildTokenChips('ds-title-tokens', 'ds-title-tpl', DESIGNER_TOKENS)
+  buildTokenChips('ds-info-tokens', 'ds-info-tpl', DESIGNER_TOKENS)
+  buildTokenChips('ds-qr-tokens', 'ds-qr-url-tpl', ['{id}', '{filament.name}'])
+
+  // Load persisted designer settings
+  loadDesignerSettings()
+
+  // ─── End Label Designer ────────────────────────────────────────────────────
+
   // Label logo state
   let labelLogoUrl: string | null = null
   let labelLogoLoaded = false
@@ -759,8 +1227,45 @@ const { id } = Astro.params
   document.getElementById('tab-btn-print').textContent = (window as any).__t('spools.printSettings') || 'Print Settings'
   document.getElementById('tab-btn-designer').textContent = (window as any).__t('spools.labelDesigner') || 'Label Designer'
   document.getElementById('title-settings').textContent = (window as any).__t('spools.printSettings')
-  document.getElementById('title-designer').textContent = (window as any).__t('spools.labelDesigner') || 'Label Designer'
-  document.getElementById('designer-coming-soon').textContent = (window as any).__t('spools.labelDesignerComingSoon') || 'Section controls coming soon.'
+
+  // Designer section headers + labels
+  const t = (key: string, fallback: string) => (window as any).__t(key) || fallback
+  document.getElementById('dsh-label').childNodes[0].textContent = t('spools.dsLabel', 'Label')
+  document.getElementById('dsl-width').textContent = t('spools.labelWidth', 'Width (mm)')
+  document.getElementById('dsl-height').textContent = t('spools.labelHeight', 'Height (mm)')
+  document.getElementById('dsl-border').textContent = t('spools.dsBorder', 'Border')
+  document.getElementById('dsh-title').childNodes[0].textContent = t('spools.dsTitle', 'Title')
+  document.getElementById('dsl-title-show').textContent = t('spools.dsTitleShow', 'Show title')
+  document.getElementById('dsl-title-size').textContent = t('spools.dsTitleSize', 'Max font size (mm)')
+  document.getElementById('dsl-title-fit').textContent = t('spools.dsTitleFit', 'Fit to width')
+  document.getElementById('dsl-title-align').textContent = t('spools.dsAlign', 'Alignment')
+  document.getElementById('dsl-title-tpl').textContent = t('spools.dsTemplate', 'Template')
+  document.getElementById('dsh-qr').childNodes[0].textContent = t('spools.showQRCode', 'QR Code')
+  document.getElementById('dsl-qr-mode').textContent = t('spools.dsQrMode', 'Mode')
+  document.getElementById('dso-qr-none').textContent = t('spools.dsQrNone', 'None')
+  document.getElementById('dso-qr-simple').textContent = t('spools.dsQrSimple', 'Simple')
+  document.getElementById('dso-qr-icon').textContent = t('spools.dsQrIcon', 'With icon')
+  document.getElementById('dsl-qr-size').textContent = t('spools.qrSize', 'Size (mm)')
+  document.getElementById('dsl-qr-pos').textContent = t('spools.dsQrPosition', 'Position')
+  document.getElementById('dsp-qr-left').textContent = t('spools.dsLeft', 'Left')
+  document.getElementById('dsp-qr-right').textContent = t('spools.dsRight', 'Right')
+  document.getElementById('dsl-qr-valign').textContent = t('spools.dsVAlign', 'Vertical align')
+  document.getElementById('dsp-qr-top').textContent = t('spools.dsTop', 'Top')
+  document.getElementById('dsp-qr-mid').textContent = t('spools.dsMid', 'Mid')
+  document.getElementById('dsp-qr-bot').textContent = t('spools.dsBot', 'Bot')
+  document.getElementById('dsl-qr-link').textContent = t('spools.dsQrLink', 'Link mode')
+  document.getElementById('dsp-qr-spool').textContent = t('spools.dsQrSpoolUrl', 'Spool URL')
+  document.getElementById('dsp-qr-url').textContent = t('spools.dsQrCustomUrl', 'Custom URL')
+  document.getElementById('dsl-qr-url-tpl').textContent = t('spools.dsTemplate', 'Template')
+  document.getElementById('dsh-info').childNodes[0].textContent = t('spools.dsInfo', 'Information')
+  document.getElementById('dsl-info-show').textContent = t('spools.dsInfoShow', 'Show information block')
+  document.getElementById('dsl-info-size').textContent = t('spools.dsInfoSize', 'Text size (mm)')
+  document.getElementById('dsl-info-halign').textContent = t('spools.dsHAlign', 'Horizontal align')
+  document.getElementById('dsl-info-valign').textContent = t('spools.dsVAlign', 'Vertical align')
+  document.getElementById('dsip-top').textContent = t('spools.dsTop', 'Top')
+  document.getElementById('dsip-mid').textContent = t('spools.dsMid', 'Mid')
+  document.getElementById('dsip-bot').textContent = t('spools.dsBot', 'Bot')
+  document.getElementById('dsl-info-tpl').textContent = t('spools.dsTemplate', 'Template')
   document.getElementById('label-width-text').textContent = (window as any).__t('spools.labelWidth')
   document.getElementById('label-height-text').textContent = (window as any).__t('spools.labelHeight')
   document.getElementById('label-font-size-text').textContent = (window as any).__t('spools.fontSize')
