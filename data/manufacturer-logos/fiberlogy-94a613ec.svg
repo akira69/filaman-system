@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="96" viewBox="0 0 320 96" role="img" aria-label="Fiberlogy logo">
+  <rect width="320" height="96" fill="transparent" />
+  <circle cx="24" cy="48" r="8" fill="#EF4444" /><circle cx="48" cy="28" r="8" fill="#EF4444" /><circle cx="48" cy="68" r="8" fill="#7C2D12" /><path d="M24 48L48 28M24 48L48 68" stroke="#EF4444" stroke-width="6" stroke-linecap="round" />
+  <text x="94" y="58" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" fill="#7C2D12" letter-spacing="0.5">Fiberlogy</text>
+</svg>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="96" viewBox="0 0 320 96" role="img" aria-label="SUNLU logo">
+  <rect width="320" height="96" fill="transparent" />
+  <rect x="16" y="70" width="66" height="8" rx="4" fill="#0EA5E9" />
+  <text x="94" y="58" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" fill="#0F172A" letter-spacing="0.5">SUNLU</text>
+</svg>
