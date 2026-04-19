@@ -316,6 +316,58 @@ const { id } = Astro.params
               <textarea id="ds-info-tpl" class="fm-input ds-tpl-input" rows="7" placeholder="{filament.material}&#10;{filament.color}&#10;Ext: {filament.extruder_temp}°C&#10;Bed: {filament.bed_temp}°C"></textarea>
               <div class="ds-token-hints" id="ds-info-tokens"></div>
             </div>
+
+            <!-- Second info column toggle -->
+            <div class="ds-info2-toggle">
+              <label class="fm-checkbox-group">
+                <input type="checkbox" id="ds-info2-show">
+                <span id="dsl-info2-show">2nd Information Column</span>
+              </label>
+            </div>
+
+            <!-- Second info column controls (collapsed by default) -->
+            <div id="ds-info2-block" class="ds-info2-block" style="display:none">
+              <div class="ds-info2-divider"></div>
+              <label class="fm-checkbox-group">
+                <input type="checkbox" id="ds-info2-vsep">
+                <span id="dsl-info2-vsep">Vertical separator</span>
+              </label>
+              <div class="ds-size-row">
+                <label class="fm-label ds-size-label" id="dsl-info2-size">Text size (mm)</label>
+                <input type="range" id="ds-info2-size-range" min="1" max="10" step="0.5" value="2.5" class="ds-slider">
+                <input type="number" id="ds-info2-size" value="2.5" step="0.5" min="1" max="10" class="fm-input ds-size-num">
+              </div>
+              <div>
+                <label class="fm-label" id="dsl-info2-halign">Horizontal align</label>
+                <div class="ds-align-group" id="ds-info2-align-group" data-value="left">
+                  <button class="ds-align-btn active" data-align="left" title="Left">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+                  </button>
+                  <button class="ds-align-btn" data-align="center" title="Center">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                  </button>
+                  <button class="ds-align-btn" data-align="right" title="Right">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label class="fm-label" id="dsl-info2-valign">Vertical align</label>
+                <div class="ds-pill-group" id="ds-info2-valign-group" data-value="bottom">
+                  <button class="ds-pill-btn" data-val="top" id="dsip2-top">Top</button>
+                  <button class="ds-pill-btn" data-val="center" id="dsip2-mid">Mid</button>
+                  <button class="ds-pill-btn active" data-val="bottom" id="dsip2-bot">Bot</button>
+                </div>
+              </div>
+              <div>
+                <div class="ds-tpl-label-row">
+                  <label class="fm-label" id="dsl-info2-tpl">Template</label>
+                  <button class="ds-syntax-btn" id="ds-info2-syntax-btn" type="button" title="Template syntax help">?</button>
+                </div>
+                <textarea id="ds-info2-tpl" class="fm-input ds-tpl-input" rows="5" placeholder="{filament.weight}g&#10;{filament.color_hex}"></textarea>
+                <div class="ds-token-hints" id="ds-info2-tokens"></div>
+              </div>
+            </div>
           </div>
         </details>
 
@@ -976,6 +1028,24 @@ const { id } = Astro.params
     gap: 12px 20px;
   }
 
+  /* Info second-column toggle + sub-block */
+  .ds-info2-toggle {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    margin-top: 4px;
+  }
+
+  .ds-info2-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .ds-info2-divider {
+    border-top: 1px dashed var(--border);
+    margin: 2px 0;
+  }
+
   /* Show checkbox embedded in section header */
   .ds-header-show {
     display: flex;
@@ -1359,9 +1429,8 @@ const { id } = Astro.params
     btn.addEventListener('click', () => activateTab(btn.dataset.tab as 'print' | 'designer'))
   })
 
-  // Restore last active tab
+  // Restore last active tab — deferred until after designer setup completes
   const savedTab = localStorage.getItem(ACTIVE_TAB_KEY)
-  if (savedTab === 'designer') activateTab('designer')
 
   // ─── Label Designer ────────────────────────────────────────────────────────
 
@@ -1373,6 +1442,7 @@ const { id } = Astro.params
     title:  { show: boolean; sizeMm: number; fitToWidth: boolean; align: 'left'|'center'|'right'; template: string; dividerAbove: boolean; dividerBelow: boolean }
     qr:     { mode: 'none'|'simple'|'icon'; sizeMm: number; position: 'left'|'right'; vAlign: 'top'|'center'|'bottom'; linkMode: 'spool'|'url'; urlTemplate: string }
     info:   { show: boolean; sizeMm: number; hAlign: 'left'|'center'|'right'; vAlign: 'top'|'center'|'bottom'; template: string }
+    info2:  { show: boolean; vsep: boolean; sizeMm: number; hAlign: 'left'|'center'|'right'; vAlign: 'top'|'center'|'bottom'; template: string }
   }
 
   const DESIGNER_DEFAULTS: LabelDesignerSettings = {
@@ -1382,6 +1452,7 @@ const { id } = Astro.params
     qr:     { mode: 'simple', sizeMm: 18, position: 'right', vAlign: 'bottom', linkMode: 'spool', urlTemplate: '' },
     info:   { show: true, sizeMm: 2.5, hAlign: 'left', vAlign: 'bottom',
               template: '{filament.material}\n{filament.color}\nExt: {filament.extruder_temp}°C\nBed: {filament.bed_temp}°C' },
+    info2:  { show: false, vsep: false, sizeMm: 2.5, hAlign: 'left', vAlign: 'bottom', template: '' },
   }
 
   // All available tokens for the token-chip hints
@@ -1427,6 +1498,14 @@ const { id } = Astro.params
         vAlign: (document.getElementById('ds-info-valign-group') as HTMLElement).dataset.value as 'top'|'center'|'bottom',
         template: (document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value,
       },
+      info2: {
+        show:   (document.getElementById('ds-info2-show') as HTMLInputElement).checked,
+        vsep:   (document.getElementById('ds-info2-vsep') as HTMLInputElement).checked,
+        sizeMm: Number((document.getElementById('ds-info2-size') as HTMLInputElement).value),
+        hAlign: (document.getElementById('ds-info2-align-group') as HTMLElement).dataset.value as 'left'|'center'|'right',
+        vAlign: (document.getElementById('ds-info2-valign-group') as HTMLElement).dataset.value as 'top'|'center'|'bottom',
+        template: (document.getElementById('ds-info2-tpl') as HTMLTextAreaElement).value,
+      },
     }
     localStorage.setItem(DESIGNER_KEY, JSON.stringify(s))
   }
@@ -1445,6 +1524,7 @@ const { id } = Astro.params
           title: { ...DESIGNER_DEFAULTS.title, ...parsed.title },
           qr:    { ...DESIGNER_DEFAULTS.qr,    ...parsed.qr },
           info:  { ...DESIGNER_DEFAULTS.info,  ...parsed.info },
+          info2: { ...DESIGNER_DEFAULTS.info2, ...parsed.info2 },
         }
       }
     } catch { /* ignore */ }
@@ -1482,6 +1562,16 @@ const { id } = Astro.params
     setAlignGroup('ds-info-align-group', s.info.hAlign)
     setPillGroup('ds-info-valign-group', s.info.vAlign)
     ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = s.info.template
+
+    const info2 = s.info2 ?? DESIGNER_DEFAULTS.info2
+    ;(document.getElementById('ds-info2-show') as HTMLInputElement).checked = info2.show
+    ;(document.getElementById('ds-info2-block') as HTMLElement).style.display = info2.show ? '' : 'none'
+    ;(document.getElementById('ds-info2-vsep') as HTMLInputElement).checked = info2.vsep ?? false
+    ;(document.getElementById('ds-info2-size') as HTMLInputElement).value = String(info2.sizeMm)
+    ;(document.getElementById('ds-info2-size-range') as HTMLInputElement).value = String(info2.sizeMm)
+    setAlignGroup('ds-info2-align-group', info2.hAlign)
+    setPillGroup('ds-info2-valign-group', info2.vAlign)
+    ;(document.getElementById('ds-info2-tpl') as HTMLTextAreaElement).value = info2.template
   }
 
   // Helpers for button groups
@@ -1550,18 +1640,25 @@ const { id } = Astro.params
   wireAlignGroup('ds-logo-align-group')
   wireAlignGroup('ds-title-align-group')
   wireAlignGroup('ds-info-align-group')
+  wireAlignGroup('ds-info2-align-group')
   wirePillGroup('ds-qr-pos-group')
   wirePillGroup('ds-qr-valign-group')
   wirePillGroup('ds-info-valign-group')
+  wirePillGroup('ds-info2-valign-group')
   wirePillGroup('ds-qr-link-group', (val) => {
     ;(document.getElementById('ds-qr-url-wrap') as HTMLElement).style.display = val === 'url' ? '' : 'none'
   })
 
-  const dsInputIds = ['ds-width','ds-height','ds-logo-size','ds-title-size','ds-qr-size','ds-info-size','ds-title-tpl','ds-qr-url-tpl','ds-info-tpl']
-  const dsCheckIds = ['ds-border','ds-logo-show','ds-title-show','ds-title-fit','ds-divider-above','ds-divider-below','ds-info-show']
+  const dsInputIds = ['ds-width','ds-height','ds-logo-size','ds-title-size','ds-qr-size','ds-info-size','ds-info2-size','ds-title-tpl','ds-qr-url-tpl','ds-info-tpl','ds-info2-tpl']
+  const dsCheckIds = ['ds-border','ds-logo-show','ds-title-show','ds-title-fit','ds-divider-above','ds-divider-below','ds-info-show','ds-info2-show','ds-info2-vsep']
   const dsSelectIds = ['ds-qr-mode']
   ;[...dsInputIds, ...dsCheckIds, ...dsSelectIds].forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => { saveDesignerSettings(); updateDesignerPreview() })
+  })
+  // Toggle info2 block visibility when its show-checkbox changes
+  document.getElementById('ds-info2-show')?.addEventListener('change', (e) => {
+    const show = (e.target as HTMLInputElement).checked
+    ;(document.getElementById('ds-info2-block') as HTMLElement).style.display = show ? '' : 'none'
   })
   dsInputIds.forEach(id => {
     const el = document.getElementById(id)
@@ -1576,6 +1673,7 @@ const { id } = Astro.params
     ['ds-title-size-range', 'ds-title-size'],
     ['ds-qr-size-range', 'ds-qr-size'],
     ['ds-info-size-range', 'ds-info-size'],
+    ['ds-info2-size-range', 'ds-info2-size'],
   ]
   for (const [rangId, numId] of sliderPairs) {
     const rang = document.getElementById(rangId) as HTMLInputElement
@@ -1650,10 +1748,12 @@ const { id } = Astro.params
   }
   document.getElementById('ds-title-syntax-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openSyntaxPopover(e.currentTarget as HTMLElement) })
   document.getElementById('ds-info-syntax-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openSyntaxPopover(e.currentTarget as HTMLElement) })
+  document.getElementById('ds-info2-syntax-btn')?.addEventListener('click', (e) => { e.stopPropagation(); openSyntaxPopover(e.currentTarget as HTMLElement) })
 
   // Token chips
   buildTokenChips('ds-title-tokens', 'ds-title-tpl', DESIGNER_TOKENS)
   buildTokenChips('ds-info-tokens', 'ds-info-tpl', DESIGNER_TOKENS)
+  buildTokenChips('ds-info2-tokens', 'ds-info2-tpl', DESIGNER_TOKENS)
   buildTokenChips('ds-qr-tokens', 'ds-qr-url-tpl', ['{id}', '{filament.name}'])
 
   // Load persisted designer settings
@@ -1826,6 +1926,7 @@ const { id } = Astro.params
       title:  { ...DESIGNER_DEFAULTS.title,  ...preset.settings.title },
       qr:     { ...DESIGNER_DEFAULTS.qr,     ...preset.settings.qr },
       info:   { ...DESIGNER_DEFAULTS.info,   ...preset.settings.info },
+      info2:  { ...DESIGNER_DEFAULTS.info2,  ...(preset.settings.info2 ?? {}) },
     }
     // Apply to form
     ;(document.getElementById('ds-logo-show') as HTMLInputElement).checked = s.logo.show
@@ -1857,6 +1958,15 @@ const { id } = Astro.params
     setAlignGroup('ds-info-align-group', s.info.hAlign)
     setPillGroup('ds-info-valign-group', s.info.vAlign)
     ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = s.info.template
+    const _pi2 = s.info2 ?? DESIGNER_DEFAULTS.info2
+    ;(document.getElementById('ds-info2-show') as HTMLInputElement).checked = _pi2.show
+    ;(document.getElementById('ds-info2-block') as HTMLElement).style.display = _pi2.show ? '' : 'none'
+    ;(document.getElementById('ds-info2-vsep') as HTMLInputElement).checked = _pi2.vsep ?? false
+    ;(document.getElementById('ds-info2-size') as HTMLInputElement).value = String(_pi2.sizeMm)
+    ;(document.getElementById('ds-info2-size-range') as HTMLInputElement).value = String(_pi2.sizeMm)
+    setAlignGroup('ds-info2-align-group', _pi2.hAlign)
+    setPillGroup('ds-info2-valign-group', _pi2.vAlign)
+    ;(document.getElementById('ds-info2-tpl') as HTMLTextAreaElement).value = _pi2.template
     saveDesignerSettings()
     _activePresetName = name
     presetNameInput.value = name
@@ -1996,6 +2106,15 @@ const { id } = Astro.params
     setAlignGroup('ds-info-align-group', d.hAlign)
     setPillGroup('ds-info-valign-group', d.vAlign)
     ;(document.getElementById('ds-info-tpl') as HTMLTextAreaElement).value = d.template
+    const d2 = DESIGNER_DEFAULTS.info2
+    ;(document.getElementById('ds-info2-show') as HTMLInputElement).checked = d2.show
+    ;(document.getElementById('ds-info2-block') as HTMLElement).style.display = d2.show ? '' : 'none'
+    ;(document.getElementById('ds-info2-vsep') as HTMLInputElement).checked = d2.vsep
+    ;(document.getElementById('ds-info2-size') as HTMLInputElement).value = String(d2.sizeMm)
+    ;(document.getElementById('ds-info2-size-range') as HTMLInputElement).value = String(d2.sizeMm)
+    setAlignGroup('ds-info2-align-group', d2.hAlign)
+    setPillGroup('ds-info2-valign-group', d2.vAlign)
+    ;(document.getElementById('ds-info2-tpl') as HTMLTextAreaElement).value = d2.template
   })
 
   // ─── End Label Designer ────────────────────────────────────────────────────
@@ -2161,6 +2280,15 @@ const { id } = Astro.params
   document.getElementById('dsip-mid').textContent = t('spools.dsMid', 'Mid')
   document.getElementById('dsip-bot').textContent = t('spools.dsBot', 'Bot')
   document.getElementById('dsl-info-tpl').textContent = t('spools.dsTemplate', 'Template')
+  document.getElementById('dsl-info2-show').textContent = t('spools.dsInfo2Show', '2nd Information Column')
+  document.getElementById('dsl-info2-vsep').textContent = t('spools.dsInfo2Vsep', 'Vertical separator')
+  document.getElementById('dsl-info2-size').textContent = t('spools.dsInfoSize', 'Text size (mm)')
+  document.getElementById('dsl-info2-halign').textContent = t('spools.dsHAlign', 'Horizontal align')
+  document.getElementById('dsl-info2-valign').textContent = t('spools.dsVAlign', 'Vertical align')
+  document.getElementById('dsip2-top').textContent = t('spools.dsTop', 'Top')
+  document.getElementById('dsip2-mid').textContent = t('spools.dsMid', 'Mid')
+  document.getElementById('dsip2-bot').textContent = t('spools.dsBot', 'Bot')
+  document.getElementById('dsl-info2-tpl').textContent = t('spools.dsTemplate', 'Template')
   document.getElementById('label-width-text').textContent = (window as any).__t('spools.labelWidth')
   document.getElementById('label-height-text').textContent = (window as any).__t('spools.labelHeight')
   document.getElementById('label-font-size-text').textContent = (window as any).__t('spools.fontSize')
@@ -2422,7 +2550,19 @@ const { id } = Astro.params
     const s = (() => {
       try {
         const raw = localStorage.getItem(DESIGNER_KEY)
-        if (raw) return { ...DESIGNER_DEFAULTS, ...JSON.parse(raw) }
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          return {
+            ...DESIGNER_DEFAULTS,
+            ...parsed,
+            logo:  { ...DESIGNER_DEFAULTS.logo,  ...parsed.logo },
+            label: { ...DESIGNER_DEFAULTS.label, ...parsed.label },
+            title: { ...DESIGNER_DEFAULTS.title, ...parsed.title },
+            qr:    { ...DESIGNER_DEFAULTS.qr,    ...parsed.qr },
+            info:  { ...DESIGNER_DEFAULTS.info,  ...parsed.info },
+            info2: { ...DESIGNER_DEFAULTS.info2, ...parsed.info2 },
+          }
+        }
       } catch { /* ignore */ }
       return DESIGNER_DEFAULTS
     })()
@@ -2525,12 +2665,16 @@ const { id } = Astro.params
     mainRow.style.padding = '1mm'
     mainRow.style.gap = '1.5mm'
     mainRow.style.flexDirection = s.qr.position === 'left' ? 'row-reverse' : 'row'
-    mainRow.style.alignItems = (s.info.show && s.info.template.trim())
-      ? (s.info.vAlign === 'top' ? 'flex-start' : s.info.vAlign === 'center' ? 'center' : 'flex-end')
-      : 'stretch'
+    mainRow.style.alignItems = (() => {
+      const v = (s.info.show && s.info.template.trim()) ? s.info.vAlign
+               : (s.info2?.show && s.info2.template.trim()) ? s.info2.vAlign
+               : null
+      if (!v) return 'stretch'
+      return v === 'top' ? 'flex-start' : v === 'center' ? 'center' : 'flex-end'
+    })()
     labelPreview.appendChild(mainRow)
 
-    // Information block
+    // Information block (primary)
     if (s.info.show && s.info.template.trim()) {
       const infoEl = document.createElement('div')
       infoEl.style.flex = '1'
@@ -2540,10 +2684,36 @@ const { id } = Astro.params
       infoEl.style.color = 'black'
       infoEl.style.overflow = 'hidden'
       infoEl.style.lineHeight = '1.4'
-
       const frag = parseTemplate(s.info.template, data)
       infoEl.appendChild(frag)
       mainRow.appendChild(infoEl)
+    }
+
+    // Information block 2 (second column)
+    const hasInfo2 = s.info2?.show && s.info2.template.trim()
+    if (hasInfo2) {
+      // Vertical separator between info1 and info2
+      if (s.info2.vsep) {
+        const sep = document.createElement('div')
+        sep.style.width = '1px'
+        sep.style.alignSelf = 'stretch'
+        sep.style.minHeight = '100%'
+        sep.style.background = 'black'
+        sep.style.flexShrink = '0'
+        mainRow.appendChild(sep)
+      }
+      const info2El = document.createElement('div')
+      info2El.style.flex = '1'
+      info2El.style.minWidth = '0'
+      info2El.style.fontSize = (s.info2.sizeMm * 3.78) + 'px'
+      info2El.style.textAlign = s.info2.hAlign
+      info2El.style.color = 'black'
+      info2El.style.overflow = 'hidden'
+      info2El.style.lineHeight = '1.4'
+      info2El.style.alignSelf = s.info2.vAlign === 'top' ? 'flex-start' : s.info2.vAlign === 'center' ? 'center' : 'flex-end'
+      const frag2 = parseTemplate(s.info2.template, data)
+      info2El.appendChild(frag2)
+      mainRow.appendChild(info2El)
     }
 
     // QR Code block
@@ -2646,6 +2816,9 @@ const { id } = Astro.params
     }
     updatePreview()
   })
+
+  // Restore active tab now that all designer state is fully initialized
+  if (savedTab === 'designer') activateTab('designer')
 
   // Initialize: load logo then render whichever tab is active
   loadLabelLogo().then(() => {

@@ -394,6 +394,8 @@
     "dsQrCustomUrl": "Eigene URL",
     "dsInfo": "Informationen",
     "dsInfoSize": "Textgröße (mm)",
+    "dsInfo2Show": "2. Informationsspalte",
+    "dsInfo2Vsep": "Vertikaler Trenner",
     "dsLeft": "Links",
     "dsRight": "Rechts",
     "dsTop": "Oben",
