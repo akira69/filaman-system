@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.filament import Color, Filament, FilamentColor, Manufacturer
 from app.models.location import Location
 from app.models.spool import Spool, SpoolStatus
+from app.utils.colors import normalize_hex_color
 from app.utils.db import json_extract_cast_string
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,13 @@ class SpoolmanImportService:
     def dialect(self):
         """Get the database dialect for JSON operations."""
         return self.db.bind.dialect
+
+    @staticmethod
+    def _normalize_hex_code(value: Any) -> str | None:
+        try:
+            return normalize_hex_color(value)
+        except ValueError:
+            return None
 
     # ------------------------------------------------------------------ #
     #  Verbindungstest
@@ -290,27 +298,20 @@ class SpoolmanImportService:
         colors: list[dict[str, str]] = []
 
         for fil in filaments:
-            color_hex = fil.get("color_hex")
-            if color_hex:
-                hex_code = f"#{color_hex.lstrip('#')}"
-                if hex_code.lower() not in seen:
-                    seen.add(hex_code.lower())
-                    # Farbname: Spoolman hat keinen separaten Farbnamen,
-                    # wir nutzen den Hex-Code als Fallback
-                    name = hex_code.upper()
-                    colors.append({"name": name, "hex_code": hex_code})
+            color_hex = self._normalize_hex_code(fil.get("color_hex"))
+            if color_hex and color_hex.lower() not in seen:
+                seen.add(color_hex.lower())
+                colors.append({"name": color_hex, "hex_code": color_hex})
 
             # Multi-Color
             multi = fil.get("multi_color_hexes")
             if multi:
                 hex_list = multi if isinstance(multi, list) else str(multi).split(",")
                 for h in hex_list:
-                    h = h.strip()
-                    if h:
-                        hex_code = f"#{h.lstrip('#')}"
-                        if hex_code.lower() not in seen:
-                            seen.add(hex_code.lower())
-                            colors.append({"name": hex_code.upper(), "hex_code": hex_code})
+                    normalized = self._normalize_hex_code(h)
+                    if normalized and normalized.lower() not in seen:
+                        seen.add(normalized.lower())
+                        colors.append({"name": normalized, "hex_code": normalized})
 
         return colors
 
@@ -521,20 +522,24 @@ class SpoolmanImportService:
             if not isinstance(color_data, dict):
                 continue
 
-            hex_code = color_data["hex_code"].lower()
-            if hex_code in color_map:
+            normalized_hex = self._normalize_hex_code(color_data.get("hex_code"))
+            if not normalized_hex:
+                continue
+
+            hex_key = normalized_hex.lower()
+            if hex_key in color_map:
                 result.colors_skipped += 1
                 continue
 
-            name = color_data.get("name", hex_code.upper())
+            name = color_data.get("name", normalized_hex)
             new_color = Color(
                 name=name,
-                hex_code=hex_code,
+                hex_code=normalized_hex,
             )
             self.db.add(new_color)
             await self.db.flush()
 
-            color_map[hex_code] = new_color.id
+            color_map[hex_key] = new_color.id
             result.colors_created += 1
 
         return color_map
@@ -699,9 +704,9 @@ class SpoolmanImportService:
         position = 1
 
         # Hauptfarbe
-        color_hex = fil_data.get("color_hex")
+        color_hex = self._normalize_hex_code(fil_data.get("color_hex"))
         if color_hex:
-            hex_key = f"#{color_hex.lstrip('#')}".lower()
+            hex_key = color_hex.lower()
             color_id = color_map.get(hex_key)
             if color_id:
                 fc = FilamentColor(
@@ -717,9 +722,9 @@ class SpoolmanImportService:
         if multi:
             hex_list = multi if isinstance(multi, list) else str(multi).split(",")
             for h in hex_list:
-                h = h.strip()
-                if h:
-                    hex_key = f"#{h.lstrip('#')}".lower()
+                normalized = self._normalize_hex_code(h)
+                if normalized:
+                    hex_key = normalized.lower()
                     color_id = color_map.get(hex_key)
                     if color_id:
                         fc = FilamentColor(
