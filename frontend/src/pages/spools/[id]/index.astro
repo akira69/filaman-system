@@ -262,7 +262,7 @@ const { id } = Astro.params
         
         if (!spoolRes.ok) {
           if (spoolRes.status === 404) {
-            document.getElementById('spool-content').innerHTML = `<div style="color: var(--error-text);">${t('spools.notFound')}</div>`
+            document.getElementById('spool-content')!.innerHTML = `<div style="color: var(--error-text);">${t('spools.notFound')}</div>`
             return
           }
           throw new Error('Failed to fetch spool')
@@ -290,7 +290,7 @@ const { id } = Astro.params
       } catch (error) {
         if (isAbortError(error)) return
         console.error('Failed to load spool:', error)
-        document.getElementById('spool-content').innerHTML = `<div style="color: var(--error-text);">${t('spools.failedLoadSingle')}</div>`
+        document.getElementById('spool-content')!.innerHTML = `<div style="color: var(--error-text);">${t('spools.failedLoadSingle')}</div>`
       }
     }
     
@@ -317,7 +317,7 @@ const { id } = Astro.params
       if (isEmpty) statusStyle = 'background: var(--error-bg); border-color: var(--error-border);'
       else if (isLow) statusStyle = 'background: rgba(247, 200, 106, 0.15); border: 1px solid rgba(247, 200, 106, 0.4);'
       
-      document.getElementById('spool-content').innerHTML = `
+      document.getElementById('spool-content')!.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; gap: 16px;">
           <div>
             <h1 style="font-size: 1.8rem; font-weight: 700; margin: 0; font-family: var(--font-serif);">${t('spools.spoolId', { id: spool.id })}</h1>
@@ -422,13 +422,13 @@ const { id } = Astro.params
       const printBtn = document.getElementById('btn-print-label') as HTMLAnchorElement
       if (printBtn) printBtn.href = `/spools/print?ids=${spool.id}&back=${spool.id}`
       
-      document.getElementById('actions-section').classList.remove('hidden')
+      document.getElementById('actions-section')!.classList.remove('hidden')
       
       // Delete Modal Logic
       const deleteModal = document.getElementById('delete-modal')
       const deleteCheckbox = document.getElementById('delete-permanent-checkbox') as HTMLInputElement
       const deleteWarning = document.getElementById('delete-permanent-warning')
-      const deleteConfirmBtn = document.getElementById('btn-delete-confirm')
+      const deleteConfirmBtn = document.getElementById('btn-delete-confirm') as HTMLButtonElement
       
       document.getElementById('btn-duplicate-spool')?.addEventListener('click', () => {
         const dupData = { ...spool }
@@ -998,8 +998,8 @@ const { id } = Astro.params
         printersList = data.items || data || []
         if (printersList.length === 0) return
 
-        document.getElementById('printer-params-section').classList.remove('hidden')
-        const select = document.getElementById('printer-select')
+        document.getElementById('printer-params-section')!.classList.remove('hidden')
+        const select = document.getElementById('printer-select') as HTMLSelectElement
         select.innerHTML = '<option value="">\u2014</option>' +
           printersList.map(p => `<option value="${p.id}" data-driver="${p.driver_key || ''}">${p.name}</option>`).join('')
 
@@ -1023,7 +1023,7 @@ const { id } = Astro.params
       }
     }
 
-    async function loadFieldDefinitions(driverKey) {
+    async function loadFieldDefinitions(driverKey: string) {
       if (!driverKey) {
         fieldDefinitions = []
         return
@@ -1039,7 +1039,7 @@ const { id } = Astro.params
       }
     }
 
-    async function loadSpoolPrinterParams(printerId) {
+    async function loadSpoolPrinterParams(printerId: number) {
       try {
         // Fetch spool params and filament params in parallel
         const [spoolRes, filamentRes] = await Promise.all([
@@ -1056,9 +1056,9 @@ const { id } = Astro.params
     }
 
     function renderPrinterParams() {
-      const container = document.getElementById('printer-params-list')
-      const actions = document.getElementById('printer-params-actions')
-      const printerId = document.getElementById('printer-select').value
+      const container = document.getElementById('printer-params-list') as HTMLElement
+      const actions = document.getElementById('printer-params-actions') as HTMLElement
+      const printerId = (document.getElementById('printer-select') as HTMLSelectElement | null)?.value
 
       if (!printerId) {
         container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">' + t('printers.selectPrinterHint') + '</p>'
@@ -1069,10 +1069,10 @@ const { id } = Astro.params
       actions.classList.remove('hidden')
 
       // Build value maps: spool-level (own) and filament-level (inherited)
-      const spoolValuesMap = {}
-      currentPrinterParams.forEach(p => { spoolValuesMap[p.param_key] = p.param_value || '' })
-      const filamentValuesMap = {}
-      filamentPrinterParams.forEach(p => { filamentValuesMap[p.param_key] = p.param_value || '' })
+      const spoolValuesMap: Record<string, string> = {}
+      currentPrinterParams.forEach((p: any) => { spoolValuesMap[p.param_key] = p.param_value || '' })
+      const filamentValuesMap: Record<string, string> = {}
+      filamentPrinterParams.forEach((p: any) => { filamentValuesMap[p.param_key] = p.param_value || '' })
 
       if (fieldDefinitions.length === 0) {
         container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">' + t('printers.noFieldDefinitions') + '</p>'
@@ -1130,7 +1130,7 @@ const { id } = Astro.params
     }
 
     document.getElementById('btn-save-params')?.addEventListener('click', async () => {
-      const printerId = document.getElementById('printer-select').value
+      const printerId = (document.getElementById('printer-select') as HTMLSelectElement | null)?.value
       if (!printerId) return
 
       const params: any[] = []
@@ -1207,11 +1207,11 @@ const { id } = Astro.params
         )
 
         const onlinePrinters = healthResults
-          .filter(r => r.status === 'fulfilled' && r.value && r.value.health.connected)
+          .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value != null && r.value.health?.connected)
           .map(r => r.value)
 
         // Fetch DB slot assignments for all online printers
-        const dbSlotsByPrinter = {}
+        const dbSlotsByPrinter: Record<string, any> = {}
         await Promise.allSettled(
           onlinePrinters.map(async ({ printer }) => {
             try {
@@ -1236,7 +1236,7 @@ const { id } = Astro.params
 
           // Merge DB slot assignments into health slots
           const dbSlots = dbSlotsByPrinter[printer.id] || []
-          const dbSlotAssignments = {}
+          const dbSlotAssignments: Record<string, any> = {}
           for (const s of dbSlots) {
             if (s.assignment) {
               const si = `${Math.floor(s.slot_no / 4)}-${s.slot_no % 4}`
@@ -1248,7 +1248,7 @@ const { id } = Astro.params
           }
 
           // Group slots by AMS ID
-          const amsGroups = {}
+          const amsGroups: Record<string, any[]> = {}
           const externalSlots = []
           for (const slot of slots) {
             const idx = slot.slot_index || ''
@@ -1383,17 +1383,17 @@ const { id } = Astro.params
       })
 
       // Action handlers
-      menu.querySelector('[data-action="assign"]').addEventListener('click', (e) => {
+      menu.querySelector('[data-action="assign"]')?.addEventListener('click', (e) => {
         e.stopPropagation()
         closeSlotMenu()
         handleAssignSpoolToTray(slot, printerId)
       })
-      menu.querySelector('[data-action="import-spool"]').addEventListener('click', (e) => {
+      menu.querySelector('[data-action="import-spool"]')?.addEventListener('click', (e) => {
         e.stopPropagation()
         closeSlotMenu()
         handleImportTrayToSpool(slot, printerId)
       })
-      menu.querySelector('[data-action="import-both"]').addEventListener('click', (e) => {
+      menu.querySelector('[data-action="import-both"]')?.addEventListener('click', (e) => {
         e.stopPropagation()
         closeSlotMenu()
         handleImportTrayToSpoolAndFilament(slot, printerId)
@@ -1505,7 +1505,7 @@ const { id } = Astro.params
       }
 
       // Gather filament data from spool's printer params or spool/filament defaults
-      let filamentData = {}
+      let filamentData: Record<string, unknown> = {}
       try {
         const [spoolParamsRes, filamentParamsRes] = await Promise.all([
           fetch(`/api/v1/spools/${id}/printer-params?printer_id=${printerId}`, { credentials: 'include', signal: getAbortSignal() }),
@@ -1515,7 +1515,7 @@ const { id } = Astro.params
         const filamentParams = filamentParamsRes.ok ? await filamentParamsRes.json() : []
 
         // Build merged value map (spool overrides filament)
-        const valMap = {}
+        const valMap: Record<string, string> = {}
         filamentParams.forEach((p: any) => { if (p.param_value) valMap[p.param_key] = p.param_value })
         spoolParams.forEach((p: any) => { if (p.param_value) valMap[p.param_key] = p.param_value })
 
@@ -1614,7 +1614,7 @@ const { id } = Astro.params
       if (ok) {
         window.__fmSuccess?.(t('spools.slotImportSpoolSuccess'))
         // Refresh printer params display if same printer is selected
-        const sel = document.getElementById('printer-select')
+        const sel = document.getElementById('printer-select') as HTMLSelectElement | null
         if (sel && parseInt(sel.value) === printerId) loadSpoolPrinterParams(printerId)
       } else {
         window.__fmAlert?.(t('spools.slotImportError'))
@@ -1628,7 +1628,7 @@ const { id } = Astro.params
       ])
       if (spoolOk && filamentOk) {
         window.__fmSuccess?.(t('spools.slotImportBothSuccess'))
-        const sel = document.getElementById('printer-select')
+        const sel = document.getElementById('printer-select') as HTMLSelectElement | null
         if (sel && parseInt(sel.value) === printerId) loadSpoolPrinterParams(printerId)
       } else {
         window.__fmAlert?.(t('spools.slotImportError'))
@@ -1649,6 +1649,13 @@ const { id } = Astro.params
         // If pending but wrong printer_id → ignore, let polling handle it
       }
     })
+
+    declare global {
+      interface Window {
+        __fmAlert?: (msg: string) => void
+        __fmSuccess?: (msg: string) => void
+      }
+    }
 
     loadData()
   </script>
