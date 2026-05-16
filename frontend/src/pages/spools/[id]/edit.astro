@@ -618,33 +618,33 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
     }
 
     function prefillForm(s: any) {
-      document.getElementById('filament_id').value = String(s.filament_id)
+      (document.getElementById('filament_id') as HTMLInputElement).value = String(s.filament_id)
 
       if (s.status_id) {
-        document.getElementById('status_id').value = String(s.status_id)
+        (document.getElementById('status_id') as HTMLInputElement).value = String(s.status_id)
       }
 
-      document.getElementById('initial_total_weight_g').value = s.initial_total_weight_g != null ? String(s.initial_total_weight_g) : ''
-      document.getElementById('empty_spool_weight_g').value = s.empty_spool_weight_g != null ? String(s.empty_spool_weight_g) : ''
-      document.getElementById('low_weight_threshold_g').value = s.low_weight_threshold_g != null ? String(s.low_weight_threshold_g) : '100'
+      (document.getElementById('initial_total_weight_g') as HTMLInputElement).value = s.initial_total_weight_g != null ? String(s.initial_total_weight_g) : ''
+      ;(document.getElementById('empty_spool_weight_g') as HTMLInputElement).value = s.empty_spool_weight_g != null ? String(s.empty_spool_weight_g) : ''
+      ;(document.getElementById('low_weight_threshold_g') as HTMLInputElement).value = s.low_weight_threshold_g != null ? String(s.low_weight_threshold_g) : '100'
 
-      document.getElementById('spool_material').value = s.spool_material || ''
+      ;(document.getElementById('spool_material') as HTMLInputElement).value = s.spool_material || ''
       
-      document.getElementById('lot_number').value = s.lot_number || ''
+      ;(document.getElementById('lot_number') as HTMLInputElement).value = s.lot_number || ''
 
-      document.getElementById('rfid_uid').value = s.rfid_uid || ''
-      document.getElementById('external_id').value = s.external_id || ''
+      ;(document.getElementById('rfid_uid') as HTMLInputElement).value = s.rfid_uid || ''
+      ;(document.getElementById('external_id') as HTMLInputElement).value = s.external_id || ''
 
       if (s.location_id) {
-        document.getElementById('location_id').value = String(s.location_id)
+        (document.getElementById('location_id') as HTMLInputElement).value = String(s.location_id)
       }
 
-      document.getElementById('spool_outer_diameter_mm').value = s.spool_outer_diameter_mm != null ? String(s.spool_outer_diameter_mm) : ''
-      document.getElementById('spool_width_mm').value = s.spool_width_mm != null ? String(s.spool_width_mm) : ''
+      ;(document.getElementById('spool_outer_diameter_mm') as HTMLInputElement).value = s.spool_outer_diameter_mm != null ? String(s.spool_outer_diameter_mm) : ''
+      ;(document.getElementById('spool_width_mm') as HTMLInputElement).value = s.spool_width_mm != null ? String(s.spool_width_mm) : ''
 
-      document.getElementById('purchase_price').value = s.purchase_price != null ? String(s.purchase_price) : ''
+      ;(document.getElementById('purchase_price') as HTMLInputElement).value = s.purchase_price != null ? String(s.purchase_price) : ''
       if (s.purchase_date) {
-        document.getElementById('purchase_date').value = s.purchase_date.split('T')[0]
+        (document.getElementById('purchase_date') as HTMLInputElement).value = s.purchase_date.split('T')[0]
       }
 
       if (s.custom_fields && Object.keys(s.custom_fields).length > 0) {
@@ -663,64 +663,64 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
       renderCustomFields()
     }
 
-    const form = document.getElementById('spool-form')
-    const errorMessage = document.getElementById('error-message')
-    const submitBtn = document.getElementById('submit-btn')
+    const form = document.getElementById('spool-form') as HTMLFormElement
+    const errorMessage = document.getElementById('error-message') as HTMLElement
+    const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault()
       
       const formData = new FormData(form)
 
-      const patchData = {}
+      const patchData: Record<string, unknown> = {}
 
       const filamentId = formData.get('filament_id')
       if (filamentId) {
-        patchData.filament_id = parseInt(filamentId)
+        patchData.filament_id = parseInt(filamentId as string)
       }
 
       const statusId = formData.get('status_id')
-      patchData.status_id = statusId ? parseInt(statusId) : null
+      patchData.status_id = statusId ? parseInt(statusId as string) : null
 
       const locationId = formData.get('location_id')
-      patchData.location_id = locationId ? parseInt(locationId) : null
+      patchData.location_id = locationId ? parseInt(locationId as string) : null
 
       const initialWeight = formData.get('initial_total_weight_g')
-      patchData.initial_total_weight_g = initialWeight ? parseFloat(initialWeight) : null
+      patchData.initial_total_weight_g = initialWeight ? parseFloat(initialWeight as string) : null
 
       const emptySpoolWeight = formData.get('empty_spool_weight_g')
-      patchData.empty_spool_weight_g = emptySpoolWeight ? parseFloat(emptySpoolWeight) : null
+      patchData.empty_spool_weight_g = emptySpoolWeight ? parseFloat(emptySpoolWeight as string) : null
 
       const spoolMaterial = formData.get('spool_material')
       patchData.spool_material = spoolMaterial || null
 
       const lowThreshold = formData.get('low_weight_threshold_g')
-      patchData.low_weight_threshold_g = lowThreshold ? parseInt(lowThreshold) : null
+      patchData.low_weight_threshold_g = lowThreshold ? parseInt(lowThreshold as string) : null
 
-      const lotNumber = (formData.get('lot_number') || '').trim()
+      const lotNumber = (formData.get('lot_number') as string || '').trim()
       patchData.lot_number = lotNumber || null
 
-      const rfidUid = (formData.get('rfid_uid') || '').trim()
+      const rfidUid = (formData.get('rfid_uid') as string || '').trim()
       patchData.rfid_uid = rfidUid || null
 
-      const externalId = (formData.get('external_id') || '').trim()
+      const externalId = (formData.get('external_id') as string || '').trim()
       patchData.external_id = externalId || null
 
       const outerDiameter = formData.get('spool_outer_diameter_mm')
-      patchData.spool_outer_diameter_mm = outerDiameter ? parseFloat(outerDiameter) : null
+      patchData.spool_outer_diameter_mm = outerDiameter ? parseFloat(outerDiameter as string) : null
 
       const width = formData.get('spool_width_mm')
-      patchData.spool_width_mm = width ? parseFloat(width) : null
+      patchData.spool_width_mm = width ? parseFloat(width as string) : null
 
       const price = formData.get('purchase_price')
-      patchData.purchase_price = price ? parseFloat(price) : null
+      patchData.purchase_price = price ? parseFloat(price as string) : null
 
       const purchaseDate = formData.get('purchase_date')
       patchData.purchase_date = purchaseDate || null
 
-      const fieldsObj = {}
+      const fieldsObj: Record<string, string> = {}
 
-      document.querySelectorAll('.system-field-input').forEach(input => {
+      document.querySelectorAll<HTMLInputElement>('.system-field-input').forEach(input => {
         const key = input.dataset.key
         const type = input.dataset.type
         if (!key) return
@@ -767,7 +767,7 @@ const backHref = id === 'detail' ? '/spools' : `/spools/${id}`
         window.location.href = '/spools/' + spoolId
       } catch (error) {
         if (isAbortError(error)) return
-        errorMessage.textContent = error.message || t('spools.failedUpdate')
+        errorMessage.textContent = (error instanceof Error ? error.message : null) || t('spools.failedUpdate')
         errorMessage.classList.remove('hidden')
       } finally {
         submitBtn.disabled = false
