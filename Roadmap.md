@@ -2,12 +2,12 @@
 
 ## ✅ Done — this fork only
 
-Work originated in this fork (akira69/filaman-system) that hasn't been replicated upstream.
+Work originated in this fork (akira69/filaman-system). Upstream may have independently implemented similar fixes.
 
 - **Speed up screen refresh** — async dashboard and list load improvements
-  - Dashboard async session concurrency fix — [PR #2](https://github.com/akira69/filaman-system/pull/2)
-  - FilamentDB sync UI performance — [PR #12](https://github.com/akira69/filaman-system/pull/12)
-  - FilamentDB stale color position collision fix — [PR #11](https://github.com/akira69/filaman-system/pull/11)
+  - Dashboard async session concurrency fix — [PR #2](https://github.com/akira69/filaman-system/pull/2) *(upstream independently fixed in `d41ae3c`)*
+  - FilamentDB sync UI performance — [PR #12](https://github.com/akira69/filaman-system/pull/12) *(upstream independently fixed in `8b35ce9`)*
+  - FilamentDB stale color position collision fix — [PR #11](https://github.com/akira69/filaman-system/pull/11) *(upstream independently fixed in `babba6b`)*
 
 - **Filament label printing** *(Spoolman basis PR #846)* — [PR #1](https://github.com/akira69/filaman-system/pull/1) *(open; upstream independently implemented in v1.2.13)*
 
