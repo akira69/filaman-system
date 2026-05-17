@@ -84,6 +84,9 @@ class SpoolmanImportService:
         Some Spoolman/SpoolmanDB data includes 8-digit ARGB values for
         translucent colors (for example `00FFFFFF`). FilaMan stores colors in a
         7-character `#RRGGBB` field, so the alpha component must be removed.
+
+        TODO: once app.utils.colors (introduced in the alpha-color-support
+        branch) is merged, replace this with a call to that shared utility.
         """
         if value is None:
             return None
@@ -126,7 +129,7 @@ class SpoolmanImportService:
                     raise SpoolmanImportError(
                         f"Verbindung zu '{base_url}' fehlgeschlagen: {e}",
                         "connection_failed",
-                    )
+                    ) from e
 
                 if resp.status_code != 200:
                     raise SpoolmanImportError(
@@ -136,29 +139,29 @@ class SpoolmanImportService:
 
                 try:
                     data = resp.json()
-                except Exception:
+                except Exception as e:
                     raise SpoolmanImportError(
                         "Ungültige JSON-Antwort von Spoolman",
                         "invalid_response",
-                    )
+                    ) from e
 
                 return {
                     "status": "ok",
                     "url": base_url,
                     "info": data,
                 }
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as e:
                 raise SpoolmanImportError(
                     f"Timeout bei Verbindung zu '{base_url}'",
                     "connection_timeout",
-                )
+                ) from e
             except SpoolmanImportError:
                 raise
             except Exception as e:
                 raise SpoolmanImportError(
                     f"Fehler beim Verbindungstest: {e}",
                     "connection_error",
-                )
+                ) from e
 
     # ------------------------------------------------------------------ #
     #  Daten von Spoolman abrufen
@@ -174,22 +177,22 @@ class SpoolmanImportService:
             params = {"limit": limit, "offset": offset}
             if extra_params:
                 params.update(extra_params)
-                
+
             try:
                 resp = await client.get(
                     f"{base_url}/api/v1/{endpoint}",
                     params=params,
                 )
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as e:
                 raise SpoolmanImportError(
                     f"Timeout beim Abrufen von /{endpoint} (Offset {offset})",
                     "fetch_timeout",
-                )
+                ) from e
             except httpx.RequestError as e:
                 raise SpoolmanImportError(
                     f"Netzwerkfehler beim Abrufen von /{endpoint}: {e}",
                     "fetch_network_error",
-                )
+                ) from e
 
             if resp.status_code != 200:
                 # Versuche Fehlermeldung aus Body zu lesen
@@ -197,7 +200,7 @@ class SpoolmanImportService:
                     err_body = resp.text[:200]
                 except Exception:
                     err_body = "n/a"
-                
+
                 raise SpoolmanImportError(
                     f"Fehler beim Abrufen von /{endpoint}: Status {resp.status_code}. Response: {err_body}",
                     "fetch_error",
@@ -205,22 +208,22 @@ class SpoolmanImportService:
 
             try:
                 batch = resp.json()
-            except Exception:
-                 raise SpoolmanImportError(
+            except Exception as e:
+                raise SpoolmanImportError(
                     f"Ungültige JSON-Antwort von /{endpoint}",
                     "invalid_json",
-                )
+                ) from e
 
             # Sicherheitscheck: Spoolman muss eine Liste zurueckgeben
             if not isinstance(batch, list):
-                # Manche Endpoints geben vielleicht kein Array zurück? 
-                # Falls es ein Dictionary ist, verpacken wir es in eine Liste (falls sinnvoll) 
+                # Manche Endpoints geben vielleicht kein Array zurück?
+                # Falls es ein Dictionary ist, verpacken wir es in eine Liste (falls sinnvoll)
                 # oder werfen Fehler. Spoolman list endpoints sollten Listen sein.
                 raise SpoolmanImportError(
                     f"Unerwartete Antwort von /{endpoint}: Liste erwartet, aber {type(batch).__name__} erhalten.",
                     "invalid_response_format",
                 )
-                
+
             if not batch:
                 break
 
@@ -243,24 +246,24 @@ class SpoolmanImportService:
         # Erhöhter Timeout für den Preview-Prozess
         async with httpx.AsyncClient(timeout=60.0) as client:
             params = {"allow_archived": "true"}
-            
+
             # 1. Vendors
             try:
                 vendors = await self._fetch_all(client, base_url, "vendor", extra_params=params)
             except Exception as e:
-                raise SpoolmanImportError(f"Fehler beim Laden der Hersteller (vendor): {e}")
+                raise SpoolmanImportError(f"Fehler beim Laden der Hersteller (vendor): {e}") from e
 
             # 2. Filaments
             try:
                 filaments = await self._fetch_all(client, base_url, "filament", extra_params=params)
             except Exception as e:
-                raise SpoolmanImportError(f"Fehler beim Laden der Filamente (filament): {e}")
+                raise SpoolmanImportError(f"Fehler beim Laden der Filamente (filament): {e}") from e
 
             # 3. Spools
             try:
                 spools = await self._fetch_all(client, base_url, "spool", extra_params=params)
             except Exception as e:
-                raise SpoolmanImportError(f"Fehler beim Laden der Spulen (spool): {e}")
+                raise SpoolmanImportError(f"Fehler beim Laden der Spulen (spool): {e}") from e
 
             # 4. Locations aus dem /location Endpoint laden
             # Die Spulen werden später den importierten Standorten zugeordnet
@@ -269,7 +272,7 @@ class SpoolmanImportService:
                 locations = await self._fetch_all(client, base_url, "location")
             except Exception as e:
                 logger.warning(f"Could not fetch locations from endpoint: {e}.")
-            
+
             # Deduplizierung nach name (case-insensitive)
             # Spoolman kann Locations als String-Array oder als Objekte zurückgeben
             seen_names: set[str] = set()
@@ -300,7 +303,7 @@ class SpoolmanImportService:
         try:
             colors = self._extract_colors(filaments)
         except Exception as e:
-             raise SpoolmanImportError(f"Fehler beim Extrahieren der Farben: {e}")
+            raise SpoolmanImportError(f"Fehler beim Extrahieren der Farben: {e}") from e
 
         return ImportPreview(
             vendors=vendors,
@@ -405,14 +408,14 @@ class SpoolmanImportService:
             # Safety Check: Falls loc_data kein Dict ist
             if not isinstance(loc_data, dict):
                 continue
-                
+
             spoolman_id = loc_data.get("id")
             name = self._clean(loc_data.get("name"))
-            
+
             # Fallback name if missing but ID exists
             if not name and spoolman_id:
                 name = f"Spoolman Location #{spoolman_id}"
-            
+
             if not name:
                 continue
 
@@ -420,7 +423,7 @@ class SpoolmanImportService:
             # Case-insensitive Vergleich fuer Namen
             # Nur echte spoolman_ids verwenden (keine temporären IDs)
             is_temp_id = spoolman_id and str(spoolman_id).startswith("temp_")
-            
+
             name_lower = name.lower()
             if is_temp_id:
                 # Temporaere ID - nur nach Namen suchen
@@ -457,7 +460,7 @@ class SpoolmanImportService:
             if spoolman_id and not is_temp_id:
                 # Store ID as is
                 loc_map[spoolman_id] = final_id
-                
+
                 # Try storing int/str variants
                 try:
                     loc_map[int(spoolman_id)] = final_id
@@ -467,7 +470,7 @@ class SpoolmanImportService:
                     loc_map[str(spoolman_id)] = final_id
                 except (ValueError, TypeError):
                     pass
-            
+
             # Map name (normalized for better hit rate?)
             name_map[name] = final_id
             # Also map lower case for robust lookup
@@ -485,7 +488,7 @@ class SpoolmanImportService:
             # Safety Check
             if not isinstance(vendor, dict):
                 continue
-                
+
             spoolman_id = vendor.get("id")
             name = self._clean(vendor.get("name"))
             if not name:
@@ -579,14 +582,14 @@ class SpoolmanImportService:
             # Safety Check
             if not isinstance(fil_data, dict):
                 continue
-                
+
             spoolman_id = fil_data.get("id")
 
             # Pruefen ob Filament mit dieser Spoolman-ID bereits existiert
             if spoolman_id:
                 existing_fil_res = await self.db.execute(
                     select(Filament).where(
-                        (json_extract_cast_string(Filament.custom_fields, '$.spoolman_id', self.dialect) == str(spoolman_id))
+                        json_extract_cast_string(Filament.custom_fields, '$.spoolman_id', self.dialect) == str(spoolman_id)
                     )
                 )
                 existing_fil = existing_fil_res.scalar_one_or_none()
@@ -803,7 +806,7 @@ class SpoolmanImportService:
             # Location kann ein Objekt {id: 1, name: "Regal"} oder ein String "Regal" sein
             loc = spool_data.get("location")
             location_id = None
-            
+
             if loc:
                 if isinstance(loc, dict):
                     loc_spoolman_id = loc.get("id")
@@ -829,7 +832,7 @@ class SpoolmanImportService:
                             location_id = location_name_map.get(loc_name)
                             if not location_id:
                                 location_id = location_name_map.get(loc_name.lower())
-                
+
                 elif isinstance(loc, str):
                     loc_name = self._clean(loc)
                     if loc_name:
@@ -909,10 +912,6 @@ class SpoolmanImportService:
                 if remaining_extra:
                     custom["spoolman_extra"] = self._clean_dict(remaining_extra)
 
-            # Datums-Felder
-            first_used = spool_data.get("first_used")
-            last_used = spool_data.get("last_used")
-
             try:
                 # Nested transaction damit ein Fehler nicht den ganzen Import abbricht
                 async with self.db.begin_nested():
@@ -931,7 +930,7 @@ class SpoolmanImportService:
                     )
                     self.db.add(new_spool)
                     await self.db.flush()
-                
+
                 result.spools_created += 1
 
             except Exception as e:
