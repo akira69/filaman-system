@@ -1,8 +1,8 @@
 # Roadmap
 
-## ✅ Done — this fork
+## ✅ Done — this fork only
 
-Work originated or driven by this fork (akira69/filaman-system), whether or not upstream independently implemented the same feature.
+Work originated in this fork (akira69/filaman-system) that hasn't been replicated upstream.
 
 - **Speed up screen refresh** — async dashboard and list load improvements
   - Dashboard async session concurrency fix — [PR #2](https://github.com/akira69/filaman-system/pull/2)
@@ -13,19 +13,19 @@ Work originated or driven by this fork (akira69/filaman-system), whether or not 
 
 - **Label export workflow** — PNG/AML *(Spoolman basis PR #860)* — [PR #3](https://github.com/akira69/filaman-system/pull/3) *(open; upstream independently implemented in v1.2.12–1.2.13)*
 
-- **Manufacturer logo support** *(Spoolman basis PR #857)* — [PR #4](https://github.com/akira69/filaman-system/pull/4) *(closed; upstream independently implemented in v1.2.1)*
-  - Logo upload overrides (per-manufacturer) — [PR #9](https://github.com/akira69/filaman-system/pull/9) *(open)*
-  - Move logo to dedicated DB column — [PR #10](https://github.com/akira69/filaman-system/pull/10) *(open)*
-
-- **Material filter deduplication** — [PR #5](https://github.com/akira69/filaman-system/pull/5) → accepted upstream as [upstream PR #29](https://github.com/Fire-Devils/filaman-system/pull/29) ✓
-
-- **Server-side spool count sort** — [PR #13](https://github.com/akira69/filaman-system/pull/13) → accepted upstream as [upstream PR #53](https://github.com/Fire-Devils/filaman-system/pull/53) ✓
-
 ---
 
 ## ✅ Done — upstream (Fire-Devils/filaman-system)
 
-Features implemented by Fire-Devils independently of this fork.
+Features implemented upstream, including fork contributions that were accepted there.
+
+- **Manufacturer logo support** *(Spoolman basis PR #857)* — upstream v1.2.1; [fork PR #4](https://github.com/akira69/filaman-system/pull/4) closed
+  - Logo upload overrides (per-manufacturer) — [PR #9](https://github.com/akira69/filaman-system/pull/9) *(open)*
+  - Move logo to dedicated DB column — [PR #10](https://github.com/akira69/filaman-system/pull/10) *(open)*
+
+- **Material filter deduplication** — [fork PR #5](https://github.com/akira69/filaman-system/pull/5) accepted upstream as [PR #29](https://github.com/Fire-Devils/filaman-system/pull/29) ✓
+
+- **Server-side spool count sort** — [fork PR #13](https://github.com/akira69/filaman-system/pull/13) accepted upstream as [PR #53](https://github.com/Fire-Devils/filaman-system/pull/53) ✓
 
 - **Column resize & reorder**
   - Drag-and-drop reorder on spools/filaments/manufacturers *(v1.2.7)*
