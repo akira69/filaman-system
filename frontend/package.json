@@ -8,7 +8,7 @@
     "preview": "astro preview",
     "astro": "astro",
     "check": "astro check",
-    "lint": "eslint 'src/pages/spools/[id]/index.astro' 'src/pages/spools/[id]/print.astro' 'src/lib/label-template.ts' --no-error-on-unmatched-pattern"
+    "lint": "eslint 'src/pages/filaments/[id]/print.astro' 'src/pages/filaments/[id]/index.astro' 'src/pages/spools/[id]/index.astro'"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
