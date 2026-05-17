@@ -64,8 +64,6 @@ Features implemented upstream, including fork contributions that were accepted t
 
 ## 📋 Planned
 
-- **Filament-swatch plugin** — integrate filament-swatch into FilaMan
-
 - **Manufacturer logo sync plugin** *(Spoolman basis PR #872)*
   - Related: logo upload overrides — [PR #9](https://github.com/akira69/filaman-system/pull/9)
 
@@ -73,4 +71,12 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Formula field / extra fields JSON** *(Spoolman basis PR #885)* — derived values computed from JSON Logic expressions, returned under `derived.*` in API responses — [implementation plan](./_pr/formula-extra-fields/plan.md)
 
-- **Global action buttons** — replace edit/delete text buttons with icons
+- **Global action button icons** — replace all inline-style text Edit/Delete/View buttons with `fm-btn-icon` icon buttons UI-wide (10 table pages + 3 detail pages) — [implementation plan](./_pr/action-button-icons/plan.md)
+
+---
+
+## 🅿️ Parking Lot
+
+Ideas worth revisiting but not actively prioritised.
+
+- **Filament-swatch plugin** — integrate filament-swatch into FilaMan; depends on upstream plugin API stability
