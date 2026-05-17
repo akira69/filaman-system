@@ -17,20 +17,46 @@
   - Move logo to dedicated DB column — [PR #10](https://github.com/akira69/filaman-system/pull/10) *(open)*
 
 - **Column resize & reorder**
-  - Drag-and-drop reo  - Drag-and-drop reo  - Drag-and-drop reo  - Drag-and-drop reo  - Drag-and-drop reo  - Drag-and-der *(upstream v1.2.12)*
+  - Drag-and-drop reorder on spools/filaments/manufacturers *(upstream v1.2.7)*
+  - Column edge resize, saved per browser *(upstream v1.2.12)*
 
 - **Extra fields selectable in table views** — extended column picker with Standard/Extended/Extra Fields groups *(upstream v1.1.18)*
 
 - **SpoolmanDB plugin** — superseded; replaced by FilaManDB builtin plugin *(upstream v1.2.2)*
 
-- **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *- **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *- **SpoolmanDB language** — superseded; Fila print pa- **SpoolmanDB language** — superseded; FilaManDB pluem/p- **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *- **SpoolmanDB language** ha hex color import bug — [PR #6](https://github.com/akira69/filaman-system/pull/6)
+- **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *(upstream v1.2.1)*
 
-- **Move list filtering to colu- **Move list filtering to colu- **Move list filtering to colu- **Move list filtering to colu- **Move list fll/13)
+---
 
-- **Alpha color support**- **Alpha color support**- **Alpha color support**- **Alpha color support**- **Alpha color support**- **Alpha color support**- **Alpha color ** on filament and spool detail pages — [PR #8](https://github.com/akira69/filaman-system/pull/8)
+## 🔄 In Progress
+
+- **Advanced label designer** — rich per-field template placement and editing on print page — [PR #14](https://github.com/akira69/filaman-system/pull/14)
+  - Sub-task: template field selector (simple vs detail view)
+
+- **Spoolman app import fix** — alpha hex color import bug — [PR #6](https://github.com/akira69/filaman-system/pull/6)
+
+- **Move list filtering to column headers**
+  - Server-side spool count sort done — [PR #13](https://github.com/akira69/filaman-system/pull/13)
+
+- **Alpha color support** — 4-channel RGBA hex foundation for filaments — [PR #7](https://github.com/akira69/filaman-system/pull/7)
+
+- **Multicolor / hero shading** on filament and spool detail pages — [PR #8](https://github.com/akira69/filaman-system/pull/8)
 
 - **TypeScript / Astro type-safety cleanup** — 433 → 0 errors
-  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [Pplu  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  des — [PR #9](https://github.com/akira69/filaman-system/pull/9)
+  - Backend + frontend baseline fixes — [PR #16](https://github.com/akira69/filaman-system/pull/16)
+  - Batch 1: list/detail pages — [PR #17](https://github.com/akira69/filaman-system/pull/17)
+  - Batch 2: filamentdb-lookup, spools/new — [PR #18](https://github.com/akira69/filaman-system/pull/18)
+  - Batch 3: spools/[id]/index + edit — [PR #19](https://github.com/akira69/filaman-system/pull/19)
+  - Batch 4: final 2 errors — [PR #20](https://github.com/akira69/filaman-system/pull/20)
+
+---
+
+## 📋 Planned
+
+- **Filament-swatch plugin** — integrate filament-swatch into FilaMan
+
+- **Manufacturer logo sync plugin** *(Spoolman basis PR #872)*
+  - Related: logo upload overrides — [PR #9](https://github.com/akira69/filaman-system/pull/9)
 
 - **Formula field / extra fields JSON** *(Spoolman basis PR #885)*
 
