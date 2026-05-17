@@ -1,56 +1,37 @@
-[ ] 1) create plugin for filament-swatch to work in Filaman
+# Roadmap
 
-[X] 2) speed up screen refresh from database read - is slow to populate
-   - Dashboard async session concurrency fix: https://github.com/akira69/filaman-system/pull/2 [merged]
-   - FilamentDB sync UI performance: https://github.com/akira69/filaman-system/pull/12 [merged]
-   - FilamentDB stale color position collision fix: https://github.com/akira69/filaman-system/pull/11 [merged]
+## ✅ Done
 
-[X] 3) Add filament print PR (PR846 spoolman basis) : https://github.com/akira69/filaman-system/pull/1
+- **Speed up screen refresh** — async dashboard and list load improvements
+  - Dashboard async session concurrency fix — [PR #2](https://github.com/akira69/filaman-system/pull/2)
+  - FilamentDB sync UI performance — [PR #12](https://github.com/akira69/filaman-system/pull/12)
+  - FilamentDB stale color position collision fix — [PR #11](https://github.com/akira69/filaman-system/pull/11)
 
-[X] 4) Add label export workflow (PNG/AML) (PR860 spoolman basis) : https://github.com/akira69/filaman-system/pull/3
+- **Filament label printing** *(Spoolman basis PR #846)* — [PR #1](https://github.com/akira69/filaman-system/pull/1)
 
-[X] 5) Add Manufacturer Logo inclusion and improvement to Label design & filament/spool show pages (PR857)
-   - Base feature (logo on filament/spool pages): https://github.com/akira69/filaman-system/pull/4 [merged]
-   - Logo upload overrides (per-manufacturer custom logos): https://github.com/akira69/filaman-system/pull/9 [open]
-   - Move manufacturer logo into dedicated column: https://github.com/akira69/filaman-system/pull/10 [open]
+- **Label export workflow** — PNG/AML export *(Spoolman basis PR #860)* — [PR #3](https://github.com/akira69/filaman-system/pull/3)
 
-   [ ] a) template text field instead of clicks (select "simple" vs "detail")
-      - Advanced label designer (rich per-field layout): https://github.com/akira69/filaman-system/pull/14 [open]
+- **Manufacturer logo support** *(Spoolman basis PR #857)*
+  - Base feature: logos on filament/spool pages — [PR #4](https://github.com/akira69/filaman-system/pull/4)
+  - Logo upload overrides (per-manufacturer) — [PR #9](https://github.com/akira69/filaman-system/pull/9) *(open)*
+  - Move logo to dedicated DB column — [PR #10](https://github.com/akira69/filaman-system/pull/10) *(open)*
 
-[ ] 7) Add Plugin for manufacturer logo sync (PR872)
-   - Related: logo upload overrides (partial): https://github.com/akira69/filaman-system/pull/9 [open]
+- **Column resize & reorder**
+  - Drag-and-drop reo  - Drag-and-drop reo  - Drag-and-drop reo  - Drag-and-drop reo  - Drag-and-drop reo  - Drag-and-der *(upstream v1.2.12)*
 
-[ ] 8) Add Formula field extra field capability JSON (PR885)
+- **Extra fields selectable in table views** — extended column picker with Standard/Extended/Extra Fields groups *(upstream v1.1.18)*
 
-[ ] 9) Move spool & filament list filtering to columns
-   - Server-side sort by spool count (partial step): https://github.com/akira69/filaman-system/pull/13 [merged]
+- **SpoolmanDB plugin** — superseded; replaced by FilaManDB builtin plugin *(upstream v1.2.2)*
 
-[X] 10) column resize and reorder
-   - Column drag & drop reorder on spools/filaments/manufacturers tables (upstream v1.2.7)
-   - Column resize by dragging column edges, persisted per browser (upstream v1.2.12)
+- **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *- **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *- **SpoolmanDB language** — superseded; Fila print pa- **SpoolmanDB language** — superseded; FilaManDB pluem/p- **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *- **SpoolmanDB language** ha hex color import bug — [PR #6](https://github.com/akira69/filaman-system/pull/6)
 
-[ ] 11) global action buttons (edit/delete) from text to icons
+- **Move list filtering to colu- **Move list filtering to colu- **Move list filtering to colu- **Move list filtering to colu- **Move list fll/13)
 
-[X] 12) extra fields as selectable in table views
-   - Extended column picker groups Standard/Extended/Extra Fields; all extra fields sortable (upstream v1.1.18)
+- **Alpha color support**- **Alpha color support**- **Alpha color support**- **Alpha color support**- **Alpha color support**- **Alpha color support**- **Alpha color ** on filament and spool detail pages — [PR #8](https://github.com/akira69/filaman-system/pull/8)
 
-[X] 13) Spoolmandb plugin: superseded — replaced by FilaManDB builtin plugin (upstream v1.2.2)
-   - Spoolman app import (alpha hex colors) is a separate fix: https://github.com/akira69/filaman-system/pull/6 [open]
+- **TypeScript / Astro type-safety cleanup** — 433 → 0 errors
+  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [Pplu  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  - Backend + frontend baseline fixes — [PR #16](https://github.com/a  des — [PR #9](https://github.com/akira69/filaman-system/pull/9)
 
-[X] 14) Spoolmandb language: superseded — FilaManDB builtin plugin has full i18n support (upstream v1.2.1)
+- **Formula field / extra fields JSON** *(Spoolman basis PR #885)*
 
-[ ] 15) Alpha color support foundation for filaments (4-channel RGBA hex)
-   - https://github.com/akira69/filaman-system/pull/7 [open]
-
-[ ] 16) Multicolor / hero shading on filament and spool detail pages
-   - https://github.com/akira69/filaman-system/pull/8 [open]
-
-[ ] 17) Advanced label designer — rich per-field placement and editing on print page
-   - https://github.com/akira69/filaman-system/pull/14 [open]
-
-[ ] 18) Frontend TypeScript / Astro type-safety baseline cleanup (433 → 0 errors)
-   - Backend + frontend baseline fixes: https://github.com/akira69/filaman-system/pull/16 [open]
-   - Frontend batch 1 (list/detail pages): https://github.com/akira69/filaman-system/pull/17 [open]
-   - Frontend batch 2 (filamentdb-lookup, spools/new): https://github.com/akira69/filaman-system/pull/18 [open]
-   - Frontend batch 3 (spools/[id]/index + edit): https://github.com/akira69/filaman-system/pull/19 [open]
-   - Frontend batch 4 (final 2 errors): https://github.com/akira69/filaman-system/pull/20 [open]
+- **Global action buttons** — replace edit/delete text buttons with icons
