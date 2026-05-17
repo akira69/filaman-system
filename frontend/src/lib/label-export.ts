@@ -4,6 +4,10 @@ type ExportSaveMode = "download" | "save-as";
 
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
+// CRC-32/ISO-HDLC lookup table — pre-computed for performance.
+// Uses the reflected (little-endian) polynomial 0xEDB88320, which is the
+// bit-reversal of the standard IEEE 802.3 polynomial 0x04C11DB7.
+// Required by the PNG spec (RFC 2083 §15) to checksum each chunk.
 const CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
 
