@@ -69,6 +69,8 @@ Features implemented upstream, including fork contributions that were accepted t
 - **Manufacturer logo sync plugin** *(Spoolman basis PR #872)*
   - Related: logo upload overrides — [PR #9](https://github.com/akira69/filaman-system/pull/9)
 
+- **Rich field types for extra fields** — add `range_int`, `range_float`, `integer`, `datetime`, `url`, `multiselect`, `textarea` types to the extra fields system; matches and extends Spoolman's type set — [implementation plan](./_pr/rich-field-types/plan.md)
+
 - **Formula field / extra fields JSON** *(Spoolman basis PR #885)* — derived values computed from JSON Logic expressions, returned under `derived.*` in API responses — [implementation plan](./_pr/formula-extra-fields/plan.md)
 
 - **Global action buttons** — replace edit/delete text buttons with icons
