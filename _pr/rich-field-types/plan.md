@@ -66,6 +66,72 @@ Config shapes per type:
 
 ---
 
+## Backward compatibility — existing databases
+
+This section is a hard requirement. Every existing installation must continue to function correctly after the upgrade with zero manual data fixes.
+
+### 1. Database migration is strictly additive
+
+The Alembic migration **only adds** the `config` column. It never drops, renames, or modifies any existing column, index, or constraint. Existing rows keep all their current data; the new `config` column is NULL for every existing row. SQLite and PostgreSQL both support `ADD COLUMN … DEFAULT NULL` as a non-locking operation.
+
+```sql
+ALTER TABLE system_extra_fields ADD COLUMN config JSON NULL;
+-- No other changes.
+```
+
+No `DOWN` migration needed (and none is provided), because dropping a nullable column from an existing install is safe.
+
+### 2. Existing field type values are preserved and read correctly
+
+| Existing `field_type` | What changes | After upgrade |
+|-----------------------|-------------|---------------|
+| `text` | Nothing | Works identically |
+| `number` | Nothing — type string stays `"number"` | Works identically; rendered/edited as float |
+| `dropdown` | `options` list untouched; `config` = NULL | Works identically |
+| `checkbox` | Nothing | Works identically |
+
+No existing `SystemExtraField` row is modified by the migration.
+
+### 3. `config = NULL` is always safe
+
+Every place in the codebase that reads `config` must treat `NULL` as an empty config — never assume a non-null value. In practice:
+
+- Backend schema: `config: dict | None = None` — already nullable
+- Frontend: `const unit = field.config?.unit ?? ''` — optional chaining throughout
+- `renderFieldInput` / `renderFieldDisplay`: all config reads use `?? defaultValue` fallbacks
+
+### 4. `custom_fields` entity data requires no migration
+
+Existing spool and filament `custom_fields` JSON is untouched. The new code only adds *new* branches to the `switch (field.field_type)` renderer — existing values for `text`, `number`, `dropdown`, `checkbox` follow the same code paths as before.
+
+### 5. `number` type is never removed or renamed
+
+`number` must remain a valid `field_type` string indefinitely. Any existing DB that has `field_type = 'number'` will:
+- Continue to pass schema validation (validator accepts `number` alongside `float`)
+- Continue to render an `<input type="number" step="any">` with any optional `unit` from `config`
+- Continue to display values in the detail view as before
+
+`float` is purely an alias for new fields — it adds `config.unit` support that `number` also inherits. They share the same render path.
+
+### 6. Field type is immutable after first use
+
+If a field definition already has entity data stored against it, changing `field_type` would silently corrupt display (e.g., a stored `"PLA"` string rendered by a `range_int` renderer that expects `{"min":…,"max":…}`). To prevent this:
+
+- **Admin UI**: when editing an existing field, the `field_type` selector is disabled and shows a tooltip: *"Field type cannot be changed after the field has been created."*
+- **Backend PUT endpoint**: include a check — if `field_type` differs from the current value, return HTTP 409 with `"Field type is immutable after creation."` This is a new guard added alongside the other validations; it does not affect existing PUT calls that omit `field_type`.
+
+> Note: plugin-managed fields already cannot be edited at all (403), so this only applies to user-created fields.
+
+### 7. API response schema is additive
+
+`SystemExtraFieldResponse` gains `config: dict | None = None`. Existing API consumers that don't read `config` are unaffected. The field is omitted from serialization when `None` if `model_config = ConfigDict(exclude_none=True)` is set; otherwise it serializes as `null`. Either behaviour is backward-compatible.
+
+### 8. Plugin-managed fields
+
+Plugins that register fields via `SystemExtraFieldCreate` with `source` set do not pass `config`. That is fine — `config` defaults to `None` and the field behaves as it did before. Plugin authors can opt into `config` when they are ready.
+
+---
+
 ## Phase 1 — Backend
 
 ### 1a. Extend `SystemExtraField` model
@@ -88,6 +154,7 @@ Adds `config JSON NULL` column. Existing rows stay unchanged (NULL config).
   - `dropdown` / `multiselect`: `options` must be a non-empty list
   - `url`: optional, no extra config required
   - etc.
+- Add immutability guard to PUT endpoint (see backward compatibility §6)
 
 ### 1d. No entity model changes
 All values serialize into the existing `custom_fields: JSON` column. A `range` value is stored as `{"min": ..., "max": ...}`, an array value as `[...]`, etc.
@@ -132,8 +199,11 @@ All values serialize into the existing `custom_fields: JSON` column. A `range` v
 
 **URL, Text, Checkbox** — no extra config
 
+### Type selector — immutability on edit
+When `openEditModal(field)` is called for an existing field, set `field-type.disabled = true` and add a `<small>` hint: *"Field type cannot be changed."*
+
 ### `fieldTypeLabel()` update
-Add labels for all new types.
+Add labels for all new types. Existing type strings (`text`, `number`, `dropdown`, `checkbox`) keep their current labels.
 
 ---
 
@@ -151,6 +221,8 @@ export function renderFieldInput(field: SystemExtraField, currentValue: unknown)
 // Returns an HTML string for displaying a stored value (read-only)
 export function renderFieldDisplay(field: SystemExtraField, value: unknown): string
 ```
+
+**Type-mismatch fallback rule**: if the stored value in `custom_fields` does not match the shape expected by `field_type` (e.g., a plain string stored against a `range_int` field), both helpers fall back to rendering the raw value as plain text — they never throw. This handles the (rare but possible) case where a DB was migrated from an older plugin schema or the field was defined before data existed.
 
 Rendering per type:
 
@@ -217,8 +289,9 @@ Column cells for range/multiselect types need compact representations:
 | File | Change |
 |------|--------|
 | `backend/app/models/system_extra_field.py` | Add `config: JSON` column |
-| `backend/app/api/v1/schemas_system_extra_field.py` | Add `config`; per-type validator |
-| `frontend/src/pages/admin/extra-fields.astro` | 8 new type options + config panels |
+| `backend/app/api/v1/schemas_system_extra_field.py` | Add `config`; per-type validator; immutability guard |
+| `backend/app/api/v1/system_extra_fields.py` | PUT: enforce field_type immutability |
+| `frontend/src/pages/admin/extra-fields.astro` | 8 new type options + config panels + disabled type on edit |
 | `frontend/src/pages/filaments/new.astro` | New input types via shared helper |
 | `frontend/src/pages/filaments/[id]/edit.astro` | New input types |
 | `frontend/src/pages/filaments/[id]/index.astro` | New display types |
