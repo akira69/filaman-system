@@ -27,6 +27,10 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Server-side spool count sort** — [fork PR #13](https://github.com/akira69/filaman-system/pull/13) accepted upstream as [PR #53](https://github.com/Fire-Devils/filaman-system/pull/53) ✓
 
+- **TypeScript / Astro type-safety cleanup (Batch 1 + Batch 0)** — 433 → 354 errors
+  - Backend + frontend baseline fixes — [fork PR #16](https://github.com/akira69/filaman-system/pull/16) → merged upstream as [PR #70](https://github.com/Fire-Devils/filaman-system/pull/70) ✓
+  - Batch 1: list/detail pages — [fork PR #17](https://github.com/akira69/filaman-system/pull/17) → merged upstream as [PR #71](https://github.com/Fire-Devils/filaman-system/pull/71) ✓
+
 - **Column resize & reorder**
   - Drag-and-drop reorder on spools/filaments/manufacturers *(v1.2.7)*
   - Column edge resize, saved per browser *(v1.2.12)*
@@ -41,6 +45,13 @@ Features implemented upstream, including fork contributions that were accepted t
 
 ## 🔄 In Progress
 
+- **TypeScript / Astro type-safety cleanup (Batches 2–4)** — submitted upstream, pending review
+  - Batch 2: filamentdb-lookup, spools/new — [fork PR #18](https://github.com/akira69/filaman-system/pull/18) → submitted upstream as [PR #73](https://github.com/Fire-Devils/filaman-system/pull/73)
+  - Batch 3: spools/[id]/index + edit — [fork PR #19](https://github.com/akira69/filaman-system/pull/19) → submitted upstream as [PR #74](https://github.com/Fire-Devils/filaman-system/pull/74)
+  - Batch 4: final 2 errors — [fork PR #20](https://github.com/akira69/filaman-system/pull/20) → submitted upstream as [PR #75](https://github.com/Fire-Devils/filaman-system/pull/75)
+
+- **Formula field / extra fields JSON** *(Spoolman basis PR #885)* — derived values computed from JSON Logic expressions; full backend operator library (math, text, date/time), CodeMirror editor, field references, live preview — branch `feat/formula-extra-fields`
+
 - **Advanced label designer** — rich per-field template placement and editing on print page — [PR #14](https://github.com/akira69/filaman-system/pull/14)
   - Sub-task: template field selector (simple vs detail view)
 
@@ -53,13 +64,6 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Multicolor / hero shading** on filament and spool detail pages — [PR #8](https://github.com/akira69/filaman-system/pull/8)
 
-- **TypeScript / Astro type-safety cleanup** — 433 → 0 errors
-  - Backend + frontend baseline fixes — [PR #16](https://github.com/akira69/filaman-system/pull/16)
-  - Batch 1: list/detail pages — [PR #17](https://github.com/akira69/filaman-system/pull/17)
-  - Batch 2: filamentdb-lookup, spools/new — [PR #18](https://github.com/akira69/filaman-system/pull/18)
-  - Batch 3: spools/[id]/index + edit — [PR #19](https://github.com/akira69/filaman-system/pull/19)
-  - Batch 4: final 2 errors — [PR #20](https://github.com/akira69/filaman-system/pull/20)
-
 ---
 
 ## 📋 Planned
@@ -68,8 +72,6 @@ Features implemented upstream, including fork contributions that were accepted t
   - Related: logo upload overrides — [PR #9](https://github.com/akira69/filaman-system/pull/9)
 
 - **Rich field types for extra fields** — add `range_int`, `range_float`, `integer`, `datetime`, `url`, `multiselect`, `textarea` types to the extra fields system; matches and extends Spoolman's type set — [implementation plan](./_pr/rich-field-types/plan.md)
-
-- **Formula field / extra fields JSON** *(Spoolman basis PR #885)* — derived values computed from JSON Logic expressions, returned under `derived.*` in API responses — [implementation plan](./_pr/formula-extra-fields/plan.md)
 
 - **Global action button icons** — replace all inline-style text Edit/Delete/View buttons with `fm-btn-icon` icon buttons UI-wide (10 table pages + 3 detail pages) — [implementation plan](./_pr/action-button-icons/plan.md)
 
