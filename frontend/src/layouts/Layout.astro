@@ -4,9 +4,12 @@ import { VERSION } from '../version.js'
 
 interface Props {
   title: string
+  /** When true, removes main padding so the content can fill edge-to-edge.
+   *  Used by plugin-view pages that embed a full-height iframe. */
+  noPadding?: boolean
 }
 
-const { title } = Astro.props
+const { title, noPadding = false } = Astro.props
 ---
 
 <html lang="en" data-theme="brand">
@@ -154,7 +157,7 @@ const { title } = Astro.props
       </aside>
       <div id="sidebar-backdrop" class="fm-sidebar-backdrop"></div>
 
-      <main style="padding: 32px; overflow-y: auto;">
+      <main style={noPadding ? "padding: 0; overflow: hidden; display: flex; flex-direction: column; height: 100vh;" : "padding: 32px; overflow-y: auto;"}>
         <slot />
       </main>
     </div>
