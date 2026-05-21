@@ -54,11 +54,14 @@ class DashboardStatsResponse(BaseModel):
     filament_count_active: int
     filament_count_used: int
     filament_stats: list[FilamentStat]
+    filament_stats_used: list[FilamentStat]
     location_stats: list[LocationStat]
     manufacturers_with_spools: list[ManufacturerSpoolCount]
     low_stock_spools: list[LowStockSpool]
     empty_spools: list[EmptySpool]
     filament_types: list[FilamentTypeCount]
+    filament_types_active: list[FilamentTypeCount]
+    filament_types_used: list[FilamentTypeCount]
 
 
 @router.get("/stats", response_model=DashboardStatsResponse)
@@ -213,16 +216,59 @@ async def get_dashboard_stats(
         .limit(limit)
     )
 
-    # Filament-Typen mit Anzahl
+    # Filament-Typen: alle Filamente (scope = all)
     types_stmt = (
         select(Filament.material_type, func.count(Filament.id).label("filament_count"))
+        .where(Filament.material_type.isnot(None))
+        .where(Filament.material_type != "")
+        .group_by(Filament.material_type)
+        .order_by(func.count(Filament.id).desc())
+    )
+
+    # Filament-Typen: aktive Filamente (scope = active)
+    types_active_stmt = (
+        select(
+            Filament.material_type,
+            func.count(func.distinct(Filament.id)).label("filament_count"),
+        )
+        .join(Spool, Spool.filament_id == Filament.id)
+        .join(SpoolStatus, Spool.status_id == SpoolStatus.id)
+        .where(SpoolStatus.key != "archived")
+        .where(Spool.remaining_weight_g.isnot(None))
+        .where(Spool.remaining_weight_g > 0)
+        .where(Filament.material_type.isnot(None))
+        .where(Filament.material_type != "")
+        .group_by(Filament.material_type)
+        .order_by(func.count(func.distinct(Filament.id)).desc())
+    )
+
+    # Filament-Typen: jemals benutzte Filamente (scope = used)
+    types_used_stmt = (
+        select(
+            Filament.material_type,
+            func.count(func.distinct(Filament.id)).label("filament_count"),
+        )
+        .join(Spool, Spool.filament_id == Filament.id)
+        .where(Filament.material_type.isnot(None))
+        .where(Filament.material_type != "")
+        .group_by(Filament.material_type)
+        .order_by(func.count(func.distinct(Filament.id)).desc())
+    )
+
+    # Filament-Statistik: alle nicht-archivierten Spulen inkl. leere (scope = used)
+    filament_stats_used_stmt = (
+        select(
+            Filament.material_type,
+            func.count(Spool.id).label("spool_count"),
+            func.coalesce(func.sum(Spool.remaining_weight_g), 0).label("total_weight"),
+        )
         .join(Spool, Spool.filament_id == Filament.id)
         .join(SpoolStatus, Spool.status_id == SpoolStatus.id)
         .where(SpoolStatus.key != "archived")
         .where(Filament.material_type.isnot(None))
         .where(Filament.material_type != "")
         .group_by(Filament.material_type)
-        .order_by(func.count(Filament.id).desc())
+        .order_by(func.count(Spool.id).desc())
     )
 
     # Lagerorte-Statistik
@@ -277,10 +323,13 @@ async def get_dashboard_stats(
     # Execute all queries sequentially (async sessions do not support concurrent operations)
     dist_res = await db.execute(spool_distribution_stmt)
     fil_stats_res = await db.execute(filament_stats_stmt)
+    fil_stats_used_res = await db.execute(filament_stats_used_stmt)
     mfg_res = await db.execute(non_empty_stmt)
     low_stock_res = await db.execute(low_stock_stmt)
     empty_res = await db.execute(empty_stmt)
     types_res = await db.execute(types_stmt)
+    types_active_res = await db.execute(types_active_stmt)
+    types_used_res = await db.execute(types_used_stmt)
     loc_res = await db.execute(location_stats_stmt)
     total_val_res = await db.execute(total_value_stmt)
     filament_count_active_res = await db.execute(filament_count_active_stmt)
@@ -304,6 +353,15 @@ async def get_dashboard_stats(
             total_weight_g=float(row[2]),
         )
         for row in fil_stats_res.all()
+    ]
+
+    filament_stats_used = [
+        FilamentStat(
+            filament_type=row[0],
+            spool_count=row[1],
+            total_weight_g=float(row[2]),
+        )
+        for row in fil_stats_used_res.all()
     ]
 
     manufacturers_with_spools = [
@@ -337,6 +395,14 @@ async def get_dashboard_stats(
         FilamentTypeCount(material_type=row[0], count=row[1]) for row in types_res.all()
     ]
 
+    filament_types_active = [
+        FilamentTypeCount(material_type=row[0], count=row[1]) for row in types_active_res.all()
+    ]
+
+    filament_types_used = [
+        FilamentTypeCount(material_type=row[0], count=row[1]) for row in types_used_res.all()
+    ]
+
     location_stats = [
         LocationStat(
             location_id=int(row[0]),
@@ -353,9 +419,12 @@ async def get_dashboard_stats(
         filament_count_active=int(filament_count_active_res.scalar() or 0),
         filament_count_used=int(filament_count_used_res.scalar() or 0),
         filament_stats=filament_stats,
+        filament_stats_used=filament_stats_used,
         location_stats=location_stats,
         manufacturers_with_spools=manufacturers_with_spools,
         low_stock_spools=low_stock_spools,
         empty_spools=empty_spools,
         filament_types=filament_types,
+        filament_types_active=filament_types_active,
+        filament_types_used=filament_types_used,
     )

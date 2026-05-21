@@ -197,6 +197,8 @@ interface PaginatedResponse<T> {
     let allSpools: any[] = []
     let allFilaments: any[] = []
     let filamentCounts = { all: 0, active: 0, used: 0 }
+    let filamentTypesData: { all: any[], active: any[], used: any[] } = { all: [], active: [], used: [] }
+    let filamentStatsData: { all: any[], active: any[], used: any[] } = { all: [], active: [], used: [] }
 
     function applyFilamentScope() {
       const scope = (localStorage.getItem('dashboard-filament-scope') || 'all') as 'all' | 'active' | 'used'
@@ -208,6 +210,46 @@ interface PaginatedResponse<T> {
         btn.style.color = isActive ? '#fff' : 'var(--text-muted)'
         btn.style.borderColor = isActive ? 'var(--accent-2)' : 'var(--border)'
       })
+
+      // --- Filament Types table ---
+      const typesContainer = document.getElementById('filament-types')
+      if (typesContainer) {
+        const typesRows = filamentTypesData[scope]
+        if (typesRows.length === 0) {
+          typesContainer.innerHTML = `<p style="color: var(--text-muted);">${t('dashboard.noData')}</p>`
+        } else {
+          typesContainer.innerHTML = `<table class="fm-table" style="font-size: 0.85rem;"><tbody>` +
+            typesRows.map((r: any) =>
+              `<tr style="cursor: pointer;" onclick="window.location.href='/filaments?material=${encodeURIComponent(r.material_type)}'"><td>${r.material_type}</td><td style="text-align: right; font-family: monospace;">${r.count}</td></tr>`
+            ).join('') +
+            `</tbody></table>`
+        }
+      }
+
+      // --- Filament Statistics table ---
+      const statsContainer = document.getElementById('filament-stats')
+      if (statsContainer) {
+        const statsRows = filamentStatsData[scope]
+        if (statsRows.length === 0) {
+          statsContainer.innerHTML = `<p style="color: var(--text-muted);">${t('dashboard.noData')}</p>`
+        } else {
+          statsContainer.innerHTML = `<table class="fm-table" style="font-size: 0.85rem;">
+            <thead><tr>
+              <th style="padding: 6px 8px;">${t('dashboard.filament')}</th>
+              <th style="padding: 6px 8px; text-align: right;">${t('dashboard.spools')}</th>
+              <th style="padding: 6px 8px; text-align: right;">${t('dashboard.remaining')}</th>
+            </tr></thead>
+            <tbody>` +
+            statsRows.map((f: any) =>
+              `<tr style="cursor: pointer;" onclick="window.location.href='/spools?material=${encodeURIComponent(f.filament_type)}'">
+                <td style="padding: 6px 8px;">${f.filament_type}</td>
+                <td style="padding: 6px 8px; text-align: right; font-family: monospace;">${f.spool_count}</td>
+                <td style="padding: 6px 8px; text-align: right; font-family: monospace;">${formatWeight(f.total_weight_g)}</td>
+              </tr>`
+            ).join('') +
+            `</tbody></table>`
+        }
+      }
     }
 
     function initFilamentScopePills() {
@@ -409,6 +451,14 @@ interface PaginatedResponse<T> {
         if (dashboardData) {
           filamentCounts.active = dashboardData.filament_count_active ?? 0
           filamentCounts.used = dashboardData.filament_count_used ?? 0
+
+          filamentTypesData.all    = dashboardData.filament_types        ?? []
+          filamentTypesData.active = dashboardData.filament_types_active ?? []
+          filamentTypesData.used   = dashboardData.filament_types_used   ?? []
+
+          filamentStatsData.all    = dashboardData.filament_stats      ?? []
+          filamentStatsData.active = dashboardData.filament_stats      ?? []
+          filamentStatsData.used   = dashboardData.filament_stats_used ?? []
         }
         applyFilamentScope()
         
@@ -455,27 +505,6 @@ interface PaginatedResponse<T> {
               `</tbody></table>`
           }
 
-          const filamentStatsContainer = document.getElementById('filament-stats')!
-          if (!dashboardData.filament_stats || dashboardData.filament_stats.length === 0) {
-            filamentStatsContainer.innerHTML = `<p style="color: var(--text-muted);">${t('dashboard.noData')}</p>`
-          } else {
-            filamentStatsContainer.innerHTML = `<table class="fm-table" style="font-size: 0.85rem;">
-              <thead><tr>
-                <th style="padding: 6px 8px;">${t('dashboard.filament')}</th>
-                <th style="padding: 6px 8px; text-align: right;">${t('dashboard.spools')}</th>
-                <th style="padding: 6px 8px; text-align: right;">${t('dashboard.remaining')}</th>
-              </tr></thead>
-              <tbody>` + 
-              dashboardData.filament_stats.map((f: any) => 
-                `<tr style="cursor: pointer;" onclick="window.location.href='/spools?material=${encodeURIComponent(f.filament_type)}'">
-                  <td style="padding: 6px 8px;">${f.filament_type}</td>
-                  <td style="padding: 6px 8px; text-align: right; font-family: monospace;">${f.spool_count}</td>
-                  <td style="padding: 6px 8px; text-align: right; font-family: monospace;">${formatWeight(f.total_weight_g)}</td>
-                </tr>`
-              ).join('') +
-              `</tbody></table>`
-          }
-
           const mfrContainer = document.getElementById('manufacturers-with-spools')!
           if (dashboardData.manufacturers_with_spools.length === 0) {
             mfrContainer.innerHTML = `<p style="color: var(--text-muted);">${t('dashboard.noData')}</p>`
@@ -510,16 +539,6 @@ interface PaginatedResponse<T> {
               `</tbody></table>`
           }
 
-          const typesContainer = document.getElementById('filament-types')!
-          if (dashboardData.filament_types.length === 0) {
-            typesContainer.innerHTML = `<p style="color: var(--text-muted);">${t('dashboard.noData')}</p>`
-          } else {
-            typesContainer.innerHTML = `<table class="fm-table" style="font-size: 0.85rem;"><tbody>` + 
-              dashboardData.filament_types.map((t: any) => 
-                `<tr style="cursor: pointer;" onclick="window.location.href='/spools?material=${encodeURIComponent(t.material_type)}'"><td>${t.material_type}</td><td style="text-align: right; font-family: monospace;">${t.count}</td></tr>`
-              ).join('') +
-              `</tbody></table>`
-          }
         }
       } catch (error) {
         if (isAbortError(error)) return
