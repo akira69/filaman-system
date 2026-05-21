@@ -154,7 +154,10 @@
     "statusNormal": "Normal",
     "statusLow": "Niedrig",
     "statusCritical": "Kritisch",
-    "statusEmpty": "Leer"
+    "statusEmpty": "Leer",
+    "filamentScopeAll": "Alle",
+    "filamentScopeActive": "Aktiv",
+    "filamentScopeUsed": "Verwendet"
   },
   "settings": {
     "title": "Einstellungen",
