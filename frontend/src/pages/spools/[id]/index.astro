@@ -432,7 +432,7 @@ const { id } = Astro.params
       }
       // Also include any spool custom fields not covered by system definitions
       for (const [key, value] of Object.entries(spoolFlat)) {
-        if (!spoolSystemFieldMap[key]) efForPrint.push({ key: `spool.${key}`, label: key, value: String(value), source: 'spool' })
+        if (!spoolSystemFieldMap[key]) efForPrint.push({ key: `spool.${key}`, label: key, value: value !== undefined && value !== null ? value : '', source: 'spool' })
       }
       const filamentFlat = spool.filament?.custom_fields ? flattenObject(spool.filament.custom_fields) : {}
       for (const [key, def] of Object.entries(filamentSystemFieldMap)) {
@@ -441,7 +441,7 @@ const { id } = Astro.params
       }
       // Also include any filament custom fields not covered by system definitions
       for (const [key, value] of Object.entries(filamentFlat)) {
-        if (!filamentSystemFieldMap[key]) efForPrint.push({ key: `filament.${key}`, label: key, value: String(value), source: 'filament' })
+        if (!filamentSystemFieldMap[key]) efForPrint.push({ key: `filament.${key}`, label: key, value: value !== undefined && value !== null ? value : '', source: 'filament' })
       }
       sessionStorage.setItem('filaman-label-extra-fields', JSON.stringify(efForPrint))
 

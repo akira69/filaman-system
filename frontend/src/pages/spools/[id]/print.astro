@@ -2448,7 +2448,10 @@ const { id } = Astro.params
   function buildTokenArea(areaId: string, targetId: string) {
     const area = document.getElementById(areaId)
     if (!area) return
-    area.innerHTML = '' // clear for idempotent rebuilding
+    // Clear before rebuilding so the function is idempotent.
+    // Toggle open/closed state is persisted in localStorage and restored below,
+    // so state is preserved across rebuilds.
+    area.innerHTML = ''
 
     function insertTok(tok: string) {
       const el = document.getElementById(targetId) as HTMLInputElement | HTMLTextAreaElement
