@@ -52,7 +52,9 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Formula field / extra fields JSON** *(Spoolman basis PR #885)* — derived values computed from JSON Logic expressions; full backend operator library (math, text, date/time), CodeMirror editor, field references, live preview — branch `feat/formula-extra-fields`
 
-- **Advanced label designer** — rich per-field template placement and editing on print page — [PR #14](https://github.com/akira69/filaman-system/pull/14)
+- **Spoolman-compatible API plugin** (`spoolmanapi`) — read-only Spoolman v1 REST API backed by FilaMan's DB; enables Moonraker `[spoolman]` and AFC-Klipper-Add-On to connect directly to FilaMan — [fork PR #23](https://github.com/akira69/filaman-system/pull/23) → submitted upstream as [PR #79](https://github.com/Fire-Devils/filaman-system/pull/79)
+
+- **Advanced label designer** — rich per-field template placement and editing on print page — [fork PR #14](https://github.com/akira69/filaman-system/pull/14) → submitted upstream as [PR #80](https://github.com/Fire-Devils/filaman-system/pull/80)
   - Sub-task: template field selector (simple vs detail view)
 
 - **Spoolman app import fix** — alpha hex color import bug — [PR #6](https://github.com/akira69/filaman-system/pull/6)
