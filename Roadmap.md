@@ -27,9 +27,12 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Server-side spool count sort** — [fork PR #13](https://github.com/akira69/filaman-system/pull/13) accepted upstream as [PR #53](https://github.com/Fire-Devils/filaman-system/pull/53) ✓
 
-- **TypeScript / Astro type-safety cleanup (Batch 1 + Batch 0)** — 433 → 354 errors
+- **TypeScript / Astro type-safety cleanup (all batches)** — 433 → 0 errors
   - Backend + frontend baseline fixes — [fork PR #16](https://github.com/akira69/filaman-system/pull/16) → merged upstream as [PR #70](https://github.com/Fire-Devils/filaman-system/pull/70) ✓
   - Batch 1: list/detail pages — [fork PR #17](https://github.com/akira69/filaman-system/pull/17) → merged upstream as [PR #71](https://github.com/Fire-Devils/filaman-system/pull/71) ✓
+  - Batch 2: filamentdb-lookup, spools/new — [fork PR #18](https://github.com/akira69/filaman-system/pull/18) → merged upstream as [PR #73](https://github.com/Fire-Devils/filaman-system/pull/73) ✓
+  - Batch 3: spools/[id]/index + edit — [fork PR #19](https://github.com/akira69/filaman-system/pull/19) → merged upstream as [PR #74](https://github.com/Fire-Devils/filaman-system/pull/74) ✓
+  - Batch 4: final 2 errors — [fork PR #20](https://github.com/akira69/filaman-system/pull/20) → merged upstream as [PR #75](https://github.com/Fire-Devils/filaman-system/pull/75) ✓
 
 - **Column resize & reorder**
   - Drag-and-drop reorder on spools/filaments/manufacturers *(v1.2.7)*
@@ -44,11 +47,6 @@ Features implemented upstream, including fork contributions that were accepted t
 ---
 
 ## 🔄 In Progress
-
-- **TypeScript / Astro type-safety cleanup (Batches 2–4)** — submitted upstream, pending review
-  - Batch 2: filamentdb-lookup, spools/new — [fork PR #18](https://github.com/akira69/filaman-system/pull/18) → submitted upstream as [PR #73](https://github.com/Fire-Devils/filaman-system/pull/73)
-  - Batch 3: spools/[id]/index + edit — [fork PR #19](https://github.com/akira69/filaman-system/pull/19) → submitted upstream as [PR #74](https://github.com/Fire-Devils/filaman-system/pull/74)
-  - Batch 4: final 2 errors — [fork PR #20](https://github.com/akira69/filaman-system/pull/20) → submitted upstream as [PR #75](https://github.com/Fire-Devils/filaman-system/pull/75)
 
 - **Formula field / extra fields JSON** *(Spoolman basis PR #885)* — derived values computed from JSON Logic expressions; full backend operator library (math, text, date/time), CodeMirror editor, field references, live preview — branch `feat/formula-extra-fields`
 
