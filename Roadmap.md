@@ -57,6 +57,8 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Multicolor / hero shading** on filament and spool detail pages — [PR #8](https://github.com/akira69/filaman-system/pull/8)
 
+- **Filament-swatch plugin integration** — embed filament-swatch SPA inside FilaMan shell (sidebar + auth preserved via iframe); theme + language sync — [PR #24](https://github.com/akira69/filaman-system/pull/24) *(open)*; companion plugin wrapper at [akira69/spoolman-filament-swatch#4](https://github.com/akira69/spoolman-filament-swatch/pull/4)
+
 ---
 
 ## 📤 Submitted Upstream (pending review/merge)
@@ -82,7 +84,5 @@ Features implemented upstream, including fork contributions that were accepted t
 ## 🅿️ Parking Lot
 
 Ideas worth revisiting but not actively prioritised.
-
-- **Filament-swatch plugin** — integrate filament-swatch into FilaMan; depends on upstream plugin API stability
 
 - **Label export workflow / AML** *(Spoolman basis PR #860)* — [PR #3](https://github.com/akira69/filaman-system/pull/3); AML is the Labelife label printer native format — niche hardware, browser-print via label designer covers general case
