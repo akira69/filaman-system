@@ -4,11 +4,6 @@
 
 Work originated in this fork (akira69/filaman-system). Upstream may have independently implemented similar fixes.
 
-- **Speed up screen refresh** — async dashboard and list load improvements
-  - Dashboard async session concurrency fix — [PR #2](https://github.com/akira69/filaman-system/pull/2) *(upstream independently fixed in `d41ae3c`)*
-  - FilamentDB sync UI performance — [PR #12](https://github.com/akira69/filaman-system/pull/12) *(upstream independently fixed in `8b35ce9`)*
-  - FilamentDB stale color position collision fix — [PR #11](https://github.com/akira69/filaman-system/pull/11) *(upstream independently fixed in `babba6b`)*
-
 - **Filament label printing** *(Spoolman basis PR #846)* — [PR #1](https://github.com/akira69/filaman-system/pull/1) *(open; upstream has spool label printing only)*
 
 ---
@@ -41,6 +36,11 @@ Features implemented upstream, including fork contributions that were accepted t
 - **SpoolmanDB plugin** — superseded; replaced by FilaManDB builtin plugin *(v1.2.2)*
 
 - **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *(v1.2.1)*
+
+- **Speed up screen refresh** — async dashboard and list load improvements; independently fixed upstream
+  - Dashboard async session concurrency fix — [fork PR #2](https://github.com/akira69/filaman-system/pull/2) *(upstream `d41ae3c`)*
+  - FilamentDB sync UI performance — [fork PR #12](https://github.com/akira69/filaman-system/pull/12) *(upstream `8b35ce9`)*
+  - FilamentDB stale color position collision fix — [fork PR #11](https://github.com/akira69/filaman-system/pull/11) *(upstream `babba6b`)*
 
 ---
 
