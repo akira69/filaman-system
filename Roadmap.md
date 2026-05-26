@@ -57,7 +57,9 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Multicolor / hero shading** on filament and spool detail pages — [PR #8](https://github.com/akira69/filaman-system/pull/8)
 
-- **Filament-swatch plugin integration** — embed filament-swatch SPA inside FilaMan shell (sidebar + auth preserved via iframe); theme + language sync — [PR #24](https://github.com/akira69/filaman-system/pull/24) *(open)*; companion plugin wrapper at [akira69/spoolman-filament-swatch#4](https://github.com/akira69/spoolman-filament-swatch/pull/4)
+- **Filament-swatch plugin integration** — embed filament-swatch SPA inside FilaMan shell (sidebar + auth preserved via iframe); theme + language sync
+  - FilaMan shell page (iframe embed) — [filaman-system PR #24](https://github.com/akira69/filaman-system/pull/24) *(open)*
+  - FilaMan hosted mode in SPA — [akira69/spoolman-filament-swatch#6](https://github.com/akira69/spoolman-filament-swatch/pull/6) *(open)*; intended for upstream [Disane87/spoolman-filament-swatch](https://github.com/Disane87/spoolman-filament-swatch) (upstream PR #26 is Spoolman-only side)
 
 ---
 
