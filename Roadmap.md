@@ -11,8 +11,6 @@ Work originated in this fork (akira69/filaman-system). Upstream may have indepen
 
 - **Filament label printing** *(Spoolman basis PR #846)* — [PR #1](https://github.com/akira69/filaman-system/pull/1) *(open; upstream has spool label printing only)*
 
-- **Label export workflow** — PNG/AML *(Spoolman basis PR #860)* — [PR #3](https://github.com/akira69/filaman-system/pull/3) *(open; upstream PNG export is spool-only)*
-
 ---
 
 ## ✅ Done — upstream (Fire-Devils/filaman-system)
@@ -86,3 +84,5 @@ Features implemented upstream, including fork contributions that were accepted t
 Ideas worth revisiting but not actively prioritised.
 
 - **Filament-swatch plugin** — integrate filament-swatch into FilaMan; depends on upstream plugin API stability
+
+- **Label export workflow / AML** *(Spoolman basis PR #860)* — [PR #3](https://github.com/akira69/filaman-system/pull/3); AML is the Labelife label printer native format — niche hardware, browser-print via label designer covers general case
