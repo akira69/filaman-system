@@ -61,6 +61,8 @@ Features implemented upstream, including fork contributions that were accepted t
   - FilaMan shell page (iframe embed) — [filaman-system PR #24](https://github.com/akira69/filaman-system/pull/24) *(open)*
   - FilaMan hosted mode in SPA — [akira69/spoolman-filament-swatch#6](https://github.com/akira69/spoolman-filament-swatch/pull/6) *(open)*; intended for upstream [Disane87/spoolman-filament-swatch](https://github.com/Disane87/spoolman-filament-swatch) (upstream PR #26 is Spoolman-only side)
 
+- **Rich extra field types** — `range`, `float`, `date`, `url`, `multiselect`, `textarea`; `range` covers print/bed temp ranges, layer heights, etc. — [PR #22](https://github.com/akira69/filaman-system/pull/22) *(open)*; ref [upstream issue #59](https://github.com/Fire-Devils/filaman-system/issues/59) — [implementation plan](./_pr/rich-field-types/plan.md)
+
 ---
 
 ## 📤 Submitted Upstream (pending review/merge)
@@ -77,7 +79,7 @@ Features implemented upstream, including fork contributions that were accepted t
 - **Manufacturer logo sync plugin** *(Spoolman basis PR #872)*
   - Related: logo upload overrides — [PR #9](https://github.com/akira69/filaman-system/pull/9)
 
-- **Rich field types for extra fields** — add `range_int`, `range_float`, `integer`, `datetime`, `url`, `multiselect`, `textarea` types to the extra fields system; matches and extends Spoolman's type set — [implementation plan](./_pr/rich-field-types/plan.md)
+- **Standard filament print-temp range fields** — add `extruder_temp_min/max_c` and `bed_temp_min/max_c` as first-class `Filament` model columns; sortable, filterable, visible in list views without extra-field setup; ref [upstream issue #59](https://github.com/Fire-Devils/filaman-system/issues/59) — depends on rich-field-types landing first (shares UI helper)
 
 - **Global action button icons** — replace all inline-style text Edit/Delete/View buttons with `fm-btn-icon` icon buttons UI-wide (10 table pages + 3 detail pages) — [implementation plan](./_pr/action-button-icons/plan.md)
 
