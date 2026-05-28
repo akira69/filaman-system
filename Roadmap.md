@@ -16,7 +16,7 @@ Features implemented upstream, including fork contributions that were accepted t
   - Logo upload overrides (per-manufacturer) — [PR #9](https://github.com/akira69/filaman-system/pull/9) *(open)*
   - Move logo to dedicated DB column — [PR #10](https://github.com/akira69/filaman-system/pull/10) *(open)*
 
-- **Material filter deduplication** — [fork PR #5](https://github.com/akira69/filaman-system/pull/5) accepted upstream as [PR #29](https://github.com/Fire-Devils/filaman-system/pull/29) ✓
+- **Material filter deduplication** — [fork PR #5](https://github.com/akira69/filaman-system/pull/5) accepted upstream as [PR #29](https://github.com/Fire-Devils/filaman-system/pull/29) ✓; ref [upstream issue #6](https://github.com/Fire-Devils/filaman-system/issues/6)
 
 - **Server-side spool count sort** — [fork PR #13](https://github.com/akira69/filaman-system/pull/13) accepted upstream as [PR #53](https://github.com/Fire-Devils/filaman-system/pull/53) ✓
 
@@ -27,11 +27,11 @@ Features implemented upstream, including fork contributions that were accepted t
   - Batch 3: spools/[id]/index + edit — [fork PR #19](https://github.com/akira69/filaman-system/pull/19) → merged upstream as [PR #74](https://github.com/Fire-Devils/filaman-system/pull/74) ✓
   - Batch 4: final 2 errors — [fork PR #20](https://github.com/akira69/filaman-system/pull/20) → merged upstream as [PR #75](https://github.com/Fire-Devils/filaman-system/pull/75) ✓
 
-- **Column resize & reorder**
+- **Column resize & reorder** — ref [upstream issue #58](https://github.com/Fire-Devils/filaman-system/issues/58)
   - Drag-and-drop reorder on spools/filaments/manufacturers *(v1.2.7)*
   - Column edge resize, saved per browser *(v1.2.12)*
 
-- **Extra fields selectable in table views** — extended column picker with Standard/Extended/Extra Fields groups *(v1.1.18)*
+- **Extra fields selectable in table views** — extended column picker with Standard/Extended/Extra Fields groups *(v1.1.18)*; ref [upstream issue #9](https://github.com/Fire-Devils/filaman-system/issues/9)
 
 - **Advanced label designer** — rich per-field template placement and editing on print page *(v1.2.20)* — [fork PR #14](https://github.com/akira69/filaman-system/pull/14) → upstream [PR #80](https://github.com/Fire-Devils/filaman-system/pull/80) ✓
   - Sub-task: template field selector (simple vs detail view)
@@ -40,7 +40,7 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *(v1.2.1)*
 
-- **Speed up screen refresh** — async dashboard and list load improvements; independently fixed upstream
+- **Speed up screen refresh** — async dashboard and list load improvements; independently fixed upstream; ref [upstream issue #42](https://github.com/Fire-Devils/filaman-system/issues/42), [#46](https://github.com/Fire-Devils/filaman-system/issues/46)
   - Dashboard async session concurrency fix — [fork PR #2](https://github.com/akira69/filaman-system/pull/2) *(upstream `d41ae3c`)*
   - FilamentDB sync UI performance — [fork PR #12](https://github.com/akira69/filaman-system/pull/12) *(upstream `8b35ce9`)*
   - FilamentDB stale color position collision fix — [fork PR #11](https://github.com/akira69/filaman-system/pull/11) *(upstream `babba6b`)*
@@ -51,7 +51,7 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Formula field / extra fields JSON** *(Spoolman basis PR #885)* — derived values computed from JSON Logic expressions; full backend operator library (math, text, date/time), CodeMirror editor, field references, live preview — branch `feat/formula-extra-fields`
 
-- **Spoolman app import fix** — alpha hex color import bug — [PR #6](https://github.com/akira69/filaman-system/pull/6)
+- **Spoolman app import fix** — alpha hex color import bug — [PR #6](https://github.com/akira69/filaman-system/pull/6); ref [upstream issue #44](https://github.com/Fire-Devils/filaman-system/issues/44)
 
 - **Move list filtering to column headers**
   - Server-side spool count sort done — [PR #13](https://github.com/akira69/filaman-system/pull/13)
@@ -66,7 +66,7 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Rich extra field types** — `range`, `float`, `date`, `url`, `multiselect`, `textarea`; `range` covers print/bed temp ranges, layer heights, etc. — [PR #22](https://github.com/akira69/filaman-system/pull/22) *(open)*; ref [upstream issue #59](https://github.com/Fire-Devils/filaman-system/issues/59) — [implementation plan](./_pr/rich-field-types/plan.md)
 
-- **Dashboard filament count scope selector** — All / Active / Used scope toggle on dashboard counts — [PR #26](https://github.com/akira69/filaman-system/pull/26) *(open)*
+- **Dashboard filament count scope selector** — All / Active / Used scope toggle on dashboard counts — [PR #26](https://github.com/akira69/filaman-system/pull/26) *(open)*; ref [upstream issue #65](https://github.com/Fire-Devils/filaman-system/issues/65)
 
 ---
 
