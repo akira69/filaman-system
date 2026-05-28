@@ -33,6 +33,9 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Extra fields selectable in table views** — extended column picker with Standard/Extended/Extra Fields groups *(v1.1.18)*
 
+- **Advanced label designer** — rich per-field template placement and editing on print page *(v1.2.20)* — [fork PR #14](https://github.com/akira69/filaman-system/pull/14) → upstream [PR #80](https://github.com/Fire-Devils/filaman-system/pull/80) ✓
+  - Sub-task: template field selector (simple vs detail view)
+
 - **SpoolmanDB plugin** — superseded; replaced by FilaManDB builtin plugin *(v1.2.2)*
 
 - **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *(v1.2.1)*
@@ -63,14 +66,13 @@ Features implemented upstream, including fork contributions that were accepted t
 
 - **Rich extra field types** — `range`, `float`, `date`, `url`, `multiselect`, `textarea`; `range` covers print/bed temp ranges, layer heights, etc. — [PR #22](https://github.com/akira69/filaman-system/pull/22) *(open)*; ref [upstream issue #59](https://github.com/Fire-Devils/filaman-system/issues/59) — [implementation plan](./_pr/rich-field-types/plan.md)
 
+- **Dashboard filament count scope selector** — All / Active / Used scope toggle on dashboard counts — [PR #26](https://github.com/akira69/filaman-system/pull/26) *(open)*
+
 ---
 
 ## 📤 Submitted Upstream (pending review/merge)
 
-- **Advanced label designer** — rich per-field template placement and editing on print page — [fork PR #14](https://github.com/akira69/filaman-system/pull/14) → upstream [PR #80](https://github.com/Fire-Devils/filaman-system/pull/80)
-  - Sub-task: template field selector (simple vs detail view)
-
-- **Spoolman-compatible API plugin** (`spoolmanapi`) — read-only Spoolman v1 REST API backed by FilaMan's DB; enables Moonraker `[spoolman]` and AFC-Klipper-Add-On to connect directly to FilaMan — [fork PR #23](https://github.com/akira69/filaman-system/pull/23) → upstream [PR #79](https://github.com/Fire-Devils/filaman-system/pull/79) *(draft)*
+*(nothing currently pending)*
 
 ---
 
@@ -89,4 +91,6 @@ Features implemented upstream, including fork contributions that were accepted t
 
 Ideas worth revisiting but not actively prioritised.
 
-- **Label export workflow / AML** *(Spoolman basis PR #860)* — [PR #3](https://github.com/akira69/filaman-system/pull/3); AML is the Labelife label printer native format — niche hardware, browser-print via label designer covers general case
+- **Label export workflow / AML** *(Spoolman basis PR #860)* — [PR #3](https://github.com/akira69/filaman-system/pull/3) *(closed)*; AML is the Labelife label printer native format — niche hardware, browser-print via label designer covers general case
+
+- **Spoolman-compatible API plugin** (`spoolmanapi`) — [fork PR #23](https://github.com/akira69/filaman-system/pull/23) *(closed)* → upstream [PR #79](https://github.com/Fire-Devils/filaman-system/pull/79) *(draft)*; superseded by existing [filaman-spoolmanapi-plugin](https://github.com/Fire-Devils/filaman-spoolmanapi-plugin) (full CRUD, IP access control, CSV/JSON export)
