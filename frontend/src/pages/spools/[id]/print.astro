@@ -2583,6 +2583,7 @@ const { id } = Astro.params
   // ─── Presets ──────────────────────────────────────────────────────────────
 
   const PRESETS_KEY = 'filaman-label-presets-v1'
+  const CROSS_PRESETS_KEY = 'filaman-filament-label-presets-v1'   // filament presets (cross-load only)
   const PRESETS_SCHEMA_VERSION = 1
 
   interface LabelPreset {
@@ -2618,6 +2619,25 @@ const { id } = Astro.params
     safeSetLocalStorage(PRESETS_KEY, payload)
   }
 
+  function loadCrossPresets(): LabelPreset[] {
+    const parsed = parseJsonOrNull(localStorage.getItem(CROSS_PRESETS_KEY))
+    if (!parsed) return []
+    try {
+      const payload = Array.isArray(parsed)
+        ? { version: 0, presets: parsed }
+        : parsed
+      if (!Array.isArray(payload.presets)) return []
+      return payload.presets
+        .filter((p: any) => p && typeof p.name === 'string' && p.settings)
+        .map((p: any) => ({
+          name: p.name.trim().slice(0, 120),
+          settings: mergeDesignerSettings(p.settings),
+        }))
+    } catch {
+      return []
+    }
+  }
+
   // Track which preset is currently loaded (for dirty detection)
   let _activePresetName: string | null = null
   let _activePresetSettings: LabelDesignerSettings | null = null
@@ -2634,8 +2654,9 @@ const { id } = Astro.params
     const list = document.getElementById('ds-preset-list') as HTMLSelectElement
     if (!list) return
     const presets = loadPresets()
+    const crossPresets = loadCrossPresets()
     list.innerHTML = ''
-    if (presets.length === 0) {
+    if (presets.length === 0 && crossPresets.length === 0) {
       const opt = document.createElement('option')
       opt.value = ''
       opt.textContent = '— no saved presets —'
@@ -2650,12 +2671,27 @@ const { id } = Astro.params
       placeholder.disabled = true
       placeholder.selected = !selectName
       list.appendChild(placeholder)
-      // Add preset options
+      // Add own spool preset options
       for (const p of presets) {
         const opt = document.createElement('option')
         opt.value = p.name
         opt.textContent = p.name
         list.appendChild(opt)
+      }
+      // Cross-type presets (filament) — load-only, shown below a separator
+      if (crossPresets.length > 0) {
+        const sep = document.createElement('option')
+        sep.value = ''
+        sep.textContent = '── Filament Label Presets ──'
+        sep.disabled = true
+        list.appendChild(sep)
+        for (const p of crossPresets) {
+          const opt = document.createElement('option')
+          opt.value = p.name
+          opt.textContent = p.name
+          opt.dataset.cross = '1'
+          list.appendChild(opt)
+        }
       }
       if (selectName) list.value = selectName
     }
@@ -2697,8 +2733,10 @@ const { id } = Astro.params
   presetNameInput?.addEventListener('input', updateSaveBtn)
 
   presetList?.addEventListener('change', () => {
-    // Pre-fill the name input with the selected preset name
-    presetNameInput.value = presetList.value
+    const isCross = (presetList.selectedOptions[0] as HTMLOptionElement)?.dataset?.cross === '1'
+    // Cross-type presets: clear name so user must save as new spool preset
+    presetNameInput.value = isCross ? '' : presetList.value
+    if (presetDeleteBtn) presetDeleteBtn.disabled = isCross
     updateSaveBtn()
   })
 
@@ -2723,7 +2761,8 @@ const { id } = Astro.params
   presetLoadBtn?.addEventListener('click', () => {
     const name = presetList.value
     if (!name) return
-    const presets = loadPresets()
+    const isCrossLoad = (presetList.selectedOptions[0] as HTMLOptionElement)?.dataset?.cross === '1'
+    const presets = isCrossLoad ? loadCrossPresets() : loadPresets()
     const preset = presets.find(p => p.name === name)
     if (!preset) return
     // Deep merge into defaults then apply
@@ -2799,9 +2838,16 @@ const { id } = Astro.params
 
     autosizeTemplateFields()
     saveDesignerSettings()
-    _activePresetName = name
-    _activePresetSettings = JSON.parse(JSON.stringify(s)) as LabelDesignerSettings
-    presetNameInput.value = name
+    if (isCrossLoad) {
+      // Cross-type preset: apply as starting point, no active preset assigned
+      _activePresetName = null
+      _activePresetSettings = null
+      presetNameInput.value = ''
+    } else {
+      _activePresetName = name
+      _activePresetSettings = JSON.parse(JSON.stringify(s)) as LabelDesignerSettings
+      presetNameInput.value = name
+    }
     markPresetDirty(false)
     updateSaveBtn()
     updateDesignerPreview()
@@ -2809,7 +2855,8 @@ const { id } = Astro.params
 
   presetDeleteBtn?.addEventListener('click', () => {
     const name = presetList.value
-    if (!name) return
+    const isCross = (presetList.selectedOptions[0] as HTMLOptionElement)?.dataset?.cross === '1'
+    if (!name || isCross) return
     const presets = loadPresets().filter(p => p.name !== name)
     savePresets(presets)
     if (_activePresetName === name) {
