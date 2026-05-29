@@ -3177,7 +3177,7 @@ const { id } = Astro.params
   // Designer section headers + labels
   const t = (key: string, fallback: string) => (window as any).__t(key) || fallback
   document.getElementById('dsh-presets-text')!.textContent = t('spools.dsPresets', 'Presets')
-  document.getElementById('dsl-preset-saved')!.textContent = t('spools.dsPresetsSaved', 'Saved filament presets')
+  document.getElementById('dsl-preset-saved')!.textContent = t('spools.dsPresetsSavedFilament', 'Saved filament presets')
   document.getElementById('dsl-logo-label')!.textContent = t('spools.dsLogo', 'Logo')
   document.getElementById('dsl-logo-space')!.textContent = t('spools.dsLogoSpace', 'Space height (mm)')
   document.getElementById('dsl-logo-manual')!.textContent = t('spools.dsLogoManual', 'Max logo height (mm)')
