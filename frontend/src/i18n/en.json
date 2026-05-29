@@ -313,7 +313,9 @@
     "showMaterial": "Material",
     "showColor": "Color",
     "resetDefaults": "Reset",
-    "loadError": "Failed to load filament data. Some label fields may be empty."
+    "loadError": "Failed to load filament data. Some label fields may be empty.",
+    "dsQrFilamentUrl": "Filament URL",
+    "dsQrCustomBaseHint": "Filament ID is appended automatically."
   },
   "spools": {
     "title": "Spools",
