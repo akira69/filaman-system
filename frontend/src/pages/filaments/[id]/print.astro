@@ -93,7 +93,7 @@ const { id } = Astro.params
           <summary class="ds-section-header" id="dsh-presets"><span id="dsh-presets-text">Presets</span></summary>
           <div class="ds-section-body">
             <div>
-              <label class="fm-label" id="dsl-preset-saved">Saved presets</label>
+              <label class="fm-label" id="dsl-preset-saved">Saved filament presets</label>
               <div class="ds-preset-row">
                 <select id="ds-preset-list" class="fm-input fm-select ds-preset-select"></select>
                 <button id="ds-preset-load-btn" class="ds-action-btn">Load</button>
@@ -2698,7 +2698,7 @@ const { id } = Astro.params
       // Add placeholder option at the top
       const placeholder = document.createElement('option')
       placeholder.value = ''
-      placeholder.textContent = 'Saved presets'
+      placeholder.textContent = 'Saved filament presets'
       placeholder.disabled = true
       placeholder.selected = !selectName
       list.appendChild(placeholder)
@@ -3177,10 +3177,7 @@ const { id } = Astro.params
   // Designer section headers + labels
   const t = (key: string, fallback: string) => (window as any).__t(key) || fallback
   document.getElementById('dsh-presets-text')!.textContent = t('spools.dsPresets', 'Presets')
-  document.getElementById('dsl-preset-saved')!.textContent = t('spools.dsPresetsSaved', 'Saved presets')
-  document.getElementById('ds-preset-load-btn')!.textContent = t('spools.dsPresetsLoad', 'Load')
-  document.getElementById('ds-preset-delete-btn')!.title = t('spools.dsPresetsDelete', 'Delete selected preset')
-  document.getElementById('dsl-preset-name')!.textContent = t('spools.dsPresetsName', 'Preset name')
+  document.getElementById('dsl-preset-saved')!.textContent = t('spools.dsPresetsSaved', 'Saved filament presets')
   document.getElementById('dsl-logo-label')!.textContent = t('spools.dsLogo', 'Logo')
   document.getElementById('dsl-logo-space')!.textContent = t('spools.dsLogoSpace', 'Space height (mm)')
   document.getElementById('dsl-logo-manual')!.textContent = t('spools.dsLogoManual', 'Max logo height (mm)')
