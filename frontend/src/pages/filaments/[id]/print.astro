@@ -1862,7 +1862,7 @@ const { id } = Astro.params
 
   function safeSetLocalStorage(key: string, value: string) {
     if (value.length > STORAGE_SOFT_LIMIT_BYTES) {
-      console.warn(`Skipped persisting ${key}: payload too large`) 
+      console.warn(`Skipped persisting ${key}: payload too large`)
       return false
     }
     try {
@@ -2812,7 +2812,7 @@ const { id } = Astro.params
     const presetLogoAny = (s as any).logo ?? {}
     const presetLogoSpace = Number(presetLogoAny.spaceMm ?? presetLogoAny.sizeMm ?? DESIGNER_DEFAULTS.logo.spaceMm)
     const presetLogoManual = Number(presetLogoAny.manualSizeMm ?? presetLogoAny.sizeMm ?? DESIGNER_DEFAULTS.logo.manualSizeMm)
-    
+
     // Use batch setter to reduce duplication from ~100 repeated lines
     setFormFields([
       { id: 'ds-logo-show', value: s.logo.show },
@@ -3550,7 +3550,7 @@ const { id } = Astro.params
     const pageRule = isSafari
       ? ''
       : `@page { size: ${w}mm ${h}mm; margin: 0; }`
-    style.innerHTML = `
+    style.textContent = `
       ${pageRule}
       @media print {
         .label-preview {
@@ -3862,7 +3862,7 @@ const { id } = Astro.params
     const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)
     const pageRule = isSafari ? '' : `@page { size: ${w}mm ${h}mm; margin: 0; }`
     const style = document.createElement('style')
-    style.innerHTML = `
+    style.textContent = `
       ${pageRule}
       @media print {
         .label-preview {

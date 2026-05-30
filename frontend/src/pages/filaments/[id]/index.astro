@@ -503,7 +503,7 @@ const { id } = Astro.params
       const ctx = (document.getElementById('priceChart') as HTMLCanvasElement).getContext('2d')
       if (!ctx) return
 
-      // @ts-ignore - Chart is loaded via CDN
+      // @ts-expect-error - Chart is loaded via CDN
       new Chart(ctx, {
         type: 'line',
         data: {
