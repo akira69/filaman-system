@@ -2061,7 +2061,7 @@ const { id } = Astro.params
     { token: '{filament.type}',         label: 'type' },
     { token: '{filament.subtype}',      label: 'subtype' },
     { token: '{filament.color}',        label: 'color' },
-    { token: '{filament.color_hex}',    label: 'color_hex' },
+    { token: '^^{filament.color_hex}^^', label: 'color_hex' },
     { token: '{filament.manufacturer}', label: 'manufacturer' },
     { token: '{filament.extruder_temp}',label: 'extruder_temp' },
     { token: '{filament.bed_temp}',     label: 'bed_temp' },
@@ -2398,6 +2398,7 @@ const { id } = Astro.params
       <tr><td>[size=120%]text[/size]</td><td>Inline relative text size in % (50..300, % optional); works with literal text, field values, and swatches.<br><span class="ds-popover-eg">e.g. [size=140%]{filament.extruder_temp}[/size]°C or [size=120%]{color_swatch[6]}[/size] {filament.color}</span></td></tr>
       <tr><td>**text**</td><td><strong>Bold</strong></td></tr>
       <tr><td>*text*</td><td><em>Italic</em></td></tr>
+      <tr><td>^^text^^</td><td>Uppercase text and field values.<br><span class="ds-popover-eg">e.g. ^^{filament.color_hex}^^ → FF6A00</span></td></tr>
       <tr><td>==text==</td><td style="background:#000;color:#fff;padding:0 2px;border-radius:2px">Inverse (white on black)</td></tr>
       <tr><td>@@text@@</td><td>Inverse using filament color with automatic black/white text chosen for best contrast.<br><span class="ds-popover-eg"><span style="background:#2A5BE8;color:#fff;padding:0 2px;border-radius:2px">Blue uses white text</span> <span style="background:#F5E663;color:#000;padding:0 2px;border-radius:2px">Yellow uses black text</span></span></td></tr>
       <tr><td>\\n</td><td>New line (in info textarea, just press Enter)</td></tr>
@@ -2857,7 +2858,7 @@ const { id } = Astro.params
             marginMm: 0,
             fitToWidth: true,
             align: 'left',
-            template: '**{filament.material} {filament.color}**  {filament.color_hex}',
+            template: '**{filament.material} {filament.color}**  ^^{filament.color_hex}^^',
             dividerAbove: false,
             dividerBelow: false,
           },

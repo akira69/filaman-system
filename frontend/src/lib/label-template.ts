@@ -7,6 +7,7 @@
  *                            omitted entirely when token resolves to "?"
  *   **bold**               — <strong> text
  *   *italic*               — <em> text (single asterisk, not part of **)
+ *   ^^caps^^               — uppercase text
  *   ==inverse==            — inverted text (black bg, white text)
  *   @@inverse@@            — inverted text using filament color with automatic black/white text
  *   [size=120]text[/size]  — inline relative size in percent (50..300)
@@ -80,6 +81,10 @@ function renderColorSwatchMarker(token: string, data: SpoolData): string | null 
   return `[[FM_SWATCH|${widthCh}|${hex}]]`
 }
 
+function applyCapsMarkup(text: string): string {
+  return text.replace(/\^\^([\s\S]*?)\^\^/g, (_match, inner: string) => inner.toUpperCase())
+}
+
 /** Resolve a dot-path token against the spool data object. */
 function resolveToken(token: string, data: SpoolData): string {
   if (token.startsWith('extra.')) {
@@ -99,7 +104,7 @@ export function renderTemplateText(template: string, data: SpoolData): string {
     : template
   // Match both optional-block {{inner}} style and simple {token}
   // Process longest matches first (optional blocks) before simple tokens.
-  return boundedTemplate.replace(
+  const rendered = boundedTemplate.replace(
     /{(?:[^{}]|{[^{}]*})*}/g,
     (match) => {
       // Optional block: {prefix{token}suffix}
@@ -119,6 +124,7 @@ export function renderTemplateText(template: string, data: SpoolData): string {
       return resolved === '?' ? '' : resolved
     }
   )
+  return applyCapsMarkup(rendered)
 }
 
 /** Apply **bold**, *italic*, ==inverse==, @@inverse@@ and [size=..] inline markup. */
