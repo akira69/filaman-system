@@ -37,7 +37,7 @@ Features live in upstream, either merged from this fork or independently impleme
 
 Fork PRs that are code-complete or in active development, targeting submission to Fire-Devils/filaman-system.
 
-- **Filament label printing** *(Spoolman basis PR #846)* — [PR #1](https://github.com/akira69/filaman-system/pull/1) *(open; upstream has spool label printing only)*
+- **Filament label printing** *(Spoolman basis PR #846)* — [PR #29](https://github.com/akira69/filaman-system/pull/29) *(draft; clean replacement for superseded [PR #1](https://github.com/akira69/filaman-system/pull/1); upstream has spool label printing only)*
 
 - **Label export workflow** — PNG/AML *(Spoolman basis PR #860)* — [PR #3](https://github.com/akira69/filaman-system/pull/3) *(open; upstream PNG export is spool-only)*
 
