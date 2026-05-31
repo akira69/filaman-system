@@ -298,7 +298,11 @@
     "colFinish": "Finish",
     "colSubgroup": "Subgroup",
     "colWeight": "Material Weight",
-    "colDensity": "Density"
+    "colDensity": "Density",
+    "printLabel": "Print Label",
+    "backToFilament": "Back to Filament",
+    "showFilamentId": "Filament ID",
+    "dsQrFilamentUrl": "Filament URL"
   },
   "spools": {
     "title": "Spools",
@@ -457,7 +461,8 @@
     "colEmptyWeight": "Empty Weight",
     "labelDesigner": "Label Designer",
     "dsPresets": "Presets",
-    "dsPresetsSaved": "Saved presets",
+    "dsPresetsSaved": "Saved spool presets",
+    "dsPresetsSavedFilament": "Saved filament presets",
     "dsPresetsLoad": "Load",
     "dsPresetsDelete": "Delete selected preset",
     "dsPresetsName": "Preset name",

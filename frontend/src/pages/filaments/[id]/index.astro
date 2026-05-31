@@ -300,6 +300,9 @@ const { id } = Astro.params
             <a href="/spools/new?filament_id=${f.id}" class="fm-btn fm-btn-primary">
               ${t('filaments.newSpool')}
             </a>
+            <a href="/filaments/${f.id}/print" id="btn-print-filament-label" class="fm-btn fm-btn-outline" style="border-color: var(--accent); color: var(--accent); text-decoration: none;">
+              ${t('filaments.printLabel')}
+            </a>
             <a href="/filaments/${f.id}/edit" class="fm-btn fm-btn-outline">
               ${t('common.edit')}
             </a>
@@ -325,6 +328,9 @@ const { id } = Astro.params
       document.getElementById('btn-duplicate-filament')?.addEventListener('click', () => {
         sessionStorage.setItem('filaman_duplicate_filament', JSON.stringify(f))
         window.location.href = '/filaments/new'
+      })
+      document.getElementById('btn-print-filament-label')?.addEventListener('click', () => {
+        sessionStorage.removeItem('filaman-filament-label-extra-fields')
       })
 
 
@@ -500,7 +506,7 @@ const { id } = Astro.params
       const ctx = (document.getElementById('priceChart') as HTMLCanvasElement).getContext('2d')
       if (!ctx) return
 
-      // @ts-ignore - Chart is loaded via CDN
+      // @ts-expect-error - Chart is loaded via CDN
       new Chart(ctx, {
         type: 'line',
         data: {

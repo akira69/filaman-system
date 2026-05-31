@@ -443,7 +443,8 @@ const { id } = Astro.params
       for (const [key, value] of Object.entries(filamentFlat)) {
         if (!filamentSystemFieldMap[key]) efForPrint.push({ key: `filament.${key}`, label: key, value: value !== undefined && value !== null ? String(value) : '', source: 'filament' })
       }
-      sessionStorage.setItem('filaman-label-extra-fields', JSON.stringify(efForPrint))
+      sessionStorage.setItem('filaman-spool-label-extra-fields', JSON.stringify(efForPrint))
+      sessionStorage.removeItem('filaman-label-extra-fields')
 
       const printBtn = document.getElementById('btn-print-label') as HTMLAnchorElement
       if (printBtn) printBtn.href = printUrl
