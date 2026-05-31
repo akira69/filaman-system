@@ -14,6 +14,7 @@ from app.models.spool import Spool, SpoolStatus
 from app.models.location import Location
 from app.models.app_settings import AppSettings
 from app.services.spool_service import SpoolService
+from app.utils.colors import normalize_hex_color
 
 from . import schemas
 
@@ -835,9 +836,7 @@ class SpoolmanService:
         )
 
     async def _find_or_create_color(self, hex_code: str) -> Color:
-        normalized = hex_code.strip().upper()
-        if not normalized.startswith("#"):
-            normalized = f"#{normalized}"
+        normalized = normalize_hex_color(hex_code)
 
         result = await self.db.execute(
             select(Color).where(Color.hex_code == normalized)

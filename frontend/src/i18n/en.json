@@ -275,6 +275,7 @@
     "colorHintMulti": "Select multiple colors in order.",
     "addNewColor": "Add New Color",
     "colorPickerLabel": "Color",
+    "colorHexOpacity": "Hex / Opacity",
     "colorNameLabel": "Name *",
     "manufacturerColorName": "Manufacturer Color Name",
     "price": "Price",

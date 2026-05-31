@@ -276,6 +276,7 @@
     "colorHintMulti": "Mehrere Farben in Reihenfolge auswählen.",
     "addNewColor": "Neue Farbe anlegen",
     "colorPickerLabel": "Farbe",
+    "colorHexOpacity": "Hex / Deckkraft",
     "colorNameLabel": "Name *",
     "manufacturerColorName": "Hersteller-Farbbezeichnung",
     "price": "Preis",

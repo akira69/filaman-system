@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession
+from app.utils.colors import visible_rgb_hex
 
 logger = logging.getLogger(__name__)
 
@@ -543,7 +544,7 @@ async def weigh_spool(
         )
         hex_code = fc_result.scalar_one_or_none()
         if hex_code:
-            base_color = hex_code.replace("#", "")[:6]
+            base_color = visible_rgb_hex(hex_code).replace("#", "")
     # Record Measurement
     principal = Principal(auth_type="device", device_id=device.id, scopes=device.scopes)
     
