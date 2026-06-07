@@ -479,6 +479,10 @@ const { id } = Astro.params
       </div><!-- /.print-sidebar-scroll -->
 
       <div class="action-buttons">
+        <div class="export-buttons">
+          <button id="btn-export-png" class="fm-btn fm-btn-outline" type="button">Export PNG</button>
+          <button id="btn-export-pdf" class="fm-btn fm-btn-outline" type="button">Export PDF</button>
+        </div>
         <button id="btn-print" class="fm-btn fm-btn-primary" onclick="filamanPrint()">Drucken</button>
         <button id="btn-reset" class="fm-btn fm-btn-outline">Zurücksetzen</button>
       </div>
@@ -904,6 +908,16 @@ const { id } = Astro.params
     gap: 10px;
     padding: 16px 24px 24px;
     border-top: 1px solid var(--border);
+  }
+
+  .export-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .action-buttons .fm-btn {
+    width: 100%;
   }
 
   .checkbox-grid {
@@ -1827,6 +1841,7 @@ const { id } = Astro.params
 
   const MM_TO_PX = 96 / 25.4
   const PRINT_DPI = 600
+  const EXPORT_DPI = PRINT_DPI
   const STORAGE_SOFT_LIMIT_BYTES = 4_500_000
 
   function safeSetLocalStorage(key: string, value: string) {
@@ -1915,6 +1930,8 @@ const { id } = Astro.params
   const checkMat = document.getElementById('check-mat') as HTMLInputElement
   const checkColor = document.getElementById('check-color') as HTMLInputElement
   const checkColorSwatch = document.getElementById('check-color-swatch') as HTMLInputElement
+  const exportPngBtn = document.getElementById('btn-export-png') as HTMLButtonElement
+  const exportPdfBtn = document.getElementById('btn-export-pdf') as HTMLButtonElement
   const labelPreview = document.getElementById('label-preview') as HTMLElement
 
   const LABEL_SETTINGS_KEY = 'filaman-label-settings'
@@ -3181,6 +3198,8 @@ const { id } = Astro.params
   const backBtn = document.getElementById('btn-back') as HTMLAnchorElement
   backBtn.href = `/spools/${id}`
   document.getElementById('label-back')!.textContent = (window as any).__t('spools.backToSpool')
+  exportPngBtn.textContent = (window as any).__t('labelPrint.btnExportPng') || 'Export PNG'
+  exportPdfBtn.textContent = (window as any).__t('labelPrint.btnExportPdf') || 'Export PDF'
   document.getElementById('btn-print')!.textContent = (window as any).__t('common.print')
   document.getElementById('btn-reset')!.textContent = (window as any).__t('spools.resetDefaults')
 
@@ -3804,6 +3823,145 @@ const { id } = Astro.params
     style.id = 'page-style'
     document.head.appendChild(style)
   }
+
+  // ─── Export ───────────────────────────────────────────────────────────────
+
+  function getTranslation(key: string, fallback: string) {
+    return (window as any).__t?.(key) || fallback
+  }
+
+  function sanitizeFilename(value: string) {
+    return value
+      .trim()
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+      .replace(/\s+/g, ' ')
+      .replace(/\.+$/g, '')
+  }
+
+  function buildExportBaseName() {
+    const mode = activePreviewTab === 'designer' ? 'designer' : 'classic'
+    const parts = [
+      'spool-label',
+      labelData.manufacturer,
+      labelData.designation,
+      labelData.id ? `spool-${labelData.id}` : '',
+      mode,
+    ].filter(Boolean)
+    return sanitizeFilename(parts.join(' - ')) || `spool-label-${mode}`
+  }
+
+  function getActiveLabelDimensions() {
+    if (activePreviewTab === 'designer') {
+      const settings = loadDesignerSettingsFromStorage()
+      return {
+        widthMm: clampNumber(Number(settings.label.width), 20, 300, DESIGNER_DEFAULTS.label.width),
+        heightMm: clampNumber(Number(settings.label.height), 10, 200, DESIGNER_DEFAULTS.label.height),
+      }
+    }
+
+    return {
+      widthMm: clampInputValue(widthInput, 20, 200, 60, 0),
+      heightMm: clampInputValue(heightInput, 10, 120, 40, 0),
+    }
+  }
+
+  async function refreshActiveLabelPreview() {
+    if (activePreviewTab === 'designer') {
+      await updateDesignerPreview()
+    } else {
+      await updatePreview()
+    }
+  }
+
+  async function captureActiveLabelPng() {
+    await refreshActiveLabelPreview()
+    if (document.fonts?.ready) {
+      await document.fonts.ready
+    }
+    await new Promise(resolve => requestAnimationFrame(resolve))
+
+    const { toPng } = await import('html-to-image')
+    const previousTransform = labelPreview.style.transform
+    const previousTransformOrigin = labelPreview.style.transformOrigin
+    labelPreview.style.transform = 'none'
+    labelPreview.style.transformOrigin = 'unset'
+
+    try {
+      return await toPng(labelPreview, {
+        pixelRatio: EXPORT_DPI / 96,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        skipFonts: true,
+        filter: (node: Node) => {
+          if (node instanceof Element && window.getComputedStyle(node).display === 'none') {
+            return false
+          }
+          if (node instanceof HTMLImageElement && node.classList.contains('label-logo')) {
+            const src = node.getAttribute('src')?.trim() ?? ''
+            return !!src
+          }
+          return true
+        },
+      })
+    } finally {
+      labelPreview.style.transform = previousTransform
+      labelPreview.style.transformOrigin = previousTransformOrigin
+    }
+  }
+
+  function downloadDataUrl(dataUrl: string, filename: string) {
+    const link = document.createElement('a')
+    link.download = filename
+    link.href = dataUrl
+    link.click()
+  }
+
+  async function withExportButtonsDisabled(action: () => Promise<void>) {
+    const pngText = exportPngBtn.textContent
+    const pdfText = exportPdfBtn.textContent
+    exportPngBtn.disabled = true
+    exportPdfBtn.disabled = true
+    exportPngBtn.textContent = getTranslation('labelPrint.exporting', 'Exporting...')
+    exportPdfBtn.textContent = getTranslation('labelPrint.exporting', 'Exporting...')
+    try {
+      await action()
+    } finally {
+      exportPngBtn.disabled = false
+      exportPdfBtn.disabled = false
+      exportPngBtn.textContent = pngText
+      exportPdfBtn.textContent = pdfText
+    }
+  }
+
+  async function exportActiveLabelAsPng() {
+    await withExportButtonsDisabled(async () => {
+      try {
+        downloadDataUrl(await captureActiveLabelPng(), `${buildExportBaseName()}.png`)
+      } catch (error) {
+        alert(getTranslation('labelPrint.pngExportFailed', 'PNG export failed.'))
+        console.error('Failed to export label PNG:', error)
+      }
+    })
+  }
+
+  async function exportActiveLabelAsPdf() {
+    await withExportButtonsDisabled(async () => {
+      try {
+        const { jsPDF } = await import('jspdf')
+        const { widthMm, heightMm } = getActiveLabelDimensions()
+        const orientation = widthMm >= heightMm ? 'l' : 'p'
+        const pdf = new jsPDF({ orientation, unit: 'mm', format: [widthMm, heightMm] })
+        pdf.addImage(await captureActiveLabelPng(), 'PNG', 0, 0, widthMm, heightMm)
+        pdf.save(`${buildExportBaseName()}.pdf`)
+      } catch (error) {
+        alert(getTranslation('labelPrint.pdfExportFailed', 'PDF export failed.'))
+        console.error('Failed to export label PDF:', error)
+      }
+    })
+  }
+
+  exportPngBtn.addEventListener('click', exportActiveLabelAsPng)
+  exportPdfBtn.addEventListener('click', exportActiveLabelAsPdf)
 
   document.getElementById('btn-reset')?.addEventListener('click', () => {
     localStorage.removeItem(LABEL_SETTINGS_KEY);
