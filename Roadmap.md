@@ -36,6 +36,12 @@ Features implemented upstream, including fork contributions that were accepted t
 - **Advanced label designer** — rich per-field template placement and editing on print page *(v1.2.20)* — [fork PR #14](https://github.com/akira69/filaman-system/pull/14) → upstream [PR #80](https://github.com/Fire-Devils/filaman-system/pull/80) ✓
   - Sub-task: template field selector (simple vs detail view)
 
+- **Label modifier chips** — quick-insert token modifiers (`**bold**`, `*italic*`, `__underline__`, `==inverse==`, `@@filament inverse@@`, `^^caps^^`); supersedes caps-only PR #30 — [fork PR #32](https://github.com/akira69/filaman-system/pull/32) → upstream [PR #84](https://github.com/Fire-Devils/filaman-system/pull/84) ✓
+
+- **Unified spool label designer + PNG/PDF exports** — share label designer component across print/export; restore PNG and PDF export paths — [fork PR #34](https://github.com/akira69/filaman-system/pull/34) *(closed)* → upstream [PR #90](https://github.com/Fire-Devils/filaman-system/pull/90) ✓
+
+- **FilaManDB filament search fuzzy matching** — lookup fallback for punctuated/catalog variants (`Matte Marine Blue` → `Matte - Marine Blue 11600`); backend `resolve-from-tag` endpoint — [fork PR #31](https://github.com/akira69/filaman-system/pull/31) → upstream [PR #85](https://github.com/Fire-Devils/filaman-system/pull/85) ✓
+
 - **SpoolmanDB plugin** — superseded; replaced by FilaManDB builtin plugin *(v1.2.2)*
 
 - **SpoolmanDB language** — superseded; FilaManDB plugin has full i18n support *(v1.2.1)*
