@@ -51,6 +51,7 @@ from app.services.custom_field_search import (
     any_custom_field_matches,
     searchable_custom_field_keys,
 )
+from app.services.derived_fields import compute_derived
 from app.services.spool_service import SpoolService
 from app.utils.query_params import parse_multi_int, parse_multi_str
 
@@ -864,7 +865,19 @@ async def get_spool(spool_id: int, db: DBSession, principal: PrincipalDep):
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "not_found", "message": "Spool not found"},
         )
-    return spool
+    # Compute formula-derived fields
+    formula_fields_result = await db.execute(
+        select(SystemExtraField).where(
+            SystemExtraField.target_type == "spool",
+            SystemExtraField.formula.is_not(None),
+            SystemExtraField.include_in_api == True,  # noqa: E712
+        )
+    )
+    formula_fields = list(formula_fields_result.scalars().all())
+    spool_data = SpoolResponse.model_validate(spool).model_dump()
+    if formula_fields:
+        spool_data["derived"] = compute_derived(spool, "spool", formula_fields)
+    return spool_data
 
 
 @router_spools.patch("/{spool_id}", response_model=SpoolResponse)

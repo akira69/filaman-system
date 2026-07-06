@@ -122,6 +122,7 @@ class SpoolResponse(BaseModel):
         optional_entity_definitions_field(omit_none=True)
     )
     filament: FilamentDetailResponse | None = None
+    derived: dict[str, Any] | None = None
 
     class Config:
         from_attributes = True

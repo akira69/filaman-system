@@ -96,7 +96,8 @@
     "clearColumnFilters": "Clear column filters",
     "clearAllFilters": "Clear all filters",
     "showAllCustomFields": "Show all {count} Custom Fields",
-    "showFewerCustomFields": "Show fewer Custom Fields"
+    "showFewerCustomFields": "Show fewer Custom Fields",
+    "derivedFields": "Derived Fields"
   },
   "rfid": {
     "writeTag": "Write RFID Tag",

@@ -96,7 +96,8 @@
     "clearColumnFilters": "Effacer les filtres de colonne",
     "clearAllFilters": "Effacer tous les filtres",
     "showAllCustomFields": "Afficher les {count} champs personnalisés",
-    "showFewerCustomFields": "Afficher moins de champs personnalisés"
+    "showFewerCustomFields": "Afficher moins de champs personnalisés",
+    "derivedFields": "Champs dérivés"
   },
   "rfid": {
     "writeTag": "Écrire le tag RFID",
