@@ -207,6 +207,7 @@ class FilamentResponse(BaseModel):
     color_mode: str
     multi_color_style: str | None
     custom_fields: dict[str, Any] | None
+    derived: dict[str, Any] | None = None
 
     class Config:
         from_attributes = True

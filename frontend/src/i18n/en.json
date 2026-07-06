@@ -81,7 +81,8 @@
     "perPage": "per page",
     "retry": "Retry",
     "errorLoadingData": "Error loading data",
-    "copied": "Copied!"
+    "copied": "Copied!",
+    "derivedFields": "Derived Fields"
   },
   "rfid": {
     "writeTag": "Write RFID Tag",

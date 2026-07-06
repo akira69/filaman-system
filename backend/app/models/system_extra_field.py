@@ -18,6 +18,12 @@ class SystemExtraField(Base, TimestampMixin):
     key: Mapped[str] = mapped_column(String(100), nullable=False)
     label: Mapped[str] = mapped_column(String(200), nullable=False)
     default_value: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    field_type: Mapped[str] = mapped_column(String(30), nullable=False, default="text")  # text, number, dropdown, checkbox
+    field_type: Mapped[str] = mapped_column(String(30), nullable=False, default="text")  # text, number, dropdown, checkbox, formula
     options: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)  # dropdown options
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)  # plugin ownership, e.g. "bambulab"
+    # Formula fields (formula != NULL → computed at read time, not stored in custom_fields)
+    formula: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)  # JSON Logic expression
+    show_in_list: Mapped[bool] = mapped_column(nullable=False, default=True)
+    show_in_detail: Mapped[bool] = mapped_column(nullable=False, default=True)
+    show_in_template: Mapped[bool] = mapped_column(nullable=False, default=False)
+    include_in_api: Mapped[bool] = mapped_column(nullable=False, default=False)

@@ -105,6 +105,7 @@ class SpoolResponse(BaseModel):
     created_at: datetime
     custom_fields: dict[str, Any] | None
     filament: FilamentDetailResponse | None = None
+    derived: dict[str, Any] | None = None
 
     class Config:
         from_attributes = True

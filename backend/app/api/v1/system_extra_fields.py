@@ -2,15 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cache import response_cache
-from app.core.database import get_db
-from app.api.deps import RequirePermission, PrincipalDep
-from app.models.system_extra_field import SystemExtraField
+from app.api.deps import PrincipalDep, RequirePermission
 from app.api.v1.schemas_system_extra_field import (
+    FormulaPreviewRequest,
+    FormulaPreviewResponse,
     SystemExtraFieldCreate,
     SystemExtraFieldResponse,
     SystemExtraFieldUpdate,
 )
+from app.core.cache import response_cache
+from app.core.database import get_db
+from app.models.system_extra_field import SystemExtraField
+from app.services.derived_fields import evaluate_formula
 
 router = APIRouter()
 
@@ -80,6 +83,10 @@ async def create_system_extra_field(
             detail="Field with this key already exists for this target type",
         )
 
+    # Validate formula if provided
+    if field.formula is not None:
+        _validate_formula(field.formula)
+
     new_field = SystemExtraField(**field.model_dump())
     db.add(new_field)
     await db.commit()
@@ -115,6 +122,11 @@ async def update_system_extra_field(
 
     # Apply updates (only non-None values)
     update_dict = update_data.model_dump(exclude_unset=True)
+
+    # Validate formula if being updated
+    if "formula" in update_dict and update_dict["formula"] is not None:
+        _validate_formula(update_dict["formula"])
+
     for key, value in update_dict.items():
         setattr(field, key, value)
 
@@ -147,6 +159,29 @@ async def delete_system_extra_field(
             detail=f"Cannot delete plugin-managed field (source: {field.source}). Uninstall the plugin to remove its fields.",
         )
 
+    # Reference protection: block deletion if any formula field references this key
+    if field.formula is None:
+        formula_refs = await db.execute(
+            select(SystemExtraField).where(
+                SystemExtraField.target_type == field.target_type,
+                SystemExtraField.formula.is_not(None),
+            )
+        )
+        referencing = [
+            f.key
+            for f in formula_refs.scalars().all()
+            if f.formula and _key_in_formula(field.key, f.formula)
+        ]
+        if referencing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "formula_reference",
+                    "message": f"Cannot delete field '{field.key}' — referenced by formula fields: {referencing}",
+                    "referencing_fields": referencing,
+                },
+            )
+
     # Store for cache invalidation before deletion
     target_type = field.target_type
     source = field.source
@@ -156,3 +191,42 @@ async def delete_system_extra_field(
 
     # Invalidate cache
     _invalidate_extra_fields_cache(target_type, source)
+
+
+# ---------------------------------------------------------------------------
+# Formula utilities
+# ---------------------------------------------------------------------------
+
+def _validate_formula(formula: dict) -> None:
+    """Raise HTTP 400 if the formula is not a non-empty dict or fails a dry-run."""
+    if not formula:
+        raise HTTPException(status_code=400, detail="Formula must be a non-empty JSON Logic object")
+    # Dry-run with empty context to catch obvious syntax errors
+    result = evaluate_formula(formula, {})
+    # None is fine (missing context data); any non-exception result is valid
+    _ = result
+
+
+def _key_in_formula(key: str, formula: object) -> bool:
+    """Recursively check if *key* appears as a string value anywhere in *formula*."""
+    if isinstance(formula, str):
+        return formula == key
+    if isinstance(formula, list):
+        return any(_key_in_formula(key, item) for item in formula)
+    if isinstance(formula, dict):
+        return any(_key_in_formula(key, v) for v in formula.values())
+    return False
+
+
+@router.post(
+    "/preview",
+    response_model=FormulaPreviewResponse,
+    dependencies=[RequirePermission("admin:system")],
+)
+async def preview_formula(body: FormulaPreviewRequest) -> FormulaPreviewResponse:
+    """Evaluate a JSON Logic formula against a sample context and return the result."""
+    try:
+        result = evaluate_formula(body.formula, body.context)
+        return FormulaPreviewResponse(result=result)
+    except Exception as exc:
+        return FormulaPreviewResponse(result=None, error=str(exc))
