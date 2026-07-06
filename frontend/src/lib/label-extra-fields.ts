@@ -1,3 +1,5 @@
+import { renderFieldPlainText, type SystemExtraFieldDef } from './extra-fields'
+
 export type LabelExtraFieldSource = 'spool' | 'filament'
 export type LabelExtraFieldOrigin = 'system' | 'custom'
 
@@ -30,6 +32,25 @@ export function scopeLabelExtraField<T extends { key: string }>(
     key: `${source}.${field.key}`,
     source,
   }
+}
+
+export function buildDerivedLabelExtraFields(
+  values: Record<string, unknown> | null | undefined,
+  definitions: Record<string, SystemExtraFieldDef>,
+  source: LabelExtraFieldSource,
+): LabelExtraFieldValue[] {
+  const derived = values ?? {}
+  return Object.values(definitions)
+    .filter(definition => definition.formula && definition.show_in_template === true)
+    .map(definition => ({
+      key: `${source}.${definition.key}`,
+      label: definition.label,
+      value: renderFieldPlainText(definition, derived[definition.key]),
+      rawValue: derived[definition.key],
+      fieldType: definition.field_type,
+      source,
+      origin: 'system' as const,
+    }))
 }
 
 export function dedupeLabelExtraFields<T extends LabelExtraFieldCatalogItem>(
@@ -236,4 +257,17 @@ export function isBuiltInLabelField(source: LabelExtraFieldSource | string, key:
   if (source !== 'spool' && source !== 'filament') return false
   const names = BUILT_IN_FIELD_NAMES[source]
   return names.has(normalizeLabelFieldName(key)) || (label ? names.has(normalizeLabelFieldName(label)) : false)
+}
+
+export function formatLabelExtraFieldValue(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (Array.isArray(value)) return value.map(String).join(', ')
+  if (typeof value === 'object') {
+    const objectValue = value as Record<string, unknown>
+    if ('min' in objectValue || 'max' in objectValue) {
+      return `${objectValue.min ?? ''}-${objectValue.max ?? ''}`.trim()
+    }
+    return JSON.stringify(value)
+  }
+  return String(value)
 }

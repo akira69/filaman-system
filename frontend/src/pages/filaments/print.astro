@@ -80,7 +80,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     hydrateLabelPresetStorage,
     SPOOL_LABEL_PRESETS_KEY,
   } from '../../lib/label-preset-storage'
-  import { type SystemExtraFieldDef } from '../../lib/extra-fields'
+  import { renderFieldPlainText, type SystemExtraFieldDef } from '../../lib/extra-fields'
   import {
     buildSystemExtraFieldDefinitionMap,
     getExtraFieldValue,
@@ -124,6 +124,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     id?: string | number
     custom_fields?: Record<string, unknown>
     custom_field_definitions?: EntityExtraFieldDefinitions
+    derived?: Record<string, unknown>
     manufacturer?: { id?: string | number; name?: string }
   }
 
@@ -238,6 +239,8 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
       const customValue = getExtraFieldValue(custom, def.key)
       const rendered = stdDef
         ? { label: def.label, value: String(stdDef.valueFromApi(filament) ?? '') }
+        : def.formula
+          ? { label: def.label, value: renderFieldPlainText(def, filament.derived?.[def.key]) }
         : customValue !== null && customValue !== undefined
           ? renderRecordExtraField(
               def.key,
@@ -386,7 +389,8 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     try {
       const defs = await fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' }).then(r => r.json())
       const customDefs = normalizeSystemExtraFieldDefinitions(defs)
-        .filter(def => !isBuiltInLabelField('filament', def.key, def.label))
+        .filter(def => (!def.formula || def.show_in_template === true)
+          && !isBuiltInLabelField('filament', def.key, def.label))
       const standardDefs = STANDARD_FILAMENT_EF.map(s => ({ key: s.key, label: s.label }))
       systemFieldKeys.clear()
       customDefs.forEach(def => systemFieldKeys.add(def.key))
@@ -534,7 +538,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     ids.forEach(id => previewLabelsHost.insertAdjacentHTML('beforeend', makeLabelHtml(id)))
 
     const filamentResults = await Promise.allSettled(ids.map(async id => {
-        const r = await fetch(`/api/v1/filaments/${id}`, { credentials: 'include' })
+        const r = await fetch(`/api/v1/filaments/${id}?derived_for=template`, { credentials: 'include' })
         if (!r.ok) throw new Error(`Failed to load filament ${id}: ${r.status}`)
         return await r.json()
       }))

@@ -240,7 +240,7 @@ const { id } = Astro.params
       try {
         // Sequential fetching mit Caching für bessere SQLite-Performance
         const [spoolRes, statusesRes, locationsData, sysFieldsRes, filamentSysFieldsRes] = await fetchSequential([
-          () => fetch(`/api/v1/spools/${id}`, { credentials: 'include', signal: getAbortSignal() }),
+          () => fetch(`/api/v1/spools/${id}?derived_for=template`, { credentials: 'include', signal: getAbortSignal() }),
           () => fetch('/api/v1/spools/statuses', { credentials: 'include', signal: getAbortSignal() }),
           () => cachedFetchAllPages(CACHE_KEYS.LOCATIONS, '/api/v1/locations').then(d => d.items).catch(() => []),
           () => fetch('/api/v1/system-extra-fields?target_type=spool', { credentials: 'include', signal: getAbortSignal() }),

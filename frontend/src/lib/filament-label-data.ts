@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
+  buildDerivedLabelExtraFields,
   isBuiltInLabelField,
   scopeLabelExtraField,
   type LabelExtraFieldValue,
@@ -233,9 +234,15 @@ export function buildFilamentExtraFieldsForPrint(
     true,
   )
   for (const field of customFields) {
+    if (systemFieldMap[field.key]?.formula) continue
     if (isBuiltInLabelField('filament', field.key, field.label)) continue
     fields.push(scopeLabelExtraField(field, 'filament'))
   }
+  fields.push(...buildDerivedLabelExtraFields(
+    filament?.derived,
+    systemFieldMap as Record<string, SystemExtraFieldDef>,
+    'filament',
+  ).filter(field => !isBuiltInLabelField('filament', field.key, field.label)))
   return fields
 }
 
@@ -243,11 +250,20 @@ export function buildDesignerExtraFieldsFromFilament(
   filament: any,
   systemFieldMap: Record<string, Partial<SystemExtraFieldDef> & { label?: string }> = {},
 ): FilamentExtraField[] {
-  return buildEntityExtraFieldsForPrint(
+  const custom = buildEntityExtraFieldsForPrint(
     filament?.custom_fields,
     filament?.custom_field_definitions,
     systemFieldMap as Record<string, SystemExtraFieldDef>,
   )
+    .filter(field => !systemFieldMap[field.key]?.formula)
     .filter(field => !isBuiltInLabelField('filament', field.key, field.label))
     .map(field => scopeLabelExtraField(field, 'filament'))
+  return [
+    ...custom,
+    ...buildDerivedLabelExtraFields(
+      filament?.derived,
+      systemFieldMap as Record<string, SystemExtraFieldDef>,
+      'filament',
+    ).filter(field => !isBuiltInLabelField('filament', field.key, field.label)),
+  ]
 }

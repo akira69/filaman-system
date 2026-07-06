@@ -148,7 +148,7 @@ const { id } = Astro.params
       try {
         const signal = getAbortSignal()
         const [response, sysFieldsRes] = await Promise.all([
-          fetch(`/api/v1/filaments/${id}`, { credentials: 'include', signal }),
+          fetch(`/api/v1/filaments/${id}?derived_for=template`, { credentials: 'include', signal }),
           fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include', signal }),
         ])
 
