@@ -81,7 +81,7 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
     type PrintDesignerTab,
     writeStorageValue,
   } from '../../lib/label-print-page'
-  import { isBuiltInLabelField } from '../../lib/label-extra-fields'
+  import { formatLabelExtraFieldValue, isBuiltInLabelField } from '../../lib/label-extra-fields'
   import { t, initI18n } from '../../lib/i18n'
 
   installPrintFunction()
@@ -116,12 +116,19 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
   const previewContainer = document.getElementById('preview-container') as HTMLElement
   const sheetControls = bindLabelSheetControls(queueRenderAll, (key, fallback) => t(key) || fallback)
 
-  type ExtraFieldDef = { key: string; label: string; target_type: 'spool' | 'filament' }
+  type ExtraFieldDef = {
+    key: string
+    label: string
+    target_type: 'spool' | 'filament'
+    formula?: unknown
+    show_in_template?: boolean
+  }
   type ApiObject = Record<string, unknown>
-  type ApiFilament = ApiObject & { custom_fields?: Record<string, unknown> }
+  type ApiFilament = ApiObject & { custom_fields?: Record<string, unknown>; derived?: Record<string, unknown> }
   type ApiSpool = ApiObject & {
     id?: string | number
     custom_fields?: Record<string, unknown>
+    derived?: Record<string, unknown>
     filament?: ApiFilament
     location?: { label?: unknown; name?: unknown }
     status?: { label?: unknown }
@@ -159,7 +166,11 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
         : []
     return items
       .filter(isExtraFieldDef)
-      .map(def => ({ key: def.key, label: def.label, target_type: targetType }))
+      .map(def => ({ ...def, key: def.key, label: def.label, target_type: targetType }))
+  }
+
+  function isPrintableExtraFieldDef(def: ExtraFieldDef) {
+    return !def.formula || def.show_in_template === true
   }
 
   function saveSettings() {
@@ -222,7 +233,7 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
     const fields = new Map<string, DesignerExtraField>()
     for (const def of efDefs) {
       const key = `${def.target_type}.${def.key}`
-      fields.set(key, { key, label: def.label, value: '', source: def.target_type })
+      fields.set(key, { key, label: def.label, value: '', source: def.formula ? `${def.target_type}-derived` : def.target_type })
     }
     for (const spool of spools) {
       for (const field of buildDesignerExtraFieldsFromApiSpool(spool)) {
@@ -291,12 +302,12 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
       if (!cb?.checked) continue
 
       let val: string | null = null
-      if (def.target_type === 'spool' && spool.custom_fields) {
-        const raw = spool.custom_fields[def.key]
-        if (raw !== undefined && raw !== null) val = String(raw)
-      } else if (def.target_type === 'filament' && spool.filament?.custom_fields) {
-        const raw = spool.filament.custom_fields[def.key]
-        if (raw !== undefined && raw !== null) val = String(raw)
+      if (def.target_type === 'spool') {
+        const raw = def.formula ? spool.derived?.[def.key] : spool.custom_fields?.[def.key]
+        if (raw !== undefined && raw !== null) val = formatLabelExtraFieldValue(raw)
+      } else if (def.target_type === 'filament') {
+        const raw = def.formula ? spool.filament?.derived?.[def.key] : spool.filament?.custom_fields?.[def.key]
+        if (raw !== undefined && raw !== null) val = formatLabelExtraFieldValue(raw)
       }
       if (val !== null) result.push({ key: def.key, label: def.label, value: val })
     }
@@ -468,7 +479,7 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
       const allDefs = [
         ...normalizeExtraFieldDefs(spoolDefs, 'spool'),
         ...normalizeExtraFieldDefs(filamentDefs, 'filament'),
-      ].filter(def => !isBuiltInLabelField(def.target_type, def.key, def.label))
+      ].filter(def => isPrintableExtraFieldDef(def) && !isBuiltInLabelField(def.target_type, def.key, def.label))
       if (allDefs.length === 0) return
 
       efDefs = allDefs
@@ -485,10 +496,14 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
       let lastExtraFieldGroupNode: Element = container
 
       function getExtraFieldSource(source?: string) {
+        if (source === 'filament-derived') return 'filament-derived'
+        if (source === 'spool-derived') return 'spool-derived'
         return source === 'filament' ? 'filament' : 'spool'
       }
 
       function getExtraFieldGroupTitle(source: string) {
+        if (source === 'filament-derived') return `${t('spools.filament') || 'Filament'} ${t('common.derivedFields') || 'Derived Fields'}`
+        if (source === 'spool-derived') return `${t('spools.dsSpool') || 'Spool'} ${t('common.derivedFields') || 'Derived Fields'}`
         return source === 'filament'
           ? (t('filaments.extraFieldsLabel') || 'Filament Extra Fields')
           : (t('spools.extraFieldsLabel') || 'Spool Extra Fields')
@@ -531,7 +546,7 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
       ))
 
       for (const def of sortedDefs) {
-        const group = getExtraFieldGroup(def.target_type)
+        const group = getExtraFieldGroup(def.formula ? `${def.target_type}-derived` : def.target_type)
         const row = document.createElement('label')
         row.className = 'fm-checkbox-group'
         const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = false

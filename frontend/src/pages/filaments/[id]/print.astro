@@ -76,7 +76,7 @@ export function getStaticPaths() {
     type PrintDesignerTab,
     writeStorageValue,
   } from '../../../lib/label-print-page'
-  import { isBuiltInLabelField, normalizeLabelFieldName } from '../../../lib/label-extra-fields'
+  import { formatLabelExtraFieldValue, isBuiltInLabelField, normalizeLabelFieldName } from '../../../lib/label-extra-fields'
 
   function applyPrintSidebarCollapse() {
     const page = document.getElementById('fm-page')
@@ -133,8 +133,8 @@ export function getStaticPaths() {
           typeof item.label === 'string' &&
           typeof item.value === 'string'
         )).filter((item) => {
-          const source = item.source === 'spool' ? 'spool' : 'filament'
-          const identity = `${source}:${normalizeLabelFieldName(item.label || item.key)}`
+          const source = item.source === 'filament-derived' ? 'filament-derived' : (item.source === 'spool' ? 'spool' : 'filament')
+          const identity = `${item.source || source}:${normalizeLabelFieldName(item.label || item.key)}`
           if (seenExtraFields.has(identity)) return false
           seenExtraFields.add(identity)
           return true
@@ -365,6 +365,16 @@ export function getStaticPaths() {
       return Array.from(existing.attributes).find(a => a.name.startsWith('data-astro-cid-'))
     })()
 
+    const derivedFieldsTitle = document.createElement('h3')
+    derivedFieldsTitle.textContent = `${translate('spools.filament', 'Filament')} ${translate('common.derivedFields', 'Derived Fields')}`
+    const derivedFieldsContainer = document.createElement('div')
+    derivedFieldsContainer.className = extraFieldsCheckboxes.className
+    if (scopeAttr) {
+      derivedFieldsTitle.setAttribute(scopeAttr.name, '')
+      derivedFieldsContainer.setAttribute(scopeAttr.name, '')
+    }
+    let hasDerivedFields = false
+
     for (const ef of extraFields) {
       const lbl = document.createElement('label')
       lbl.className = 'fm-checkbox-group'
@@ -381,9 +391,18 @@ export function getStaticPaths() {
       }
       lbl.appendChild(cb)
       lbl.appendChild(span)
-      extraFieldsCheckboxes.appendChild(lbl)
+      if (ef.source === 'filament-derived') {
+        hasDerivedFields = true
+        derivedFieldsContainer.appendChild(lbl)
+      } else {
+        extraFieldsCheckboxes.appendChild(lbl)
+      }
       extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
       cb.addEventListener('change', () => updatePreview())
+    }
+    if (hasDerivedFields) {
+      extraFieldsCheckboxes.insertAdjacentElement('afterend', derivedFieldsTitle)
+      derivedFieldsTitle.insertAdjacentElement('afterend', derivedFieldsContainer)
     }
   }
 
@@ -636,17 +655,17 @@ export function getStaticPaths() {
           fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' }).then(r => r.ok ? r.json() : []),
           fetch(`/api/v1/filaments/${id}`, { credentials: 'include' }),
         ])
-        const allDefs: {key: string, label: string}[] = (Array.isArray(defs) ? defs : (defs.items || []))
-          .filter((def: {key: string, label: string}) => !isBuiltInLabelField('filament', def.key, def.label))
+        const allDefs: {key: string, label: string, formula?: unknown, show_in_template?: boolean}[] = (Array.isArray(defs) ? defs : (defs.items || []))
+          .filter((def: {key: string, label: string, formula?: unknown, show_in_template?: boolean}) => (
+            (!def.formula || def.show_in_template === true) && !isBuiltInLabelField('filament', def.key, def.label)
+          ))
 
-        const filamentCustom: Record<string, string> = {}
+        let filamentCustom: Record<string, unknown> = {}
+        let filamentDerived: Record<string, unknown> = {}
         if (filRes.ok) {
           const fd = await filRes.json()
-          if (fd.custom_fields) {
-            for (const [k, v] of Object.entries(fd.custom_fields as Record<string, unknown>)) {
-              if (v !== null && v !== undefined) filamentCustom[k] = String(v)
-            }
-          }
+          filamentCustom = (fd.custom_fields ?? {}) as Record<string, unknown>
+          filamentDerived = (fd.derived ?? {}) as Record<string, unknown>
           mergeMissingFilamentLabelData(labelData, buildFilamentLabelDataFromApi(fd, id))
         }
 
@@ -659,6 +678,31 @@ export function getStaticPaths() {
           if (!existing) return null
           return Array.from(existing.attributes).find(a => a.name.startsWith('data-astro-cid-'))
         })()
+
+        function getExtraFieldGroupTitle(source?: string) {
+          return source === 'filament-derived'
+            ? `${translate('spools.filament', 'Filament')} ${translate('common.derivedFields', 'Derived Fields')}`
+            : translate('filaments.extraFieldsLabel', 'Filament Extra Fields')
+        }
+
+        let derivedTitle: HTMLElement | null = null
+        let derivedContainer: HTMLElement | null = null
+
+        function getExtraFieldContainer(source?: string) {
+          if (source !== 'filament-derived') return extraFieldsCheckboxes
+          if (derivedContainer) return derivedContainer
+          derivedTitle = document.createElement('h3')
+          derivedTitle.textContent = getExtraFieldGroupTitle('filament-derived')
+          derivedContainer = document.createElement('div')
+          derivedContainer.className = extraFieldsCheckboxes.className
+          if (scopeAttr) {
+            derivedTitle.setAttribute(scopeAttr.name, '')
+            derivedContainer.setAttribute(scopeAttr.name, '')
+          }
+          extraFieldsCheckboxes.insertAdjacentElement('afterend', derivedTitle)
+          derivedTitle.insertAdjacentElement('afterend', derivedContainer)
+          return derivedContainer
+        }
 
         function makeEfCheckbox(ef: {key: string, label: string, value: string, source?: string}) {
           extraFields.push({ ...ef, source: ef.source ?? 'filament' })
@@ -677,7 +721,7 @@ export function getStaticPaths() {
           }
           lbl.appendChild(cb)
           lbl.appendChild(span)
-          extraFieldsCheckboxes.appendChild(lbl)
+          getExtraFieldContainer(ef.source).appendChild(lbl)
           extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
           cb.addEventListener('change', () => updatePreview())
         }
@@ -690,14 +734,14 @@ export function getStaticPaths() {
           makeEfCheckbox({
             key: `filament.${def.key}`,
             label: def.label,
-            value: filamentCustom[def.key] ?? '',
-            source: 'filament',
+            value: formatLabelExtraFieldValue(def.formula ? filamentDerived[def.key] : filamentCustom[def.key]),
+            source: def.formula ? 'filament-derived' : 'filament',
           })
         }
 
         extraFieldsTitle.style.display = ''
         extraFieldsCheckboxes.style.display = ''
-        document.getElementById('title-extra-fields')!.textContent = translate('filaments.extraFieldsLabel', 'Filament Extra Fields')
+        document.getElementById('title-extra-fields')!.textContent = getExtraFieldGroupTitle()
 
         designerEditor.refreshExtraFields(getDesignerExtraFields())
 

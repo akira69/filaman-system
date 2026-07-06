@@ -81,7 +81,7 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
     type PrintDesignerTab,
     writeStorageValue,
   } from '../../lib/label-print-page'
-  import { isBuiltInLabelField } from '../../lib/label-extra-fields'
+  import { formatLabelExtraFieldValue, isBuiltInLabelField } from '../../lib/label-extra-fields'
   import { t, initI18n } from '../../lib/i18n'
 
   installPrintFunction()
@@ -117,11 +117,12 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
   const previewContainer = document.getElementById('preview-container') as HTMLElement
   const sheetControls = bindLabelSheetControls(queueRenderAll, (key, fallback) => t(key) || fallback)
 
-  type ExtraFieldDef = { key: string; label: string }
+  type ExtraFieldDef = { key: string; label: string; formula?: unknown; show_in_template?: boolean }
   type ApiObject = Record<string, unknown>
   type ApiFilament = ApiObject & {
     id?: string | number
     custom_fields?: Record<string, unknown>
+    derived?: Record<string, unknown>
     manufacturer?: { id?: string | number; name?: string }
   }
 
@@ -157,6 +158,10 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
         ? value.items
         : []
     return items.filter(isExtraFieldDef)
+  }
+
+  function isPrintableExtraFieldDef(def: ExtraFieldDef) {
+    return !def.formula || def.show_in_template === true
   }
 
   function saveSettings() {
@@ -227,7 +232,7 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
     for (const def of efDefs) {
       if (STANDARD_FILAMENT_EF_KEYS.has(def.key)) continue
       const key = `filament.${def.key}`
-      fields.set(key, { key, label: def.label, value: '', source: 'filament' })
+      fields.set(key, { key, label: def.label, value: '', source: def.formula ? 'filament-derived' : 'filament' })
     }
     for (const filament of filaments) {
       for (const field of buildDesignerExtraFieldsFromFilament(filament)) {
@@ -245,11 +250,14 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
   function getExtraFieldsForFilament(filament: ApiFilament): {label: string, value: string}[] {
     const result: {label: string, value: string}[] = []
     const custom = filament?.custom_fields ?? {}
+    const derived = filament?.derived ?? {}
     for (const def of efDefs) {
       if (!efCheckMap[efMapKey(def.key)]?.checked) continue
       // Standard fields use shared reduced definitions; system custom fields use custom_fields[key].
       const stdDef = STANDARD_FILAMENT_EF.find(s => s.key === def.key)
-      const rawValue = stdDef ? stdDef.valueFromApi(filament) : (custom[def.key] !== null && custom[def.key] !== undefined ? String(custom[def.key]) : '')
+      const rawValue = stdDef
+        ? stdDef.valueFromApi(filament)
+        : formatLabelExtraFieldValue(def.formula ? derived[def.key] : custom[def.key])
       if (rawValue !== '') {
         result.push({ label: def.label, value: rawValue })
       }
@@ -461,12 +469,14 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
     try {
       const defs = await fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' }).then(r => r.json())
       const customDefs = normalizeExtraFieldDefs(defs)
-        .filter(def => !isBuiltInLabelField('filament', def.key, def.label))
+        .filter(def => isPrintableExtraFieldDef(def) && !def.formula && !isBuiltInLabelField('filament', def.key, def.label))
+      const derivedDefs = normalizeExtraFieldDefs(defs)
+        .filter(def => isPrintableExtraFieldDef(def) && !!def.formula && !isBuiltInLabelField('filament', def.key, def.label))
       const standardDefs = STANDARD_FILAMENT_EF.map(s => ({ key: s.key, label: s.label }))
 
       // Keep the Standard Label tab compact: reduced standard fields first,
       // then true system custom fields in their own group.
-      efDefs = [...standardDefs, ...customDefs]
+      efDefs = [...standardDefs, ...customDefs, ...derivedDefs]
       if (efDefs.length === 0) return
 
       const titleEl = document.getElementById('ef-section-title')!
@@ -507,6 +517,17 @@ import BatchLabelPrintStyles from '../../components/BatchLabelPrintStyles.astro'
         container.insertAdjacentElement('afterend', customTitle)
         customTitle.insertAdjacentElement('afterend', customContainer)
         addFieldRows(customDefs, customContainer)
+      }
+      if (derivedDefs.length > 0) {
+        const derivedTitle = document.createElement('h3')
+        derivedTitle.textContent = `${t('spools.filament') || 'Filament'} ${t('common.derivedFields') || 'Derived Fields'}`
+        const derivedContainer = document.createElement('div')
+        derivedContainer.className = container.className
+        derivedContainer.style.removeProperty('display')
+        const insertAfter = customDefs.length > 0 ? container.nextElementSibling?.nextElementSibling : container
+        insertAfter?.insertAdjacentElement('afterend', derivedTitle)
+        derivedTitle.insertAdjacentElement('afterend', derivedContainer)
+        addFieldRows(derivedDefs, derivedContainer)
       }
     } catch {}
   }

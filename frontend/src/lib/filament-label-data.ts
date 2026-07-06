@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { isBuiltInLabelField } from './label-extra-fields'
+import { formatLabelExtraFieldValue, isBuiltInLabelField } from './label-extra-fields'
 
 export interface FilamentLabelData {
   id: string
@@ -221,18 +221,20 @@ export function buildReducedStandardFilamentExtraFieldsFromLabelData(data: Filam
 
 export function buildFilamentExtraFieldsForPrint(
   filament: any,
-  systemFieldMap: Record<string, { label?: string }>,
+  systemFieldMap: Record<string, { label?: string; formula?: unknown; show_in_template?: boolean }>,
 ): FilamentExtraField[] {
   const fields = buildReducedStandardFilamentExtraFieldsFromLabelData(buildFilamentLabelDataFromApi(filament))
   const customFlat: Record<string, unknown> = filament?.custom_fields ?? {}
+  const derived: Record<string, unknown> = filament?.derived ?? {}
   for (const [key, def] of Object.entries(systemFieldMap)) {
     if (isBuiltInLabelField('filament', key, def.label)) continue
-    const raw = customFlat[key]
+    if (def.formula && !def.show_in_template) continue
+    const raw = def.formula ? derived[key] : customFlat[key]
     fields.push({
       key: `filament.${key}`,
       label: def.label ?? key,
-      value: toLabelString(raw),
-      source: 'filament',
+      value: formatLabelExtraFieldValue(raw),
+      source: def.formula ? 'filament-derived' : 'filament',
     })
   }
   for (const [key, value] of Object.entries(customFlat)) {
@@ -240,7 +242,7 @@ export function buildFilamentExtraFieldsForPrint(
       fields.push({
         key: `filament.${key}`,
         label: key,
-        value: toLabelString(value),
+        value: formatLabelExtraFieldValue(value),
         source: 'filament',
       })
     }
@@ -250,12 +252,21 @@ export function buildFilamentExtraFieldsForPrint(
 
 export function buildDesignerExtraFieldsFromFilament(filament: any): FilamentExtraField[] {
   const customFields = filament?.custom_fields ?? {}
-  return Object.entries(customFields as Record<string, unknown>)
+  const custom = Object.entries(customFields as Record<string, unknown>)
     .filter(([key]) => !isBuiltInLabelField('filament', key))
     .map(([key, value]) => ({
       key: `filament.${key}`,
       label: key,
-      value: toLabelString(value),
+      value: formatLabelExtraFieldValue(value),
       source: 'filament',
     }))
+  const derivedFields = Object.entries((filament?.derived ?? {}) as Record<string, unknown>)
+    .filter(([key]) => !isBuiltInLabelField('filament', key))
+    .map(([key, value]) => ({
+      key: `filament.${key}`,
+      label: key,
+      value: formatLabelExtraFieldValue(value),
+      source: 'filament-derived',
+    }))
+  return [...custom, ...derivedFields]
 }

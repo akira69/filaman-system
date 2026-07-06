@@ -5,7 +5,7 @@ import {
   renderTemplateText,
   type SpoolData,
 } from './label-template'
-import { isBuiltInLabelField, type LabelExtraFieldSource } from './label-extra-fields'
+import { formatLabelExtraFieldValue, isBuiltInLabelField, type LabelExtraFieldSource } from './label-extra-fields'
 import { updateLabelPrintPageStyle } from './label-print-style'
 import { canvasToQrImage, ensureQrCodeLoaded, getQrCodeConstructor } from './qr-code'
 
@@ -485,7 +485,9 @@ export function buildSpoolDataFromApiSpool(spool: any): SpoolData {
 export function buildDesignerExtraFieldsFromApiSpool(spool: any): DesignerExtraField[] {
   return [
     ...flattenExtraFields(spool?.custom_fields, 'spool'),
+    ...mapDerivedExtraFields(spool?.derived, 'spool'),
     ...flattenExtraFields(spool?.filament?.custom_fields, 'filament'),
+    ...mapDerivedExtraFields(spool?.filament?.derived, 'filament'),
   ]
 }
 
@@ -515,12 +517,24 @@ function flattenExtraFields(value: any, source: LabelExtraFieldSource, prefix = 
       fields.push({
         key: `${source}.${path}`,
         label: path,
-        value: raw,
+        value: formatLabelExtraFieldValue(raw),
         source,
       })
     }
   }
   return fields
+}
+
+function mapDerivedExtraFields(value: any, source: LabelExtraFieldSource): DesignerExtraField[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  return Object.entries(value)
+    .filter(([key]) => !isBuiltInLabelField(source, key))
+    .map(([key, raw]) => ({
+      key: `${source}.${key}`,
+      label: key,
+      value: formatLabelExtraFieldValue(raw),
+      source: `${source}-derived`,
+    }))
 }
 
 function toStringValue(value: unknown): string {
