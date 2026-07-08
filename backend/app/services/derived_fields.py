@@ -323,13 +323,18 @@ def evaluate_formula(formula: dict[str, Any], context: dict[str, Any]) -> Any:
     """Evaluate a JSON Logic expression against *context*.
 
     Returns ``None`` on any evaluation error rather than raising, so a
-    bad formula silently produces no output rather than breaking the
-    entire response.
+    bad formula produces no output rather than breaking the entire
+    response.
     """
     try:
         return jsonLogic(formula, context)
-    except Exception:
-        logger.debug("Formula evaluation failed: formula=%r context_keys=%s", formula, list(context))
+    except Exception as exc:
+        logger.warning(
+            "Formula evaluation failed: formula=%r context_keys=%s error=%s",
+            formula,
+            list(context),
+            exc,
+        )
         return None
 
 
