@@ -63,6 +63,28 @@ import Layout from '../../../layouts/Layout.astro'
     <div id="import-result" style="margin-top: 16px; display: none;"></div>
   </div>
 
+  <div class="fm-card" style="margin-bottom: 24px; padding: 24px;" id="repair-imports">
+    <h2 style="font-size: 1.1rem; font-weight: 600; margin: 0 0 8px;" data-i18n="spoolman.repairTitle">Repair previous Spoolman imports</h2>
+    <p style="color: var(--text-muted); margin: 0 0 16px; font-size: 0.9rem;" data-i18n="spoolman.repairDesc">Convert extra values from earlier imports into native typed fields. Existing values are never overwritten.</p>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px;">
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;white-space:nowrap;">
+        <input type="radio" name="repair-mode" value="server" />
+        <span data-i18n="spoolman.repairServerMode">Use running Spoolman server</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;white-space:nowrap;">
+        <input type="radio" name="repair-mode" value="offline" checked />
+        <span data-i18n="spoolman.repairOfflineMode">Recover from stored imported data</span>
+      </label>
+    </div>
+    <p style="color:var(--text-muted);font-size:0.82rem;margin:0 0 16px;" data-i18n="spoolman.repairOfflineHint">No source server is required. Suggested mappings must be reviewed and approved individually.</p>
+    <button id="btn-repair-preview" class="fm-btn fm-btn-outline" data-i18n="spoolman.repairPreview">Scan existing imports</button>
+    <div id="repair-preview-result" style="margin-top:16px;display:none;"></div>
+    <div id="repair-actions" style="margin-top:16px;display:none;">
+      <button id="btn-repair-execute" class="fm-btn fm-btn-primary" data-i18n="spoolman.repairApply">Apply approved repairs</button>
+    </div>
+    <div id="repair-result" style="margin-top:16px;display:none;"></div>
+  </div>
+
   <script>
     import { t, initI18n } from '../../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
@@ -73,6 +95,7 @@ import Layout from '../../../layouts/Layout.astro'
     let previewData: any = null
     let transparencyRepairCandidates = 0
     let transparencyRepairPlanDigest = ''
+    let repairPreview: any = null
     let importActionRunning = false
 
     function getCsrfToken(): string {
@@ -267,6 +290,7 @@ import Layout from '../../../layouts/Layout.astro'
           ${renderVendorPreview(previewData.vendors)}
           ${renderFilamentPreview(previewData.filaments)}
           ${renderSpoolPreview(previewData.spools)}
+          ${renderExtraFieldPreview(previewData.extra_fields || [])}
         `
 
         // Enable step 3
@@ -375,7 +399,7 @@ import Layout from '../../../layouts/Layout.astro'
       failedKey: string
       restoreButton: () => void
       renderResult: (result: SpoolmanImportResult) => string
-      requestBody: () => Record<string, string>
+      requestBody: () => Record<string, any>
     }
 
     interface SpoolmanImportResult {
@@ -478,7 +502,10 @@ import Layout from '../../../layouts/Layout.astro'
         pendingKey: 'spoolman.importing',
         completeKey: 'spoolman.importComplete',
         failedKey: 'spoolman.importFailed',
-        requestBody: () => ({ url: connectedUrl }),
+        requestBody: () => ({
+          url: connectedUrl,
+          extra_field_fingerprint: previewData?.extra_field_fingerprint || null,
+        }),
         restoreButton: () => {
           button.textContent = t('spoolman.startImport')
         },
@@ -590,5 +617,182 @@ import Layout from '../../../layouts/Layout.astro'
         </div>
       `
     }
+
+    function renderExtraFieldPreview(fields: any[]): string {
+      if (!fields.length) return ''
+      const counts = fields.reduce((all: Record<string, number>, field: any) => {
+        all[field.status] = (all[field.status] || 0) + 1
+        return all
+      }, {})
+      return `
+        <div class="fm-card" style="margin-top:12px;padding:14px;">
+          <strong>${escapeHtml(t('spoolman.extraFields'))}</strong>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;color:var(--text-muted);font-size:0.85rem;">
+            <span>${escapeHtml(t('spoolman.extraFieldsCreate'))}: ${counts.create || 0}</span>
+            <span>${escapeHtml(t('spoolman.extraFieldsReuse'))}: ${counts.reuse || 0}</span>
+            <span>${escapeHtml(t('spoolman.extraFieldsConflict'))}: ${counts.conflict || 0}</span>
+            <span>${escapeHtml(t('spoolman.extraFieldsUnsupported'))}: ${counts.unsupported || 0}</span>
+          </div>
+        </div>
+      `
+    }
+
+    function repairMode(): string {
+      return (document.querySelector<HTMLInputElement>('input[name="repair-mode"]:checked')?.value || 'offline')
+    }
+
+    function renderRepairPreview(data: any): string {
+      const summary = data.summary
+      const mappings = data.mappings || []
+      const typeOptions = ['text', 'number', 'range', 'dropdown', 'multiselect', 'checkbox', 'date', 'datetime', 'url', 'textarea']
+      const rows = mappings.map((mapping: any, index: number) => {
+        const disabled = mapping.status !== 'ready' || mapping.confidence === 'unresolved'
+        const options = typeOptions.map(type => `<option value="${type}"${type === mapping.field_type ? ' selected' : ''}>${type}</option>`).join('')
+        const samples = (mapping.samples || []).map((value: any) => typeof value === 'string' ? value : JSON.stringify(value)).join(', ')
+        const details = ['number', 'range'].includes(mapping.field_type)
+          ? mapping.config?.unit || ''
+          : ['dropdown', 'multiselect'].includes(mapping.field_type)
+            ? (mapping.options || []).join(', ')
+            : ''
+        return `
+          <tr data-repair-index="${index}">
+            <td><input type="checkbox" class="repair-approve"${disabled ? ' disabled' : ''} aria-label="${escapeHtml(t('spoolman.repairApprove'))}" /></td>
+            <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" />${samples ? `<div style="margin-top:6px;color:var(--text-muted);font-size:0.78rem;overflow-wrap:anywhere;"><strong>${escapeHtml(t('spoolman.repairSamples'))}:</strong> ${escapeHtml(samples)}</div>` : ''}</td>
+            <td><select class="fm-select repair-type" style="min-width:160px;"${disabled ? ' disabled' : ''}>${options}</select></td>
+            <td><input class="fm-input repair-details" value="${escapeHtml(details)}" style="min-width:150px;"${disabled ? ' disabled' : ''} /></td>
+            <td>${escapeHtml(mapping.confidence || mapping.status)}</td>
+          </tr>
+        `
+      }).join('')
+      return `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px;">
+          ${repairMetric(t('spoolman.repairRecords'), summary.records_scanned)}
+          ${repairMetric(t('spoolman.repairFields'), summary.fields_found)}
+          ${repairMetric(t('spoolman.repairPromotable'), summary.promotable)}
+          ${repairMetric(t('spoolman.repairCollisions'), summary.collisions)}
+          ${repairMetric(t('spoolman.repairUnresolved'), summary.unresolved + summary.invalid)}
+        </div>
+        ${rows ? `<div style="overflow-x:auto;"><table class="fm-table" style="table-layout:fixed;min-width:850px;"><colgroup><col style="width:9%"><col style="width:29%"><col style="width:18%"><col style="width:18%"><col style="width:14%"></colgroup><thead><tr><th>${escapeHtml(t('spoolman.repairApprove'))}</th><th>${escapeHtml(t('spoolman.repairField'))}</th><th>${escapeHtml(t('spoolman.repairType'))}</th><th>${escapeHtml(t('spoolman.repairDetails'))}</th><th>${escapeHtml(t('spoolman.repairConfidence'))}</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+      `
+    }
+
+    function repairMetric(label: string, value: number): string {
+      return `<div style="padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-soft);"><div style="font-size:0.78rem;color:var(--text-muted);">${escapeHtml(label)}</div><div style="font-size:1.25rem;font-weight:700;">${value}</div></div>`
+    }
+
+    document.getElementById('btn-repair-preview')?.addEventListener('click', async () => {
+      const button = document.getElementById('btn-repair-preview') as HTMLButtonElement
+      const result = document.getElementById('repair-preview-result')!
+      const mode = repairMode()
+      const url = (document.getElementById('spoolman-url') as HTMLInputElement).value.trim()
+      if (mode === 'server' && !url) {
+        result.style.display = 'block'
+        result.innerHTML = `<div class="fm-alert-error">${escapeHtml(t('spoolman.urlRequired'))}</div>`
+        return
+      }
+      button.disabled = true
+      button.textContent = t('spoolman.repairLoading')
+      try {
+        const response = await fetch('/api/v1/admin/system/spoolman-import/repair/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({ mode, url: mode === 'server' ? url : null }),
+          signal: getAbortSignal(),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.detail?.message || t('spoolman.repairFailed'))
+        repairPreview = data
+        result.style.display = 'block'
+        result.innerHTML = renderRepairPreview(data)
+        document.getElementById('repair-actions')!.style.display = data.mappings?.length ? 'block' : 'none'
+        document.getElementById('repair-result')!.style.display = 'none'
+      } catch (error: any) {
+        if (isAbortError(error)) return
+        result.style.display = 'block'
+        result.innerHTML = `<div class="fm-alert-error">${escapeHtml(error.message)}</div>`
+      } finally {
+        button.disabled = false
+        button.textContent = t('spoolman.repairPreview')
+      }
+    })
+
+    document.getElementById('btn-repair-execute')?.addEventListener('click', async () => {
+      if (!repairPreview) return
+      const approved = Array.from(document.querySelectorAll<HTMLTableRowElement>('tr[data-repair-index]')).flatMap(row => {
+        const checkbox = row.querySelector<HTMLInputElement>('.repair-approve')
+        if (!checkbox?.checked) return []
+        const source = repairPreview.mappings[Number(row.dataset.repairIndex)]
+        const fieldType = row.querySelector<HTMLSelectElement>('.repair-type')?.value || source.field_type
+        const details = row.querySelector<HTMLInputElement>('.repair-details')?.value.trim() || ''
+        const config = ['number', 'range'].includes(fieldType)
+          ? { ...(source.config || {}), unit: details || undefined }
+          : null
+        const options = ['dropdown', 'multiselect'].includes(fieldType)
+          ? details.split(',').map((value: string) => value.trim()).filter(Boolean)
+          : null
+        return [{
+          ...source,
+          label: row.querySelector<HTMLInputElement>('.repair-label')?.value.trim() || source.key,
+          field_type: fieldType,
+          config,
+          options,
+        }]
+      })
+      if (!approved.length) {
+        await (window as any).__fmAlert(t('spoolman.repairSelectOne'))
+        return
+      }
+      if (!(await (window as any).__fmConfirm(t('spoolman.repairConfirm'), { title: t('spoolman.repairTitle'), okLabel: t('spoolman.repairApply'), isDanger: false }))) return
+
+      const button = document.getElementById('btn-repair-execute') as HTMLButtonElement
+      const output = document.getElementById('repair-result')!
+      const mode = repairMode()
+      const url = (document.getElementById('spoolman-url') as HTMLInputElement).value.trim()
+      button.disabled = true
+      try {
+        const response = await fetch('/api/v1/admin/system/spoolman-import/repair/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          body: JSON.stringify({
+            mode,
+            url: mode === 'server' ? url : null,
+            preview_fingerprint: repairPreview.preview_fingerprint,
+            approved_mappings: approved,
+          }),
+          signal: getAbortSignal(),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.detail?.message || t('spoolman.repairFailed'))
+        output.style.display = 'block'
+        output.innerHTML = `
+          <div style="padding:14px;border:1px solid var(--accent-2);border-radius:var(--radius-sm);background:var(--bg-soft);">
+            <strong>${escapeHtml(t('spoolman.repairComplete'))}</strong>
+            <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-size:0.88rem;">
+              <span>${escapeHtml(t('spoolman.repairDefinitionsCreated'))}: ${data.definitions_created}</span>
+              <span>${escapeHtml(t('spoolman.repairRecordsUpdated'))}: ${data.records_updated}</span>
+              <span>${escapeHtml(t('spoolman.repairValuesPromoted'))}: ${data.values_promoted}</span>
+              <span>${escapeHtml(t('spoolman.repairValuesPreserved'))}: ${data.values_preserved}</span>
+            </div>
+            <button id="btn-download-repair" class="fm-btn fm-btn-outline" style="margin-top:12px;">${escapeHtml(t('spoolman.repairDownload'))}</button>
+          </div>`
+        document.getElementById('btn-download-repair')?.addEventListener('click', () => {
+          const blob = new Blob([JSON.stringify({ mappings: approved, result: data }, null, 2)], { type: 'application/json' })
+          const link = document.createElement('a')
+          link.href = URL.createObjectURL(blob)
+          link.download = 'spoolman-import-repair-report.json'
+          link.click()
+          URL.revokeObjectURL(link.href)
+        })
+        document.getElementById('repair-actions')!.style.display = 'none'
+      } catch (error: any) {
+        if (isAbortError(error)) return
+        output.style.display = 'block'
+        output.innerHTML = `<div class="fm-alert-error">${escapeHtml(error.message)}</div>`
+      } finally {
+        button.disabled = false
+      }
+    })
   </script>
 </Layout>

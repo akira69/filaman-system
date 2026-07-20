@@ -1,8 +1,10 @@
 from unittest.mock import AsyncMock
+import httpx
 
 import pytest
 from app.api.v1 import system as system_api
 from app.models.filament import Color, Filament, FilamentColor, Manufacturer
+from app.models.system_extra_field import SystemExtraField
 from app.services.spoolman_import_service import (
     ImportPreview,
     ImportResult,
@@ -587,3 +589,150 @@ class TestSpoolmanImportApiContract:
         )
 
         assert response.status_code == 422
+def _definitions():
+    return {
+        "vendor": [{"key": "account", "name": "Account", "field_type": "text"}],
+        "filament": [
+            {
+                "key": "nozzle_range",
+                "name": "Nozzle range",
+                "field_type": "integer_range",
+                "unit": "°C",
+                "order": 2,
+            },
+            {
+                "key": "materials",
+                "name": "Materials",
+                "field_type": "choice",
+                "choices": ["PLA", "PETG"],
+                "multi_choice": True,
+                "order": 1,
+            },
+        ],
+        "spool": [],
+    }
+
+
+async def test_import_creates_editable_definitions_and_promotes_values(db_session):
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    mappings = await service._import_extra_field_definitions(_definitions(), result)
+    promoted, preserved = service._promote_extra_values(
+        "filament",
+        {"nozzle_range": "[190,230]", "materials": '["PLA"]', "unknown": '"keep"'},
+        set(),
+        mappings,
+        result,
+    )
+
+    assert promoted == {
+        "nozzle_range": {"min": 190, "max": 230},
+        "materials": ["PLA"],
+    }
+    assert preserved == {"unknown": '"keep"'}
+    assert result.extra_fields_created == 2
+    assert result.extra_values_promoted == 2
+    assert result.extra_values_preserved == 1
+    definitions = (await db_session.execute(select(SystemExtraField))).scalars().all()
+    assert {item.key for item in definitions} == {"materials", "nozzle_range"}
+    assert all(item.source is None for item in definitions)
+
+
+async def test_existing_incompatible_definition_preserves_source_value(db_session):
+    db_session.add(
+        SystemExtraField(
+            target_type="filament",
+            key="nozzle_range",
+            label="Local text",
+            field_type="text",
+        )
+    )
+    await db_session.flush()
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    mappings = await service._import_extra_field_definitions(_definitions(), result)
+    promoted, preserved = service._promote_extra_values(
+        "filament", {"nozzle_range": "[190,230]"}, set(), mappings, result
+    )
+
+    assert promoted == {}
+    assert preserved == {"nozzle_range": "[190,230]"}
+    assert result.extra_fields_conflicted == 1
+
+
+async def test_field_endpoints_are_optional(db_session):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/field/filament"):
+            return httpx.Response(200, json=_definitions()["filament"])
+        return httpx.Response(404, json={"message": "not found"})
+
+    service = SpoolmanImportService(db_session)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        definitions, warnings = await service.fetch_extra_field_definitions(
+            client, "http://spoolman"
+        )
+
+    assert len(definitions["filament"]) == 2
+    assert definitions["vendor"] == []
+    assert definitions["spool"] == []
+    assert len(warnings) == 2
+
+
+async def test_legacy_admin_preview_shape_is_unchanged_without_definitions(
+    auth_client, monkeypatch
+):
+    client, csrf = auth_client
+
+    async def preview_without_fields(self, url):
+        return ImportPreview()
+
+    monkeypatch.setattr(SpoolmanImportService, "preview", preview_without_fields)
+    response = await client.post(
+        "/api/v1/admin/system/spoolman-import/preview",
+        json={"url": "http://spoolman"},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    assert set(response.json()) == {
+        "summary",
+        "vendors",
+        "filaments",
+        "spools",
+        "locations",
+        "colors",
+    }
+
+
+async def test_legacy_admin_execute_shape_is_unchanged_without_field_changes(
+    auth_client, monkeypatch
+):
+    client, csrf = auth_client
+
+    async def execute_without_fields(self, url, expected_extra_field_fingerprint=None):
+        return ImportResult()
+
+    monkeypatch.setattr(SpoolmanImportService, "execute", execute_without_fields)
+    response = await client.post(
+        "/api/v1/admin/system/spoolman-import/execute",
+        json={"url": "http://spoolman"},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    assert set(response.json()) == {
+        "manufacturers_created",
+        "manufacturers_skipped",
+        "locations_created",
+        "locations_skipped",
+        "colors_created",
+        "colors_skipped",
+        "filaments_created",
+        "filaments_skipped",
+        "spools_created",
+        "spools_skipped",
+        "errors",
+        "warnings",
+    }

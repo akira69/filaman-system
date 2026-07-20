@@ -64,14 +64,19 @@ from app.models.label_preset import (
     label_preset_name_key,
     normalize_label_preset_name,
 )
-from app.services.filamentdb_import_service import (
-    FilamentDBImportError,
-    FilamentDBImportService,
-)
 from app.services.plugin_service import PluginInstallError, PluginInstallService
+from app.core.seeds import DEPRECATED_PLUGINS, BUILTIN_PLUGINS
 from app.services.spoolman_import_service import (
     SpoolmanImportError,
     SpoolmanImportService,
+)
+from app.services.spoolman_import_repair_service import (
+    SpoolmanImportRepairService,
+    SpoolmanRepairError,
+)
+from app.services.filamentdb_import_service import (
+    FilamentDBImportError,
+    FilamentDBImportService,
 )
 
 logger = logging.getLogger(__name__)
@@ -880,6 +885,7 @@ async def get_plugin(
 
 class SpoolmanUrlRequest(BaseModel):
     url: str
+    extra_field_fingerprint: str | None = None
 
 
 class SpoolmanTransparencyRepairRequest(SpoolmanUrlRequest):
@@ -903,6 +909,9 @@ class SpoolmanPreviewResponse(BaseModel):
     spools: list[dict[str, Any]]
     locations: list[dict[str, Any]]
     colors: list[dict[str, str]]
+    extra_fields: list[dict[str, Any]] = Field(default_factory=list)
+    extra_field_fingerprint: str | None = None
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SpoolmanImportResultResponse(BaseModel):
@@ -916,12 +925,27 @@ class SpoolmanImportResultResponse(BaseModel):
     filaments_skipped: int
     spools_created: int
     spools_skipped: int
+    extra_fields_created: int = 0
+    extra_fields_reused: int = 0
+    extra_fields_conflicted: int = 0
+    extra_values_promoted: int = 0
+    extra_values_preserved: int = 0
     errors: list[str]
     warnings: list[str]
 
 
 class SpoolmanTransparencyRepairResultResponse(SpoolmanImportResultResponse):
     color_assignments_repaired: int
+
+ 
+class SpoolmanRepairPreviewRequest(BaseModel):
+    mode: str = "server"
+    url: str | None = None
+
+
+class SpoolmanRepairExecuteRequest(SpoolmanRepairPreviewRequest):
+    preview_fingerprint: str
+    approved_mappings: list[dict[str, Any]]
 
 
 @router.post(
@@ -980,6 +1004,14 @@ async def spoolman_preview(
                     "transparency_repair_plan_digest": plan_digest,
                 }
             )
+        if any(preview.field_definitions.values()):
+            response.update(
+                {
+                    "extra_fields": preview.extra_fields,
+                    "extra_field_fingerprint": preview.extra_field_fingerprint,
+                    "warnings": preview.warnings,
+                }
+            )
         return JSONResponse(response)
     except SpoolmanImportError as e:
         logger.warning(f"Spoolman Import Error: {e}", exc_info=True)
@@ -1007,6 +1039,7 @@ async def spoolman_preview(
 @router.post(
     "/spoolman-import/execute",
     response_model=SpoolmanImportResultResponse,
+    response_model_exclude_defaults=True,
 )
 async def spoolman_execute(
     body: SpoolmanUrlRequest,
@@ -1017,12 +1050,16 @@ async def spoolman_execute(
     async with _exclusive_spoolman_mutation():
         service = SpoolmanImportService(db)
         try:
-            result = await service.execute(body.url)
+            result = await service.execute(body.url, body.extra_field_fingerprint)
             return result
         except SpoolmanImportError as e:
             logger.warning(f"Spoolman Import Execution Error: {e}", exc_info=True)
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=(
+                    status.HTTP_409_CONFLICT
+                    if e.code == "preview_changed"
+                    else status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
                 detail={"code": e.code, "message": str(e)},
             )
         except Exception as e:
@@ -1036,10 +1073,7 @@ async def spoolman_execute(
                 content={
                     "detail": {
                         "code": "internal_error",
-                        "message": (
-                            f"Unerwarteter Fehler beim Import: {e!s}\n\n"
-                            f"Traceback:\n{tb}"
-                        ),
+                        "message": f"Unerwarteter Fehler beim Import: {str(e)}\n\nTraceback:\n{tb}",
                         "type": type(e).__name__,
                     }
                 },
@@ -1072,6 +1106,77 @@ async def spoolman_repair_transparency(
                 ),
                 detail={"code": e.code, "message": str(e)},
             )
+
+
+async def _repair_source_definitions(
+    service: SpoolmanImportService,
+    mode: str,
+    url: str | None,
+) -> dict[str, list[dict[str, Any]]]:
+    if mode == "offline":
+        return {}
+    if mode != "server" or not url:
+        raise SpoolmanRepairError(
+            "A Spoolman URL is required in server mode.", "url_required"
+        )
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        definitions, warnings = await service.fetch_extra_field_definitions(
+            client, url.rstrip("/")
+        )
+    if warnings and not any(definitions.values()):
+        raise SpoolmanRepairError(
+            "No Spoolman field definitions could be loaded; use offline recovery instead.",
+            "definitions_unavailable",
+        )
+    return definitions
+
+
+@router.post("/spoolman-import/repair/preview")
+async def spoolman_repair_preview(
+    body: SpoolmanRepairPreviewRequest,
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Preview a non-destructive repair of previously imported extra fields."""
+    importer = SpoolmanImportService(db)
+    repair = SpoolmanImportRepairService(db)
+    try:
+        definitions = await _repair_source_definitions(importer, body.mode, body.url)
+        return await repair.preview(body.mode, definitions)
+    except SpoolmanRepairError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.post("/spoolman-import/repair/execute")
+async def spoolman_repair_execute(
+    body: SpoolmanRepairExecuteRequest,
+    db: DBSession,
+    principal=RequirePermission("admin:plugins_manage"),
+):
+    """Apply only the extra-field mappings approved from a repair preview."""
+    importer = SpoolmanImportService(db)
+    repair = SpoolmanImportRepairService(db)
+    try:
+        definitions = await _repair_source_definitions(importer, body.mode, body.url)
+        return await repair.execute(
+            body.mode,
+            body.preview_fingerprint,
+            body.approved_mappings,
+            definitions,
+        )
+    except SpoolmanRepairError as exc:
+        http_status = (
+            status.HTTP_409_CONFLICT
+            if exc.code == "preview_changed"
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(
+            status_code=http_status,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
 
 
 # ------------------------------------------------------------------ #
