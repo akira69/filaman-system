@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import String, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +51,7 @@ from app.services.custom_field_search import (
     any_custom_field_matches,
     searchable_custom_field_keys,
 )
-from app.services.derived_fields import compute_derived
+from app.services.derived_fields import compute_derived, load_formula_fields
 from app.services.spool_service import SpoolService
 from app.utils.query_params import parse_multi_int, parse_multi_str
 
@@ -848,7 +848,12 @@ async def list_all_spool_events(
 
 
 @router_spools.get("/{spool_id}", response_model=SpoolResponse)
-async def get_spool(spool_id: int, db: DBSession, principal: PrincipalDep):
+async def get_spool(
+    spool_id: int,
+    db: DBSession,
+    principal: PrincipalDep,
+    derived_for: Literal["api", "detail", "template"] = Query("api"),
+):
     result = await db.execute(
         select(Spool)
         .where(Spool.id == spool_id)
@@ -867,22 +872,8 @@ async def get_spool(spool_id: int, db: DBSession, principal: PrincipalDep):
         )
     # Compute formula-derived fields for the spool and its nested filament so
     # label-printing flows can expose both spool.* and filament.* formula tokens.
-    spool_formula_fields_result = await db.execute(
-        select(SystemExtraField).where(
-            SystemExtraField.target_type == "spool",
-            SystemExtraField.formula.is_not(None),
-            SystemExtraField.include_in_api == True,  # noqa: E712
-        )
-    )
-    filament_formula_fields_result = await db.execute(
-        select(SystemExtraField).where(
-            SystemExtraField.target_type == "filament",
-            SystemExtraField.formula.is_not(None),
-            SystemExtraField.include_in_api == True,  # noqa: E712
-        )
-    )
-    spool_formula_fields = list(spool_formula_fields_result.scalars().all())
-    filament_formula_fields = list(filament_formula_fields_result.scalars().all())
+    spool_formula_fields = await load_formula_fields(db, "spool", derived_for)
+    filament_formula_fields = await load_formula_fields(db, "filament", derived_for)
     spool_data = SpoolResponse.model_validate(spool).model_dump()
     if spool_formula_fields:
         spool_data["derived"] = compute_derived(spool, "spool", spool_formula_fields)
