@@ -670,14 +670,59 @@ async def test_field_endpoints_are_optional(db_session):
 
     service = SpoolmanImportService(db_session)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        definitions, warnings = await service.fetch_extra_field_definitions(
-            client, "http://spoolman"
-        )
+        (
+            definitions,
+            warnings,
+            available_targets,
+        ) = await service.fetch_extra_field_definitions(client, "http://spoolman")
 
     assert len(definitions["filament"]) == 2
     assert definitions["vendor"] == []
     assert definitions["spool"] == []
     assert len(warnings) == 2
+    assert available_targets == {"filament"}
+
+
+def test_unavailable_field_endpoint_preserves_legacy_cleaned_extra_shape(db_session):
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    promoted, preserved = service._promote_extra_values(
+        "filament",
+        {"profile": '"PLA"', "numeric_text": "00123"},
+        set(),
+        {},
+        result,
+        authoritative_fields_available=False,
+    )
+
+    assert promoted == {}
+    assert preserved == {"profile": "PLA", "numeric_text": "00123"}
+
+
+async def test_supported_empty_field_endpoints_still_return_preview_fingerprint(
+    auth_client, monkeypatch
+):
+    client, csrf = auth_client
+
+    async def preview_with_supported_empty_fields(self, url):
+        return ImportPreview(
+            available_field_targets={"vendor", "filament", "spool"},
+            extra_field_fingerprint="stable",
+        )
+
+    monkeypatch.setattr(
+        SpoolmanImportService, "preview", preview_with_supported_empty_fields
+    )
+    response = await client.post(
+        "/api/v1/admin/system/spoolman-import/preview",
+        json={"url": "http://spoolman"},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["extra_fields"] == []
+    assert response.json()["extra_field_fingerprint"] == "stable"
 
 
 async def test_legacy_admin_preview_shape_is_unchanged_without_definitions(

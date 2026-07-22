@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from typing import Any
@@ -81,9 +82,11 @@ class SpoolmanImportRepairService:
             item.setdefault(
                 "confidence", "authoritative" if mode == "server" else "low"
             )
-            item.setdefault(
-                "samples", grouped.get((item["target_type"], item["key"]), [])[:5]
+            samples = item.get(
+                "samples",
+                grouped.get((item["target_type"], item["key"]), [])[:5],
             )
+            item["samples"] = [self._preview_sample(value) for value in samples[:5]]
             item["occurrences"] = len(
                 grouped.get((item["target_type"], item["key"]), [])
             )
@@ -243,6 +246,17 @@ class SpoolmanImportRepairService:
     async def _existing_definitions(self) -> dict[tuple[str, str], SystemExtraField]:
         result = await self.db.execute(select(SystemExtraField))
         return {(item.target_type, item.key): item for item in result.scalars()}
+
+    @staticmethod
+    def _preview_sample(value: Any) -> Any:
+        """Bound user-facing samples without changing the repair fingerprint."""
+        if isinstance(value, str) and len(value) > 200:
+            return f"{value[:197]}..."
+        if isinstance(value, (dict, list)):
+            encoded = json.dumps(value, separators=(",", ":"), default=str)
+            if len(encoded) > 200:
+                return f"{encoded[:197]}..."
+        return value
 
     def _source_mappings(
         self, definitions: dict[str, list[dict[str, Any]]]

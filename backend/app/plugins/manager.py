@@ -968,8 +968,13 @@ class PluginManager:
                 params["bambu_bed_temp"] = str(bed_temp)
 
         # Migrate nozzle temperatures (priority: bambu_* > spoolman_extra.nozzle_temperature > settings_extruder_temp > old bambu_nozzle_temp)
-        nozzle_range = spoolman_extra.get("nozzle_temperature")
-        if isinstance(nozzle_range, (list, tuple)) and len(nozzle_range) >= 2:
+        nozzle_range = cf.get(
+            "nozzle_temperature", spoolman_extra.get("nozzle_temperature")
+        )
+        if isinstance(nozzle_range, dict):
+            nozzle_min = nozzle_range.get("min")
+            nozzle_max = nozzle_range.get("max")
+        elif isinstance(nozzle_range, (list, tuple)) and len(nozzle_range) >= 2:
             nozzle_min, nozzle_max = nozzle_range[0], nozzle_range[1]
         elif isinstance(nozzle_range, (list, tuple)) and len(nozzle_range) == 1:
             nozzle_min = nozzle_max = nozzle_range[0]
@@ -1007,7 +1012,11 @@ class PluginManager:
 
         # Remove top-level bambu_* keys (except keep_keys)
         # Keys to remove after migration (bambu_* except keep_keys + settings_* temps)
-        SETTINGS_MIGRATE_KEYS = {"settings_bed_temp", "settings_extruder_temp"}
+        SETTINGS_MIGRATE_KEYS = {
+            "nozzle_temperature",
+            "settings_bed_temp",
+            "settings_extruder_temp",
+        }
         new_cf = {
             k: v
             for k, v in cf.items()

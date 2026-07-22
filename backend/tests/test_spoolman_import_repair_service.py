@@ -131,6 +131,22 @@ async def test_repair_is_idempotent(db_session):
     assert second_preview["summary"]["promotable"] == 0
 
 
+async def test_preview_samples_are_bounded_without_changing_stored_data(db_session):
+    long_value = "x" * 500
+    filament = await _legacy_filament(
+        db_session,
+        {"spoolman_id": 12, "spoolman_extra": {"notes": long_value}},
+    )
+    service = SpoolmanImportRepairService(db_session)
+
+    preview = await service.preview("offline")
+
+    assert len(preview["mappings"][0]["samples"][0]) == 200
+    assert preview["mappings"][0]["samples"][0].endswith("...")
+    await db_session.refresh(filament)
+    assert filament.custom_fields["spoolman_extra"]["notes"] == long_value
+
+
 async def test_offline_repair_admin_api_requires_preview_and_approval(
     auth_client, db_session
 ):

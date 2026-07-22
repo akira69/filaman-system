@@ -1,9 +1,11 @@
 import pytest
+from types import SimpleNamespace
 
 from app.services.spoolman_extra_field_mapping import (
     SpoolmanFieldError,
     convert_spoolman_value,
     decode_spoolman_value,
+    definitions_compatible,
     fingerprint,
     infer_definition,
     map_spoolman_definition,
@@ -85,12 +87,49 @@ def test_vendor_definition_is_not_silently_mapped():
         )
 
 
+def test_oversized_default_is_preserved_as_unsupported_definition():
+    with pytest.raises(SpoolmanFieldError, match="500-character"):
+        map_spoolman_definition(
+            {
+                "key": "profile",
+                "name": "Profile",
+                "field_type": "text",
+                "default_value": '"' + ("x" * 501) + '"',
+            },
+            "filament",
+        )
+
+
+def test_float_definition_does_not_reuse_integer_only_native_field():
+    candidate = map_spoolman_definition(
+        {"key": "flow", "name": "Flow", "field_type": "float"},
+        "filament",
+    )
+    existing = SimpleNamespace(
+        field_type="number", options=None, config={"decimal_places": 0}
+    )
+
+    assert definitions_compatible(candidate, existing) is False
+
+
+def test_unbounded_definition_does_not_reuse_bounded_native_field():
+    candidate = map_spoolman_definition(
+        {"key": "flow", "name": "Flow", "field_type": "float"},
+        "filament",
+    )
+    existing = SimpleNamespace(
+        field_type="number", options=None, config={"min_bound": 0}
+    )
+
+    assert definitions_compatible(candidate, existing) is False
+
+
 @pytest.mark.parametrize(
     ("values", "expected_type", "confidence"),
     [
-        (["true", "false"], "checkbox", "high"),
-        (["1", "2"], "number", "high"),
-        (["[190,230]", "[200,240]"], "range", "high"),
+        (["true", "false"], "checkbox", "low"),
+        (["1", "2"], "number", "low"),
+        (["[190,230]", "[200,240]"], "range", "medium"),
         (['["PLA"]', '["PETG"]'], "multiselect", "medium"),
         (["plain text", "other"], "text", "low"),
         (["2026-07-20T10:30:00Z"], "datetime", "medium"),

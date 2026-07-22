@@ -160,6 +160,10 @@ def map_spoolman_definition(
             definition.get("multi_choice"),
         )
         default_value = _serialize_default(converted)
+        if len(default_value) > 500:
+            raise SpoolmanFieldError(
+                "default value exceeds FilaMan's 500-character limit"
+            )
 
     return {
         "target_type": target_type,
@@ -193,8 +197,22 @@ def definitions_compatible(candidate: dict[str, Any], existing: Any) -> bool:
             return False
 
     wanted_unit = (candidate.get("config") or {}).get("unit")
-    existing_unit = (getattr(existing, "config", None) or {}).get("unit")
-    return wanted_unit == existing_unit
+    existing_config = getattr(existing, "config", None) or {}
+    existing_unit = existing_config.get("unit")
+    if wanted_unit != existing_unit:
+        return False
+
+    source_type = candidate.get("source_field_type")
+    if (
+        source_type in {"float", "float_range"}
+        and existing_config.get("decimal_places") == 0
+    ):
+        return False
+    if wanted_type in {"number", "range"} and any(
+        existing_config.get(key) is not None for key in ("min_bound", "max_bound")
+    ):
+        return False
+    return True
 
 
 def infer_definition(
@@ -212,16 +230,16 @@ def infer_definition(
     options: list[str] | None = None
 
     if all(isinstance(value, bool) for value in values):
-        source_type, confidence = "boolean", "high"
+        source_type, confidence = "boolean", "low"
     elif all(
         isinstance(value, int) and not isinstance(value, bool) for value in values
     ):
-        source_type, confidence = "integer", "high"
+        source_type, confidence = "integer", "low"
     elif all(
         isinstance(value, int | float) and not isinstance(value, bool)
         for value in values
     ):
-        source_type, confidence = "float", "high"
+        source_type, confidence = "float", "low"
     elif all(_is_numeric_range(value) for value in values):
         endpoints = [item for value in values for item in value if item is not None]
         source_type = (
@@ -229,7 +247,7 @@ def infer_definition(
             if all(isinstance(item, int) for item in endpoints)
             else "float_range"
         )
-        confidence = "high"
+        confidence = "medium"
     elif all(
         isinstance(value, list) and all(isinstance(item, str) for item in value)
         for value in values

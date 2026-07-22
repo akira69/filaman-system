@@ -50,6 +50,7 @@ class ImportPreview:
     locations: list[dict[str, Any]] = field(default_factory=list)
     colors: list[dict[str, str]] = field(default_factory=list)
     field_definitions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    available_field_targets: set[str] = field(default_factory=set)
     extra_fields: list[dict[str, Any]] = field(default_factory=list)
     extra_field_fingerprint: str | None = None
     warnings: list[str] = field(default_factory=list)
@@ -257,10 +258,11 @@ class SpoolmanImportService:
         self,
         client: httpx.AsyncClient,
         base_url: str,
-    ) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    ) -> tuple[dict[str, list[dict[str, Any]]], list[str], set[str]]:
         """Fetch optional Spoolman field-definition endpoints without breaking old servers."""
         definitions: dict[str, list[dict[str, Any]]] = {}
         warnings: list[str] = []
+        available_targets: set[str] = set()
         for target in ("vendor", "filament", "spool"):
             try:
                 response = await client.get(f"{base_url}/api/v1/field/{target}")
@@ -277,12 +279,13 @@ class SpoolmanImportService:
                 ):
                     raise ValueError("expected a list of field definitions")
                 definitions[target] = data
+                available_targets.add(target)
             except (httpx.HTTPError, ValueError) as exc:
                 warnings.append(
                     f"Could not load Spoolman field definitions for {target}: {exc}"
                 )
                 definitions[target] = []
-        return definitions, warnings
+        return definitions, warnings, available_targets
 
     # ------------------------------------------------------------------ #
     #  Vorschau
@@ -335,6 +338,7 @@ class SpoolmanImportService:
             (
                 field_definitions,
                 field_warnings,
+                available_field_targets,
             ) = await self.fetch_extra_field_definitions(client, base_url)
 
             # Deduplizierung nach name (case-insensitive)
@@ -379,8 +383,14 @@ class SpoolmanImportService:
             locations=locations,
             colors=colors,
             field_definitions=field_definitions,
+            available_field_targets=available_field_targets,
             extra_fields=extra_fields,
-            extra_field_fingerprint=fingerprint(field_definitions),
+            extra_field_fingerprint=fingerprint(
+                {
+                    "definitions": field_definitions,
+                    "available_targets": sorted(available_field_targets),
+                }
+            ),
             warnings=field_warnings,
         )
 
@@ -481,7 +491,12 @@ class SpoolmanImportService:
 
         # 5. Filaments importieren
         filament_map = await self._import_filaments(
-            preview.filaments, manufacturer_map, color_map, result, field_mappings
+            preview.filaments,
+            manufacturer_map,
+            color_map,
+            result,
+            field_mappings,
+            "filament" in preview.available_field_targets,
         )
 
         # 6. Spools importieren
@@ -493,6 +508,7 @@ class SpoolmanImportService:
             status_map,
             result,
             field_mappings,
+            "spool" in preview.available_field_targets,
         )
 
         await self.db.commit()
@@ -996,6 +1012,7 @@ class SpoolmanImportService:
         color_map: dict[str, int],
         result: ImportResult,
         field_mappings: dict[tuple[str, str], dict[str, Any]],
+        authoritative_fields_available: bool,
     ) -> dict[int, int]:
         """Filamente importieren. Gibt Spoolman-Filament-ID -> FilaMan-ID."""
         fil_map: dict[int, int] = {}
@@ -1116,7 +1133,12 @@ class SpoolmanImportService:
                         custom["settings_bed_temp"] = bt
                 # Restliche Extra-Felder als JSON speichern
                 promoted, remaining = self._promote_extra_values(
-                    "filament", extra, extracted_keys, field_mappings, result
+                    "filament",
+                    extra,
+                    extracted_keys,
+                    field_mappings,
+                    result,
+                    authoritative_fields_available,
                 )
                 custom.update(promoted)
                 if remaining:
@@ -1188,6 +1210,7 @@ class SpoolmanImportService:
         status_map: dict[str, int],
         result: ImportResult,
         field_mappings: dict[tuple[str, str], dict[str, Any]],
+        authoritative_fields_available: bool,
     ) -> None:
         """Spools importieren."""
         for spool_data in spools:
@@ -1348,7 +1371,12 @@ class SpoolmanImportService:
                 custom["comment"] = spool_comment
             if extra and isinstance(extra, dict):
                 promoted, remaining_extra = self._promote_extra_values(
-                    "spool", extra, extracted_keys, field_mappings, result
+                    "spool",
+                    extra,
+                    extracted_keys,
+                    field_mappings,
+                    result,
+                    authoritative_fields_available,
                 )
                 custom.update(promoted)
                 if remaining_extra:
@@ -1467,6 +1495,7 @@ class SpoolmanImportService:
         extracted: set[str],
         mappings: dict[tuple[str, str], dict[str, Any]],
         result: ImportResult,
+        authoritative_fields_available: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         promoted: dict[str, Any] = {}
         preserved: dict[str, Any] = {}
@@ -1475,7 +1504,11 @@ class SpoolmanImportService:
                 continue
             mapping = mappings.get((target_type, key))
             if mapping is None:
-                preserved[key] = raw
+                preserved[key] = (
+                    raw
+                    if authoritative_fields_available
+                    else SpoolmanImportService._clean_dict({key: raw})[key]
+                )
                 result.extra_values_preserved += 1
                 continue
             try:

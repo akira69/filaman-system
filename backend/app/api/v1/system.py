@@ -1004,7 +1004,7 @@ async def spoolman_preview(
                     "transparency_repair_plan_digest": plan_digest,
                 }
             )
-        if any(preview.field_definitions.values()):
+        if preview.available_field_targets:
             response.update(
                 {
                     "extra_fields": preview.extra_fields,
@@ -1120,9 +1120,11 @@ async def _repair_source_definitions(
             "A Spoolman URL is required in server mode.", "url_required"
         )
     async with httpx.AsyncClient(timeout=60.0) as client:
-        definitions, warnings = await service.fetch_extra_field_definitions(
-            client, url.rstrip("/")
-        )
+        (
+            definitions,
+            warnings,
+            _available_targets,
+        ) = await service.fetch_extra_field_definitions(client, url.rstrip("/"))
     if warnings and not any(definitions.values()):
         raise SpoolmanRepairError(
             "No Spoolman field definitions could be loaded; use offline recovery instead.",
