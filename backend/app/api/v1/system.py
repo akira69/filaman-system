@@ -886,6 +886,8 @@ async def get_plugin(
 class SpoolmanUrlRequest(BaseModel):
     url: str
     extra_field_fingerprint: str | None = None
+    extra_field_mode: str = "legacy"
+    field_actions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SpoolmanTransparencyRepairRequest(SpoolmanUrlRequest):
@@ -930,6 +932,7 @@ class SpoolmanImportResultResponse(BaseModel):
     extra_fields_conflicted: int = 0
     extra_values_promoted: int = 0
     extra_values_preserved: int = 0
+    extra_local_definitions: int = 0
     errors: list[str]
     warnings: list[str]
 
@@ -1050,7 +1053,16 @@ async def spoolman_execute(
     async with _exclusive_spoolman_mutation():
         service = SpoolmanImportService(db)
         try:
-            result = await service.execute(body.url, body.extra_field_fingerprint)
+            options: dict[str, Any] = {}
+            if "extra_field_mode" in body.model_fields_set:
+                options["extra_field_mode"] = body.extra_field_mode
+            if "field_actions" in body.model_fields_set:
+                options["field_actions"] = body.field_actions
+            result = await service.execute(
+                body.url,
+                body.extra_field_fingerprint,
+                **options,
+            )
             return result
         except SpoolmanImportError as e:
             logger.warning(f"Spoolman Import Execution Error: {e}", exc_info=True)

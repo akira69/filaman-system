@@ -44,7 +44,17 @@ import Layout from '../../../layouts/Layout.astro'
       <span data-i18n="spoolman.stepImport">Import</span>
     </h2>
     <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;" data-i18n="spoolman.importDesc">Start the import. Existing data will not be overwritten.</p>
-    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items: flex-start; margin-bottom: 12px;">
+      <div style="max-width:680px;min-width:280px;flex:1 1 auto;">
+        <label class="fm-label" for="extra-field-mode" data-i18n="spoolman.extraFieldMode">Spoolman extra fields</label>
+        <select id="extra-field-mode" class="fm-select" style="width:100%;">
+          <option value="system" selected data-i18n="spoolman.extraFieldModeSystem">Create or reuse System Extra Fields</option>
+          <option value="local" data-i18n="spoolman.extraFieldModeLocal">Create filament- or spool-specific typed fields</option>
+          <option value="preserve" data-i18n="spoolman.extraFieldModePreserve">Preserve source values unchanged under spoolman_extra</option>
+          <option value="legacy" data-i18n="spoolman.extraFieldModeLegacy">Legacy import: keep values under spoolman_extra</option>
+        </select>
+        <p style="color:var(--text-muted);font-size:0.82rem;margin:6px 0 0;" data-i18n="spoolman.extraFieldModeHint">Choose a default here, then optionally override individual fields in the preview.</p>
+      </div>
       <button id="btn-import" class="fm-btn fm-btn-primary" data-i18n="spoolman.startImport">Start Import</button>
       <button id="btn-repair-transparency" class="fm-btn fm-btn-outline hidden">Fix transparency hex</button>
     </div>
@@ -505,6 +515,17 @@ import Layout from '../../../layouts/Layout.astro'
         requestBody: () => ({
           url: connectedUrl,
           extra_field_fingerprint: previewData?.extra_field_fingerprint || null,
+          extra_field_mode: (document.getElementById('extra-field-mode') as HTMLSelectElement)
+            ?.value,
+          field_actions: Array.from(
+            document.querySelectorAll<HTMLSelectElement>('.import-field-action')
+          )
+            .filter((select) => select.value !== 'inherit')
+            .map((select) => ({
+              target_type: select.dataset.target,
+              key: select.dataset.key,
+              action: select.value,
+            })),
         }),
         restoreButton: () => {
           button.textContent = t('spoolman.startImport')
@@ -633,6 +654,30 @@ import Layout from '../../../layouts/Layout.astro'
             <span>${escapeHtml(t('spoolman.extraFieldsConflict'))}: ${counts.conflict || 0}</span>
             <span>${escapeHtml(t('spoolman.extraFieldsUnsupported'))}: ${counts.unsupported || 0}</span>
           </div>
+          <p style="color:var(--text-muted);font-size:0.82rem;margin:10px 0 6px;">${escapeHtml(t('spoolman.extraFieldOverrideHint'))}</p>
+          <div style="overflow-x:auto;">
+            <table class="fm-table">
+              <thead><tr><th>${escapeHtml(t('spoolman.repairField'))}</th><th>${escapeHtml(t('spoolman.repairType'))}</th><th>${escapeHtml(t('spoolman.extraFieldAction'))}</th></tr></thead>
+              <tbody>
+                ${fields.map((field: any) => {
+                  const supportsTypedImport = ['filament', 'spool'].includes(field.target_type)
+                  const systemUnavailable = ['conflict', 'unsupported'].includes(field.status)
+                  const localUnavailable = ['reuse', 'conflict', 'unsupported'].includes(field.status)
+                  return `<tr>
+                    <td><strong>${escapeHtml(field.target_type)}.${escapeHtml(field.key || '')}</strong><br><span style="color:var(--text-muted);font-size:0.78rem;">${escapeHtml(field.label || field.reason || '')}</span></td>
+                    <td>${escapeHtml(field.field_type || field.status)}</td>
+                    <td>${supportsTypedImport ? `<select class="fm-select import-field-action" data-target="${escapeHtml(field.target_type)}" data-key="${escapeHtml(field.key || '')}">
+                      <option value="inherit">${escapeHtml(t('spoolman.extraFieldActionDefault'))}</option>
+                      <option value="system"${systemUnavailable ? ' disabled' : ''}>${escapeHtml(t('spoolman.extraFieldActionSystem'))}</option>
+                      <option value="local"${localUnavailable ? ' disabled' : ''}>${escapeHtml(t('spoolman.extraFieldActionLocal'))}</option>
+                      <option value="preserve">${escapeHtml(t('spoolman.extraFieldActionPreserve'))}</option>
+                      <option value="legacy">${escapeHtml(t('spoolman.extraFieldActionLegacy'))}</option>
+                    </select>` : escapeHtml(t('spoolman.extraFieldActionPreserve'))}</td>
+                  </tr>`
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
       `
     }
@@ -654,12 +699,17 @@ import Layout from '../../../layouts/Layout.astro'
           : ['dropdown', 'multiselect'].includes(mapping.field_type)
             ? (mapping.options || []).join(', ')
             : ''
+        const actionOptions = `
+          <option value="system">${escapeHtml(mapping.existing ? t('spoolman.extraFieldActionReuseSystem') : t('spoolman.extraFieldActionSystem'))}</option>
+          <option value="local"${mapping.existing ? ' disabled' : ''}>${escapeHtml(t('spoolman.extraFieldActionLocal'))}</option>
+          <option value="preserve">${escapeHtml(t('spoolman.extraFieldActionPreserve'))}</option>`
         return `
           <tr data-repair-index="${index}">
             <td><input type="checkbox" class="repair-approve"${disabled ? ' disabled' : ''} aria-label="${escapeHtml(t('spoolman.repairApprove'))}" /></td>
             <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" />${samples ? `<div style="margin-top:6px;color:var(--text-muted);font-size:0.78rem;overflow-wrap:anywhere;"><strong>${escapeHtml(t('spoolman.repairSamples'))}:</strong> ${escapeHtml(samples)}</div>` : ''}</td>
             <td><select class="fm-select repair-type" style="min-width:160px;"${disabled ? ' disabled' : ''}>${options}</select></td>
             <td><input class="fm-input repair-details" value="${escapeHtml(details)}" style="min-width:150px;"${disabled ? ' disabled' : ''} /></td>
+            <td><select class="fm-select repair-action" style="min-width:180px;"${disabled ? ' disabled' : ''}>${actionOptions}</select></td>
             <td>${escapeHtml(mapping.confidence || mapping.status)}</td>
           </tr>
         `
@@ -672,7 +722,7 @@ import Layout from '../../../layouts/Layout.astro'
           ${repairMetric(t('spoolman.repairCollisions'), summary.collisions)}
           ${repairMetric(t('spoolman.repairUnresolved'), summary.unresolved + summary.invalid)}
         </div>
-        ${rows ? `<div style="overflow-x:auto;"><table class="fm-table" style="table-layout:fixed;min-width:850px;"><colgroup><col style="width:9%"><col style="width:29%"><col style="width:18%"><col style="width:18%"><col style="width:14%"></colgroup><thead><tr><th>${escapeHtml(t('spoolman.repairApprove'))}</th><th>${escapeHtml(t('spoolman.repairField'))}</th><th>${escapeHtml(t('spoolman.repairType'))}</th><th>${escapeHtml(t('spoolman.repairDetails'))}</th><th>${escapeHtml(t('spoolman.repairConfidence'))}</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+        ${rows ? `<div style="overflow-x:auto;"><table class="fm-table" style="table-layout:fixed;min-width:1050px;"><colgroup><col style="width:8%"><col style="width:25%"><col style="width:16%"><col style="width:16%"><col style="width:20%"><col style="width:13%"></colgroup><thead><tr><th>${escapeHtml(t('spoolman.repairApprove'))}</th><th>${escapeHtml(t('spoolman.repairField'))}</th><th>${escapeHtml(t('spoolman.repairType'))}</th><th>${escapeHtml(t('spoolman.repairDetails'))}</th><th>${escapeHtml(t('spoolman.extraFieldAction'))}</th><th>${escapeHtml(t('spoolman.repairConfidence'))}</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
       `
     }
 
@@ -737,6 +787,7 @@ import Layout from '../../../layouts/Layout.astro'
           field_type: fieldType,
           config,
           options,
+          action: row.querySelector<HTMLSelectElement>('.repair-action')?.value || 'system',
         }]
       })
       if (!approved.length) {
@@ -771,6 +822,7 @@ import Layout from '../../../layouts/Layout.astro'
             <strong>${escapeHtml(t('spoolman.repairComplete'))}</strong>
             <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-size:0.88rem;">
               <span>${escapeHtml(t('spoolman.repairDefinitionsCreated'))}: ${data.definitions_created}</span>
+              <span>${escapeHtml(t('spoolman.repairLocalDefinitionsCreated'))}: ${data.local_definitions_created || 0}</span>
               <span>${escapeHtml(t('spoolman.repairRecordsUpdated'))}: ${data.records_updated}</span>
               <span>${escapeHtml(t('spoolman.repairValuesPromoted'))}: ${data.values_promoted}</span>
               <span>${escapeHtml(t('spoolman.repairValuesPreserved'))}: ${data.values_preserved}</span>

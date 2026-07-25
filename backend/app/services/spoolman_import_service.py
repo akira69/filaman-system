@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Standard-Timeout fuer HTTP-Requests
 HTTP_TIMEOUT = 30.0
+EXTRA_FIELD_IMPORT_MODES = {"legacy", "system", "local", "preserve"}
 
 
 class SpoolmanImportError(Exception):
@@ -86,6 +87,7 @@ class ImportResult:
     extra_fields_conflicted: int = 0
     extra_values_promoted: int = 0
     extra_values_preserved: int = 0
+    extra_local_definitions: int = 0
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -450,9 +452,18 @@ class SpoolmanImportService:
     # ------------------------------------------------------------------ #
 
     async def execute(
-        self, base_url: str, expected_extra_field_fingerprint: str | None = None
+        self,
+        base_url: str,
+        expected_extra_field_fingerprint: str | None = None,
+        extra_field_mode: str = "legacy",
+        field_actions: list[dict[str, Any]] | None = None,
     ) -> ImportResult:
         """Vollstaendigen Import aus Spoolman ausfuehren."""
+        if extra_field_mode not in EXTRA_FIELD_IMPORT_MODES:
+            raise SpoolmanImportError(
+                f"Unsupported extra field import mode: {extra_field_mode}",
+                "invalid_extra_field_mode",
+            )
         result = ImportResult()
         preview = await self.preview(base_url)
         repair_candidates = await self.analyze_transparency_repairs(
@@ -469,7 +480,10 @@ class SpoolmanImportService:
         result.warnings.extend(preview.warnings)
 
         field_mappings = await self._import_extra_field_definitions(
-            preview.field_definitions, result
+            preview.field_definitions,
+            result,
+            extra_field_mode,
+            field_actions or [],
         )
 
         # 1. Spool-Status-Mapping laden
@@ -497,6 +511,7 @@ class SpoolmanImportService:
             result,
             field_mappings,
             "filament" in preview.available_field_targets,
+            extra_field_mode == "legacy",
         )
 
         # 6. Spools importieren
@@ -509,6 +524,7 @@ class SpoolmanImportService:
             result,
             field_mappings,
             "spool" in preview.available_field_targets,
+            extra_field_mode == "legacy",
         )
 
         await self.db.commit()
@@ -756,7 +772,30 @@ class SpoolmanImportService:
         self,
         definitions: dict[str, list[dict[str, Any]]],
         result: ImportResult,
+        default_action: str = "system",
+        field_actions: list[dict[str, Any]] | None = None,
     ) -> dict[tuple[str, str], dict[str, Any]]:
+        if default_action not in EXTRA_FIELD_IMPORT_MODES:
+            raise SpoolmanImportError(
+                f"Unsupported extra field import mode: {default_action}",
+                "invalid_extra_field_mode",
+            )
+        overrides: dict[tuple[str, str], str] = {}
+        for item in field_actions or []:
+            target = item.get("target_type")
+            key = item.get("key")
+            action = item.get("action")
+            if (
+                target not in {"filament", "spool"}
+                or not isinstance(key, str)
+                or action not in EXTRA_FIELD_IMPORT_MODES
+            ):
+                raise SpoolmanImportError(
+                    "Invalid per-field extra field action.",
+                    "invalid_extra_field_action",
+                )
+            overrides[(target, key)] = action
+
         existing_result = await self.db.execute(select(SystemExtraField))
         existing = {
             (item.target_type, item.key): item for item in existing_result.scalars()
@@ -770,6 +809,12 @@ class SpoolmanImportService:
                 key=lambda item: (item.get("order", 0), item.get("key", "")),
             )
             for definition in ordered:
+                source_key = definition.get("key")
+                source_identity = (target, source_key)
+                action = overrides.get(source_identity, default_action)
+                if action in {"legacy", "preserve"} and isinstance(source_key, str):
+                    mappings[source_identity] = {"storage": action}
+                    continue
                 try:
                     mapped = map_spoolman_definition(definition, target)
                 except SpoolmanFieldError as exc:
@@ -779,12 +824,26 @@ class SpoolmanImportService:
                     )
                     continue
                 identity = (target, mapped["key"])
+                action = overrides.get(identity, action)
+                mapped["storage"] = action
                 local = existing.get(identity)
+                if action == "local":
+                    if local is not None:
+                        result.extra_fields_conflicted += 1
+                        result.warnings.append(
+                            f"Extra field {target}.{mapped['key']} conflicts "
+                            "with a System Extra Field."
+                        )
+                        continue
+                    mappings[identity] = mapped
+                    result.extra_local_definitions += 1
+                    continue
                 if local is not None:
                     if not definitions_compatible(mapped, local):
                         result.extra_fields_conflicted += 1
                         result.warnings.append(
-                            f"Extra field {target}.{mapped['key']} conflicts with a local definition."
+                            f"Extra field {target}.{mapped['key']} conflicts "
+                            "with a local definition."
                         )
                         continue
                     result.extra_fields_reused += 1
@@ -1013,6 +1072,7 @@ class SpoolmanImportService:
         result: ImportResult,
         field_mappings: dict[tuple[str, str], dict[str, Any]],
         authoritative_fields_available: bool,
+        clean_unmapped_extra_values: bool = False,
     ) -> dict[int, int]:
         """Filamente importieren. Gibt Spoolman-Filament-ID -> FilaMan-ID."""
         fil_map: dict[int, int] = {}
@@ -1132,13 +1192,15 @@ class SpoolmanImportService:
                     if bt:
                         custom["settings_bed_temp"] = bt
                 # Restliche Extra-Felder als JSON speichern
-                promoted, remaining = self._promote_extra_values(
+                promoted, local_definitions, remaining = self._promote_extra_values(
                     "filament",
                     extra,
                     extracted_keys,
                     field_mappings,
                     result,
                     authoritative_fields_available,
+                    set(custom),
+                    clean_unmapped_extra_values,
                 )
                 custom.update(promoted)
                 if remaining:
@@ -1159,6 +1221,7 @@ class SpoolmanImportService:
                     color_mode=color_mode,
                     multi_color_style=multi_color_style,
                     custom_fields=custom if custom else None,
+                    custom_field_definitions=local_definitions or None,
                 )
                 self.db.add(new_fil)
                 await self.db.flush()
@@ -1211,6 +1274,7 @@ class SpoolmanImportService:
         result: ImportResult,
         field_mappings: dict[tuple[str, str], dict[str, Any]],
         authoritative_fields_available: bool,
+        clean_unmapped_extra_values: bool = False,
     ) -> None:
         """Spools importieren."""
         for spool_data in spools:
@@ -1370,13 +1434,19 @@ class SpoolmanImportService:
             if spool_comment:
                 custom["comment"] = spool_comment
             if extra and isinstance(extra, dict):
-                promoted, remaining_extra = self._promote_extra_values(
+                (
+                    promoted,
+                    local_definitions,
+                    remaining_extra,
+                ) = self._promote_extra_values(
                     "spool",
                     extra,
                     extracted_keys,
                     field_mappings,
                     result,
                     authoritative_fields_available,
+                    set(custom),
+                    clean_unmapped_extra_values,
                 )
                 custom.update(promoted)
                 if remaining_extra:
@@ -1400,6 +1470,7 @@ class SpoolmanImportService:
                         empty_spool_weight_g=spool_weight,
                         remaining_weight_g=remaining_weight,
                         custom_fields=custom if custom else None,
+                        custom_field_definitions=local_definitions or None,
                     )
                     self.db.add(new_spool)
                     await self.db.flush()
@@ -1496,8 +1567,11 @@ class SpoolmanImportService:
         mappings: dict[tuple[str, str], dict[str, Any]],
         result: ImportResult,
         authoritative_fields_available: bool = True,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        reserved_keys: set[str] | None = None,
+        clean_unmapped_values: bool = False,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         promoted: dict[str, Any] = {}
+        local_definitions: dict[str, Any] = {}
         preserved: dict[str, Any] = {}
         for key, raw in extra.items():
             if key in extracted:
@@ -1506,13 +1580,30 @@ class SpoolmanImportService:
             if mapping is None:
                 preserved[key] = (
                     raw
-                    if authoritative_fields_available
+                    if authoritative_fields_available and not clean_unmapped_values
                     else SpoolmanImportService._clean_dict({key: raw})[key]
                 )
                 result.extra_values_preserved += 1
                 continue
+            storage = mapping.get("storage")
+            if storage in {"legacy", "preserve"}:
+                preserved[key] = (
+                    SpoolmanImportService._clean_dict({key: raw})[key]
+                    if storage == "legacy"
+                    else raw
+                )
+                result.extra_values_preserved += 1
+                continue
+            destination_key = mapping.get("destination_key", key)
+            if (
+                destination_key in (reserved_keys or set())
+                or destination_key in promoted
+            ):
+                preserved[key] = raw
+                result.extra_values_preserved += 1
+                continue
             try:
-                promoted[key] = convert_spoolman_value(
+                promoted[destination_key] = convert_spoolman_value(
                     raw,
                     mapping["source_field_type"],
                     mapping.get("options"),
@@ -1520,8 +1611,15 @@ class SpoolmanImportService:
                     if mapping["source_field_type"] == "choice"
                     else None,
                 )
+                if mapping.get("storage") == "local":
+                    local_definitions[destination_key] = {
+                        "label": mapping["label"],
+                        "field_type": mapping["field_type"],
+                        "options": mapping.get("options"),
+                        "config": mapping.get("config"),
+                    }
                 result.extra_values_promoted += 1
             except SpoolmanFieldError:
                 preserved[key] = raw
                 result.extra_values_preserved += 1
-        return promoted, preserved
+        return promoted, local_definitions, preserved

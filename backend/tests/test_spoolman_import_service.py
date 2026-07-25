@@ -618,7 +618,7 @@ async def test_import_creates_editable_definitions_and_promotes_values(db_sessio
     result = ImportResult()
 
     mappings = await service._import_extra_field_definitions(_definitions(), result)
-    promoted, preserved = service._promote_extra_values(
+    promoted, local_definitions, preserved = service._promote_extra_values(
         "filament",
         {"nozzle_range": "[190,230]", "materials": '["PLA"]', "unknown": '"keep"'},
         set(),
@@ -631,6 +631,7 @@ async def test_import_creates_editable_definitions_and_promotes_values(db_sessio
         "materials": ["PLA"],
     }
     assert preserved == {"unknown": '"keep"'}
+    assert local_definitions == {}
     assert result.extra_fields_created == 2
     assert result.extra_values_promoted == 2
     assert result.extra_values_preserved == 1
@@ -653,11 +654,12 @@ async def test_existing_incompatible_definition_preserves_source_value(db_sessio
     result = ImportResult()
 
     mappings = await service._import_extra_field_definitions(_definitions(), result)
-    promoted, preserved = service._promote_extra_values(
+    promoted, local_definitions, preserved = service._promote_extra_values(
         "filament", {"nozzle_range": "[190,230]"}, set(), mappings, result
     )
 
     assert promoted == {}
+    assert local_definitions == {}
     assert preserved == {"nozzle_range": "[190,230]"}
     assert result.extra_fields_conflicted == 1
 
@@ -687,7 +689,7 @@ def test_unavailable_field_endpoint_preserves_legacy_cleaned_extra_shape(db_sess
     service = SpoolmanImportService(db_session)
     result = ImportResult()
 
-    promoted, preserved = service._promote_extra_values(
+    promoted, local_definitions, preserved = service._promote_extra_values(
         "filament",
         {"profile": '"PLA"', "numeric_text": "00123"},
         set(),
@@ -697,7 +699,98 @@ def test_unavailable_field_endpoint_preserves_legacy_cleaned_extra_shape(db_sess
     )
 
     assert promoted == {}
+    assert local_definitions == {}
     assert preserved == {"profile": "PLA", "numeric_text": "00123"}
+
+
+async def test_local_mode_promotes_values_without_system_definitions(db_session):
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    mappings = await service._import_extra_field_definitions(
+        _definitions(), result, default_action="local"
+    )
+    promoted, local_definitions, preserved = service._promote_extra_values(
+        "filament",
+        {"nozzle_range": "[190,230]", "unknown": '"keep"'},
+        set(),
+        mappings,
+        result,
+    )
+
+    assert promoted == {"nozzle_range": {"min": 190, "max": 230}}
+    assert local_definitions["nozzle_range"]["field_type"] == "range"
+    assert local_definitions["nozzle_range"]["config"]["unit"] == "°C"
+    assert preserved == {"unknown": '"keep"'}
+    assert await db_session.scalar(select(SystemExtraField)) is None
+
+
+async def test_legacy_mode_preserves_values_and_creates_no_definitions(db_session):
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    mappings = await service._import_extra_field_definitions(
+        _definitions(), result, default_action="legacy"
+    )
+    promoted, local_definitions, preserved = service._promote_extra_values(
+        "filament",
+        {"nozzle_range": '"[190,230]"', "unknown": '"keep"'},
+        set(),
+        mappings,
+        result,
+        clean_unmapped_values=True,
+    )
+
+    assert promoted == {}
+    assert local_definitions == {}
+    assert preserved == {"nozzle_range": "[190,230]", "unknown": "keep"}
+    assert await db_session.scalar(select(SystemExtraField)) is None
+
+
+async def test_preserve_mode_keeps_raw_values(db_session):
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    mappings = await service._import_extra_field_definitions(
+        _definitions(), result, default_action="preserve"
+    )
+    promoted, local_definitions, preserved = service._promote_extra_values(
+        "filament",
+        {"nozzle_range": '"[190,230]"'},
+        set(),
+        mappings,
+        result,
+    )
+
+    assert promoted == {}
+    assert local_definitions == {}
+    assert preserved == {"nozzle_range": '"[190,230]"'}
+    assert await db_session.scalar(select(SystemExtraField)) is None
+
+
+async def test_per_field_action_overrides_global_mode(db_session):
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    mappings = await service._import_extra_field_definitions(
+        _definitions(),
+        result,
+        default_action="preserve",
+        field_actions=[
+            {
+                "target_type": "filament",
+                "key": "nozzle_range",
+                "action": "system",
+            }
+        ],
+    )
+
+    assert mappings[("filament", "nozzle_range")]["storage"] == "system"
+    assert mappings[("filament", "materials")] == {"storage": "preserve"}
+    definition = await db_session.scalar(
+        select(SystemExtraField).where(SystemExtraField.key == "nozzle_range")
+    )
+    assert definition is not None
 
 
 async def test_supported_empty_field_endpoints_still_return_preview_fingerprint(
@@ -780,4 +873,60 @@ async def test_legacy_admin_execute_shape_is_unchanged_without_field_changes(
         "spools_skipped",
         "errors",
         "warnings",
+    }
+
+
+async def test_admin_execute_passes_explicit_extra_field_choices(
+    auth_client, monkeypatch
+):
+    client, csrf = auth_client
+    captured = {}
+
+    async def execute_with_fields(
+        self,
+        url,
+        expected_extra_field_fingerprint=None,
+        extra_field_mode="legacy",
+        field_actions=None,
+    ):
+        captured.update(
+            {
+                "url": url,
+                "fingerprint": expected_extra_field_fingerprint,
+                "mode": extra_field_mode,
+                "actions": field_actions,
+            }
+        )
+        return ImportResult()
+
+    monkeypatch.setattr(SpoolmanImportService, "execute", execute_with_fields)
+    response = await client.post(
+        "/api/v1/admin/system/spoolman-import/execute",
+        json={
+            "url": "http://spoolman",
+            "extra_field_fingerprint": "current",
+            "extra_field_mode": "local",
+            "field_actions": [
+                {
+                    "target_type": "filament",
+                    "key": "nozzle_range",
+                    "action": "system",
+                }
+            ],
+        },
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "url": "http://spoolman",
+        "fingerprint": "current",
+        "mode": "local",
+        "actions": [
+            {
+                "target_type": "filament",
+                "key": "nozzle_range",
+                "action": "system",
+            }
+        ],
     }

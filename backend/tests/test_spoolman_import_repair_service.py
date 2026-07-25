@@ -89,6 +89,52 @@ async def test_offline_execute_promotes_only_approved_values(db_session):
     assert definition.source is None
 
 
+async def test_offline_repair_can_create_record_local_definition(db_session):
+    filament = await _legacy_filament(
+        db_session,
+        {
+            "spoolman_id": 12,
+            "spoolman_extra": {"drying_temperature": "55"},
+        },
+    )
+    service = SpoolmanImportRepairService(db_session)
+    preview = await service.preview("offline")
+    approved = [{**preview["mappings"][0], "action": "local"}]
+
+    result = await service.execute(
+        "offline", preview["preview_fingerprint"], approved
+    )
+
+    assert result["definitions_created"] == 0
+    assert result["local_definitions_created"] == 1
+    await db_session.refresh(filament)
+    assert filament.custom_fields["drying_temperature"] == 55
+    assert (
+        filament.custom_field_definitions["drying_temperature"]["field_type"]
+        == "number"
+    )
+    assert await db_session.scalar(select(SystemExtraField)) is None
+
+
+async def test_offline_repair_can_explicitly_preserve_value(db_session):
+    filament = await _legacy_filament(
+        db_session,
+        {"spoolman_id": 12, "spoolman_extra": {"dry": "true"}},
+    )
+    service = SpoolmanImportRepairService(db_session)
+    preview = await service.preview("offline")
+    approved = [{**preview["mappings"][0], "action": "preserve"}]
+
+    result = await service.execute(
+        "offline", preview["preview_fingerprint"], approved
+    )
+
+    assert result["records_updated"] == 0
+    assert result["values_promoted"] == 0
+    await db_session.refresh(filament)
+    assert filament.custom_fields["spoolman_extra"] == {"dry": "true"}
+
+
 async def test_repair_never_overwrites_top_level_value(db_session):
     filament = await _legacy_filament(
         db_session,

@@ -79,6 +79,7 @@ class SpoolmanImportRepairService:
                 if local is not None and not definitions_compatible(item, local)
                 else "ready"
             )
+            item["suggested_action"] = "system"
             item.setdefault(
                 "confidence", "authoritative" if mode == "server" else "low"
             )
@@ -165,9 +166,18 @@ class SpoolmanImportRepairService:
                     f"Field {identity[0]}.{identity[1]} is not repairable.",
                     "invalid_mapping",
                 )
+            if item["action"] == "local" and current_keys[identity].get("existing"):
+                raise SpoolmanRepairError(
+                    f"Field {identity[0]}.{identity[1]} already has "
+                    "a System Extra Field.",
+                    "field_conflict",
+                )
             mappings[identity] = item
 
-        definitions_created = await self._create_definitions(mappings.values())
+        definitions_created = await self._create_definitions(
+            item for item in mappings.values() if item["action"] == "system"
+        )
+        local_definitions_created = 0
         values_promoted = 0
         records_updated = 0
         values_preserved = 0
@@ -182,12 +192,29 @@ class SpoolmanImportRepairService:
                 if mapping is None or key in custom:
                     values_preserved += 1
                     continue
+                if mapping["action"] == "preserve":
+                    values_preserved += 1
+                    continue
+                current_local = (row["model"].custom_field_definitions or {}).get(key)
+                if (
+                    mapping["action"] == "local"
+                    and current_local is not None
+                    and not self._local_definitions_compatible(mapping, current_local)
+                ):
+                    values_preserved += 1
+                    continue
                 try:
                     custom[key] = self._convert_approved(raw, mapping)
                 except SpoolmanFieldError:
                     values_preserved += 1
                     continue
                 del nested[key]
+                if mapping["action"] == "local":
+                    definitions = dict(row["model"].custom_field_definitions or {})
+                    if key not in definitions:
+                        definitions[key] = self._local_definition(mapping)
+                        local_definitions_created += 1
+                    row["model"].custom_field_definitions = definitions
                 changed = True
                 values_promoted += 1
             if not changed:
@@ -215,6 +242,7 @@ class SpoolmanImportRepairService:
 
         return {
             "definitions_created": definitions_created,
+            "local_definitions_created": local_definitions_created,
             "records_updated": records_updated,
             "values_promoted": values_promoted,
             "values_preserved": values_preserved,
@@ -326,6 +354,11 @@ class SpoolmanImportRepairService:
         options = item.get("options")
         config = item.get("config")
         default_value = item.get("default_value")
+        action = item.get("action", "system")
+        if action not in {"system", "local", "preserve"}:
+            raise SpoolmanRepairError(
+                "Approved mapping has an invalid action.", "invalid_mapping"
+            )
         if options is not None and (
             not isinstance(options, list)
             or not all(isinstance(option, str) for option in options)
@@ -354,7 +387,26 @@ class SpoolmanImportRepairService:
             "config": config,
             "default_value": default_value,
             "source_field_type": item.get("source_field_type"),
+            "action": action,
         }
+
+    @staticmethod
+    def _local_definition(mapping: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "label": mapping["label"],
+            "field_type": mapping["field_type"],
+            "options": mapping.get("options"),
+            "config": mapping.get("config"),
+        }
+
+    @staticmethod
+    def _local_definitions_compatible(
+        mapping: dict[str, Any], existing: dict[str, Any]
+    ) -> bool:
+        return all(
+            existing.get(key) == mapping.get(key)
+            for key in ("field_type", "options", "config")
+        )
 
     async def _create_definitions(self, mappings: Any) -> int:
         existing = await self._existing_definitions()
