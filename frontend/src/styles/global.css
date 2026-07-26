@@ -327,6 +327,334 @@ body {
   white-space: nowrap;
 }
 
+/* Header column filters */
+.fm-filter-search-wrap {
+  flex: 1;
+  max-width: 400px;
+  min-width: 200px;
+  position: relative;
+}
+
+.fm-filter-search-wrap .fm-input-search {
+  max-width: none !important;
+  padding-right: 36px;
+  width: 100%;
+}
+
+.fm-filter-search-clear {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  font-size: 1.2rem;
+  height: 28px;
+  justify-content: center;
+  line-height: 1;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+}
+
+.fm-filter-search-clear:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.fm-header-filter-wrap {
+  float: right;
+  margin-left: 6px;
+  position: static;
+}
+
+.fm-header-filter-trigger {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  padding: 3px;
+  position: relative;
+}
+
+.fm-header-sort-trigger {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  padding: 3px;
+}
+
+.fm-header-sort-trigger:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.fm-header-sort-icon-asc,
+.fm-header-sort-icon-desc {
+  display: none;
+}
+
+th.sort-asc .fm-header-sort-trigger,
+th.sort-desc .fm-header-sort-trigger {
+  color: var(--accent);
+}
+
+th.sort-asc .fm-header-sort-icon-neutral,
+th.sort-desc .fm-header-sort-icon-neutral {
+  display: none;
+}
+
+th.sort-asc .fm-header-sort-icon-asc,
+th.sort-desc .fm-header-sort-icon-desc {
+  display: inline;
+}
+
+.fm-header-filter-trigger:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.fm-header-filter-trigger.active {
+  color: var(--accent);
+}
+
+.fm-header-filter-trigger.pending::after {
+  background: var(--accent-3);
+  border: 1px solid var(--bg-soft);
+  border-radius: 50%;
+  content: '';
+  height: 6px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 6px;
+}
+
+.fm-header-filter-panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  display: none;
+  cursor: default;
+  min-width: 300px;
+  padding: 12px;
+  position: fixed;
+  text-align: left;
+  z-index: 1000;
+}
+
+.fm-header-filter-panel.open {
+  display: block;
+}
+
+.fm-header-filter-search {
+  height: 34px;
+}
+
+.fm-header-filter-typed-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.fm-header-filter-operator,
+.fm-header-filter-value {
+  height: 36px;
+}
+
+.fm-header-filter-selection-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 8px;
+}
+
+.fm-header-filter-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.fm-header-filter-option {
+  align-items: center;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.8rem;
+  gap: 8px;
+  padding: 4px 6px;
+}
+
+.fm-header-filter-option:hover {
+  background: var(--bg-soft);
+}
+
+.fm-header-filter-color-dots {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.fm-header-filter-color-dot {
+  border: 1px solid color-mix(in srgb, var(--text) 28%, transparent);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 14%, transparent);
+  display: inline-block;
+  height: 15px;
+  width: 15px;
+}
+
+.fm-header-filter-list.fm-header-filter-color-grid {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding: 2px;
+}
+
+.fm-header-filter-color-option {
+  cursor: pointer;
+  position: relative;
+}
+
+.fm-header-filter-color-option input {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.fm-header-filter-color-tile {
+  align-items: center;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.fm-header-filter-color-option:hover .fm-header-filter-color-tile {
+  border-color: var(--text-muted);
+  transform: scale(1.06);
+}
+
+.fm-header-filter-color-option input:checked + .fm-header-filter-color-tile {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.fm-header-filter-color-tile .fm-header-filter-color-dot {
+  height: 24px;
+  width: 24px;
+}
+
+.fm-header-filter-empty-swatch {
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+.fm-sr-only {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.fm-header-filter-empty-text {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 6px;
+}
+
+.fm-header-filter-actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.fm-header-filter-grid-toggle {
+  align-items: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.72rem;
+  gap: 6px;
+  margin-left: auto;
+  position: relative;
+  white-space: nowrap;
+}
+
+.fm-header-filter-grid-toggle input {
+  cursor: pointer;
+  height: 18px;
+  left: 0;
+  opacity: 0;
+  position: absolute;
+  width: 32px;
+  z-index: 1;
+}
+
+.fm-header-filter-grid-toggle-track {
+  background: var(--border);
+  border-radius: 999px;
+  display: inline-block;
+  height: 18px;
+  position: relative;
+  transition: background 120ms ease;
+  width: 32px;
+}
+
+.fm-header-filter-grid-toggle-track::after {
+  background: var(--bg-elevated);
+  border-radius: 50%;
+  box-shadow: var(--shadow-sm);
+  content: '';
+  height: 14px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform 120ms ease;
+  width: 14px;
+}
+
+.fm-header-filter-grid-toggle input:checked + .fm-header-filter-grid-toggle-track {
+  background: var(--accent);
+}
+
+.fm-header-filter-grid-toggle input:checked + .fm-header-filter-grid-toggle-track::after {
+  transform: translateX(14px);
+}
+
+.fm-header-filter-grid-toggle input:focus-visible + .fm-header-filter-grid-toggle-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.fm-header-filter-action {
+  border-radius: 8px;
+  font-size: 0.72rem;
+  min-height: 32px;
+  padding: 6px 8px;
+}
+
+.fm-header-filter-selection-actions .fm-header-filter-action {
+  width: 100%;
+}
 .preset-action-btn:hover {
   background: var(--bg-elevated);
 }
