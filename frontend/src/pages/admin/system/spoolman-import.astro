@@ -99,6 +99,17 @@ import Layout from '../../../layouts/Layout.astro'
     import { t, initI18n } from '../../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
     import { toColorSwatchBackground } from '../../../lib/colors'
+    import {
+      RepairMappingValidationError,
+      buildImportFieldActions,
+      buildRepairMappingPayload,
+      repairDetailsState,
+      repairFieldTypes,
+      type ImportStorageAction,
+      type RepairFieldType,
+      type RepairMapping,
+      type RepairStorageAction,
+    } from '../../../lib/spoolman-extra-field-ui'
     await initI18n()
 
     let connectedUrl = ''
@@ -517,15 +528,15 @@ import Layout from '../../../layouts/Layout.astro'
           extra_field_fingerprint: previewData?.extra_field_fingerprint || null,
           extra_field_mode: (document.getElementById('extra-field-mode') as HTMLSelectElement)
             ?.value,
-          field_actions: Array.from(
-            document.querySelectorAll<HTMLSelectElement>('.import-field-action')
-          )
-            .filter((select) => select.value !== 'inherit')
-            .map((select) => ({
-              target_type: select.dataset.target,
-              key: select.dataset.key,
-              action: select.value,
-            })),
+          field_actions: buildImportFieldActions(
+            Array.from(document.querySelectorAll<HTMLSelectElement>('.import-field-action')).map(
+              (select) => ({
+                targetType: select.dataset.target,
+                key: select.dataset.key,
+                action: select.value as ImportStorageAction,
+              }),
+            ),
+          ),
         }),
         restoreButton: () => {
           button.textContent = t('spoolman.startImport')
@@ -661,10 +672,13 @@ import Layout from '../../../layouts/Layout.astro'
               <tbody>
                 ${fields.map((field: any) => {
                   const supportsTypedImport = ['filament', 'spool'].includes(field.target_type)
-                  const systemUnavailable = ['conflict', 'unsupported'].includes(field.status)
+                  const systemUnavailable = ['conflict', 'unsupported'].includes(field.status) || Boolean(field.system_conflict)
                   const localUnavailable = ['reuse', 'conflict', 'unsupported'].includes(field.status)
+                  const retainedConflict = field.system_conflict
+                    ? `<br><span style="color:var(--error-text);font-size:0.78rem;">${escapeHtml(t('spoolman.extraFieldRetainedConflict').replace('{count}', String(field.system_conflict.count)))}</span>`
+                    : ''
                   return `<tr>
-                    <td><strong>${escapeHtml(field.target_type)}.${escapeHtml(field.key || '')}</strong><br><span style="color:var(--text-muted);font-size:0.78rem;">${escapeHtml(field.label || field.reason || '')}</span></td>
+                    <td><strong>${escapeHtml(field.target_type)}.${escapeHtml(field.key || '')}</strong><br><span style="color:var(--text-muted);font-size:0.78rem;">${escapeHtml(field.label || field.reason || '')}</span>${retainedConflict}</td>
                     <td>${escapeHtml(field.field_type || field.status)}</td>
                     <td>${supportsTypedImport ? `<select class="fm-select import-field-action" data-target="${escapeHtml(field.target_type)}" data-key="${escapeHtml(field.key || '')}">
                       <option value="inherit">${escapeHtml(t('spoolman.extraFieldActionDefault'))}</option>
@@ -689,26 +703,28 @@ import Layout from '../../../layouts/Layout.astro'
     function renderRepairPreview(data: any): string {
       const summary = data.summary
       const mappings = data.mappings || []
-      const typeOptions = ['text', 'number', 'range', 'dropdown', 'multiselect', 'checkbox', 'date', 'datetime', 'url', 'textarea']
       const rows = mappings.map((mapping: any, index: number) => {
         const disabled = mapping.status !== 'ready' || mapping.confidence === 'unresolved'
-        const options = typeOptions.map(type => `<option value="${type}"${type === mapping.field_type ? ' selected' : ''}>${type}</option>`).join('')
+        const options = repairFieldTypes.map(type => `<option value="${type}"${type === mapping.field_type ? ' selected' : ''}>${type}</option>`).join('')
         const samples = (mapping.samples || []).map((value: any) => typeof value === 'string' ? value : JSON.stringify(value)).join(', ')
-        const details = ['number', 'range'].includes(mapping.field_type)
-          ? mapping.config?.unit || ''
-          : ['dropdown', 'multiselect'].includes(mapping.field_type)
-            ? (mapping.options || []).join(', ')
-            : ''
+        const details = repairDetailsState(mapping, mapping.field_type)
+        const systemUnavailable = Boolean(mapping.system_conflict)
+        const retainedConflict = mapping.system_conflict
+          ? `<div style="margin-top:6px;color:var(--error-text);font-size:0.78rem;">${escapeHtml(t('spoolman.extraFieldRetainedConflict').replace('{count}', String(mapping.system_conflict.count)))}</div>`
+          : ''
+        const noPromotable = mapping.status === 'no_promotable'
+          ? `<div style="margin-top:6px;color:var(--text-muted);font-size:0.78rem;">${escapeHtml(t('spoolman.repairNoPromotable'))}</div>`
+          : ''
         const actionOptions = `
-          <option value="system">${escapeHtml(mapping.existing ? t('spoolman.extraFieldActionReuseSystem') : t('spoolman.extraFieldActionSystem'))}</option>
-          <option value="local"${mapping.existing ? ' disabled' : ''}>${escapeHtml(t('spoolman.extraFieldActionLocal'))}</option>
+          <option value="system"${systemUnavailable ? ' disabled' : ''}>${escapeHtml(mapping.existing ? t('spoolman.extraFieldActionReuseSystem') : t('spoolman.extraFieldActionSystem'))}</option>
+          <option value="local"${mapping.existing ? ' disabled' : ''}${systemUnavailable && !mapping.existing ? ' selected' : ''}>${escapeHtml(t('spoolman.extraFieldActionLocal'))}</option>
           <option value="preserve">${escapeHtml(t('spoolman.extraFieldActionPreserve'))}</option>`
         return `
           <tr data-repair-index="${index}">
             <td><input type="checkbox" class="repair-approve"${disabled ? ' disabled' : ''} aria-label="${escapeHtml(t('spoolman.repairApprove'))}" /></td>
-            <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" />${samples ? `<div style="margin-top:6px;color:var(--text-muted);font-size:0.78rem;overflow-wrap:anywhere;"><strong>${escapeHtml(t('spoolman.repairSamples'))}:</strong> ${escapeHtml(samples)}</div>` : ''}</td>
-            <td><select class="fm-select repair-type" style="min-width:160px;"${disabled ? ' disabled' : ''}>${options}</select></td>
-            <td><input class="fm-input repair-details" value="${escapeHtml(details)}" style="min-width:150px;"${disabled ? ' disabled' : ''} /></td>
+            <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" />${samples ? `<div style="margin-top:6px;color:var(--text-muted);font-size:0.78rem;overflow-wrap:anywhere;"><strong>${escapeHtml(t('spoolman.repairSamples'))}:</strong> ${escapeHtml(samples)}</div>` : ''}${retainedConflict}${noPromotable}</td>
+            <td><select class="fm-select repair-type" data-current-type="${escapeHtml(mapping.field_type)}" style="min-width:160px;"${disabled ? ' disabled' : ''}>${options}</select></td>
+            <td><span class="repair-details-label" style="display:block;color:var(--text-muted);font-size:0.75rem;margin-bottom:4px;">${escapeHtml(t(details.kind === 'unit' ? 'spoolman.repairUnit' : details.kind === 'choices' ? 'spoolman.repairChoices' : 'spoolman.repairNotApplicable'))}</span><input class="fm-input repair-details" value="${escapeHtml(details.value)}" placeholder="${escapeHtml(details.kind === 'choices' ? t('spoolman.repairChoicesPlaceholder') : '')}" style="min-width:150px;"${disabled || details.disabled ? ' disabled' : ''}${details.required ? ' required' : ''} /></td>
             <td><select class="fm-select repair-action" style="min-width:180px;"${disabled ? ' disabled' : ''}>${actionOptions}</select></td>
             <td>${escapeHtml(mapping.confidence || mapping.status)}</td>
           </tr>
@@ -755,6 +771,37 @@ import Layout from '../../../layouts/Layout.astro'
         repairPreview = data
         result.style.display = 'block'
         result.innerHTML = renderRepairPreview(data)
+        result.querySelectorAll<HTMLSelectElement>('.repair-type').forEach(select => {
+          select.addEventListener('change', () => {
+            const row = select.closest<HTMLTableRowElement>('tr[data-repair-index]')
+            if (!row || !repairPreview) return
+            const source = repairPreview.mappings[Number(row.dataset.repairIndex)] as RepairMapping
+            const detailsInput = row.querySelector<HTMLInputElement>('.repair-details')
+            const detailsLabel = row.querySelector<HTMLElement>('.repair-details-label')
+            if (!detailsInput || !detailsLabel) return
+            const previousType = select.dataset.currentType as RepairFieldType
+            const nextType = select.value as RepairFieldType
+            const details = repairDetailsState(
+              source,
+              nextType,
+              previousType,
+              detailsInput.value,
+            )
+            select.dataset.currentType = nextType
+            detailsInput.value = details.value
+            detailsInput.disabled = details.disabled
+            detailsInput.required = details.required
+            detailsInput.placeholder =
+              details.kind === 'choices' ? t('spoolman.repairChoicesPlaceholder') : ''
+            detailsLabel.textContent = t(
+              details.kind === 'unit'
+                ? 'spoolman.repairUnit'
+                : details.kind === 'choices'
+                  ? 'spoolman.repairChoices'
+                  : 'spoolman.repairNotApplicable',
+            )
+          })
+        })
         document.getElementById('repair-actions')!.style.display = data.mappings?.length ? 'block' : 'none'
         document.getElementById('repair-result')!.style.display = 'none'
       } catch (error: any) {
@@ -769,27 +816,28 @@ import Layout from '../../../layouts/Layout.astro'
 
     document.getElementById('btn-repair-execute')?.addEventListener('click', async () => {
       if (!repairPreview) return
-      const approved = Array.from(document.querySelectorAll<HTMLTableRowElement>('tr[data-repair-index]')).flatMap(row => {
-        const checkbox = row.querySelector<HTMLInputElement>('.repair-approve')
-        if (!checkbox?.checked) return []
-        const source = repairPreview.mappings[Number(row.dataset.repairIndex)]
-        const fieldType = row.querySelector<HTMLSelectElement>('.repair-type')?.value || source.field_type
-        const details = row.querySelector<HTMLInputElement>('.repair-details')?.value.trim() || ''
-        const config = ['number', 'range'].includes(fieldType)
-          ? { ...(source.config || {}), unit: details || undefined }
-          : null
-        const options = ['dropdown', 'multiselect'].includes(fieldType)
-          ? details.split(',').map((value: string) => value.trim()).filter(Boolean)
-          : null
-        return [{
-          ...source,
-          label: row.querySelector<HTMLInputElement>('.repair-label')?.value.trim() || source.key,
-          field_type: fieldType,
-          config,
-          options,
-          action: row.querySelector<HTMLSelectElement>('.repair-action')?.value || 'system',
-        }]
-      })
+      let approved: RepairMapping[]
+      try {
+        approved = Array.from(document.querySelectorAll<HTMLTableRowElement>('tr[data-repair-index]')).flatMap(row => {
+          const checkbox = row.querySelector<HTMLInputElement>('.repair-approve')
+          if (!checkbox?.checked) return []
+          const source = repairPreview.mappings[Number(row.dataset.repairIndex)] as RepairMapping
+          return [
+            buildRepairMappingPayload(source, {
+              label: row.querySelector<HTMLInputElement>('.repair-label')?.value || source.key,
+              fieldType: (row.querySelector<HTMLSelectElement>('.repair-type')?.value || source.field_type) as RepairFieldType,
+              details: row.querySelector<HTMLInputElement>('.repair-details')?.value || '',
+              action: (row.querySelector<HTMLSelectElement>('.repair-action')?.value || 'system') as RepairStorageAction,
+            }),
+          ]
+        })
+      } catch (error) {
+        if (error instanceof RepairMappingValidationError) {
+          await (window as any).__fmAlert(t('spoolman.repairChoicesRequired'))
+          return
+        }
+        throw error
+      }
       if (!approved.length) {
         await (window as any).__fmAlert(t('spoolman.repairSelectOne'))
         return
