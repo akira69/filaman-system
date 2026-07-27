@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -18,10 +19,14 @@ from app.models.system_extra_field import SystemExtraField
 from app.services.spoolman_extra_field_mapping import (
     SpoolmanFieldError,
     convert_spoolman_value,
+    decode_spoolman_value,
     definitions_compatible,
     fingerprint,
     infer_definition,
     map_spoolman_definition,
+)
+from app.services.system_extra_field_compatibility import (
+    find_definition_value_conflict,
 )
 
 
@@ -83,6 +88,10 @@ class SpoolmanImportRepairService:
             item.setdefault(
                 "confidence", "authoritative" if mode == "server" else "low"
             )
+            if local is None:
+                conflict = await find_definition_value_conflict(self.db, item)
+                if conflict:
+                    item["system_conflict"] = conflict
             samples = item.get(
                 "samples",
                 grouped.get((item["target_type"], item["key"]), [])[:5],
@@ -93,12 +102,16 @@ class SpoolmanImportRepairService:
             )
 
         counts = defaultdict(int)
+        mapping_counts: dict[tuple[str, str], dict[str, int]] = defaultdict(
+            lambda: defaultdict(int)
+        )
         examples: list[dict[str, Any]] = []
         for row in rows:
             for key, raw in row["nested"].items():
                 mapping = mappings_by_key.get((row["target_type"], key))
                 reason = self._classify(row["custom_fields"], key, raw, mapping)
                 counts[reason] += 1
+                mapping_counts[(row["target_type"], key)][reason] += 1
                 if reason != "promotable" and len(examples) < 50:
                     examples.append(
                         {
@@ -109,6 +122,16 @@ class SpoolmanImportRepairService:
                             "reason": reason,
                         }
                     )
+        for item in mappings:
+            item_counts = mapping_counts[(item["target_type"], item["key"])]
+            item["promotable_occurrences"] = item_counts["promotable"]
+            item["preserved_occurrences"] = sum(
+                count
+                for reason, count in item_counts.items()
+                if reason != "promotable"
+            )
+            if item["status"] == "ready" and not item["promotable_occurrences"]:
+                item["status"] = "no_promotable"
 
         snapshot = {
             "rows": [
@@ -172,7 +195,26 @@ class SpoolmanImportRepairService:
                     "a System Extra Field.",
                     "field_conflict",
                 )
+            if item["action"] == "system" and current_keys[identity].get(
+                "system_conflict"
+            ):
+                raise SpoolmanRepairError(
+                    f"Field {identity[0]}.{identity[1]} has incompatible retained "
+                    "record values and cannot become a System Extra Field.",
+                    "retained_value_conflict",
+                )
             mappings[identity] = item
+
+        rows = await self._legacy_rows(include_model=True)
+        for item in mappings.values():
+            if item["action"] == "preserve":
+                continue
+            if not any(self._can_promote_row(row, item) for row in rows):
+                raise SpoolmanRepairError(
+                    f"Field {item['target_type']}.{item['key']} has no values "
+                    "compatible with the approved mapping.",
+                    "no_promotable_values",
+                )
 
         definitions_created = await self._create_definitions(
             item for item in mappings.values() if item["action"] == "system"
@@ -183,7 +225,7 @@ class SpoolmanImportRepairService:
         values_preserved = 0
         report: list[dict[str, Any]] = []
 
-        for row in await self._legacy_rows(include_model=True):
+        for row in rows:
             custom = dict(row["custom_fields"])
             nested = dict(row["nested"])
             changed = False
@@ -366,6 +408,20 @@ class SpoolmanImportRepairService:
             raise SpoolmanRepairError(
                 "Approved mapping has invalid options.", "invalid_mapping"
             )
+        if field_type in {"dropdown", "multiselect"} and not options:
+            raise SpoolmanRepairError(
+                "Dropdown and multi-select mappings require at least one choice.",
+                "invalid_mapping",
+            )
+        if field_type in {"dropdown", "multiselect"}:
+            options = list(
+                dict.fromkeys(option.strip() for option in options if option.strip())
+            )
+            if not options:
+                raise SpoolmanRepairError(
+                    "Dropdown and multi-select mappings require at least one choice.",
+                    "invalid_mapping",
+                )
         if config is not None and not isinstance(config, dict):
             raise SpoolmanRepairError(
                 "Approved mapping has invalid config.", "invalid_mapping"
@@ -408,6 +464,29 @@ class SpoolmanImportRepairService:
             for key in ("field_type", "options", "config")
         )
 
+    def _can_promote_row(
+        self,
+        row: dict[str, Any],
+        mapping: dict[str, Any],
+    ) -> bool:
+        if row["target_type"] != mapping["target_type"]:
+            return False
+        key = mapping["key"]
+        if key not in row["nested"] or key in row["custom_fields"]:
+            return False
+        current_local = (row["model"].custom_field_definitions or {}).get(key)
+        if (
+            mapping["action"] == "local"
+            and current_local is not None
+            and not self._local_definitions_compatible(mapping, current_local)
+        ):
+            return False
+        try:
+            self._convert_approved(row["nested"][key], mapping)
+        except SpoolmanFieldError:
+            return False
+        return True
+
     async def _create_definitions(self, mappings: Any) -> int:
         existing = await self._existing_definitions()
         created = 0
@@ -420,6 +499,17 @@ class SpoolmanImportRepairService:
                         "field_conflict",
                     )
                 continue
+            conflict = await find_definition_value_conflict(self.db, item)
+            if conflict:
+                incompatible_count = conflict["count"]
+                sample_ids = conflict["sample_record_ids"]
+                examples = f" Example record IDs: {sample_ids}." if sample_ids else ""
+                raise SpoolmanRepairError(
+                    f"Field {identity[0]}.{identity[1]} has {incompatible_count} "
+                    "incompatible retained record value(s)."
+                    f"{examples}",
+                    "retained_value_conflict",
+                )
             definition = SystemExtraField(
                 target_type=item["target_type"],
                 key=item["key"],
@@ -440,7 +530,22 @@ class SpoolmanImportRepairService:
     def _convert_approved(raw: Any, mapping: dict[str, Any]) -> Any:
         source_type = mapping.get("source_field_type")
         native_type = mapping["field_type"]
-        if native_type in {"text", "textarea", "url", "date"}:
+        if native_type == "date":
+            value = decode_spoolman_value(raw, "text")
+            if not isinstance(value, str):
+                raise SpoolmanFieldError("expected an ISO-8601 date or datetime")
+            try:
+                return date.fromisoformat(value).isoformat()
+            except ValueError:
+                try:
+                    return datetime.fromisoformat(
+                        value.replace("Z", "+00:00")
+                    ).date().isoformat()
+                except ValueError as exc:
+                    raise SpoolmanFieldError(
+                        "expected an ISO-8601 date or datetime"
+                    ) from exc
+        if native_type in {"text", "textarea", "url"}:
             source_type = "text"
         elif native_type == "datetime":
             source_type = "datetime"

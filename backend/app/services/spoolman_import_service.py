@@ -11,18 +11,21 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import response_cache
 from app.models.filament import Color, Filament, FilamentColor, Manufacturer
 from app.models.location import Location
 from app.models.spool import Spool, SpoolStatus
 from app.utils.colors import normalize_spoolmandb_hex_color
 from app.models.system_extra_field import SystemExtraField
-from app.core.cache import response_cache
 from app.services.spoolman_extra_field_mapping import (
     SpoolmanFieldError,
     convert_spoolman_value,
     definitions_compatible,
     fingerprint,
     map_spoolman_definition,
+)
+from app.services.system_extra_field_compatibility import (
+    find_definition_value_conflict,
 )
 from app.utils.db import json_extract_cast_string
 
@@ -765,6 +768,10 @@ class SpoolmanImportService:
                     if local is not None
                     else "create"
                 )
+                if local is None:
+                    conflict = await find_definition_value_conflict(self.db, mapped)
+                    if conflict:
+                        mapped["system_conflict"] = conflict
                 preview.append(mapped)
         return preview
 
@@ -843,11 +850,26 @@ class SpoolmanImportService:
                         result.extra_fields_conflicted += 1
                         result.warnings.append(
                             f"Extra field {target}.{mapped['key']} conflicts "
-                            "with a local definition."
+                            "with a System Extra Field."
                         )
                         continue
                     result.extra_fields_reused += 1
                 else:
+                    conflict = await find_definition_value_conflict(self.db, mapped)
+                    if conflict:
+                        incompatible_count = conflict["count"]
+                        sample_ids = conflict["sample_record_ids"]
+                        result.extra_fields_conflicted += 1
+                        examples = (
+                            f" (example record IDs: {sample_ids})" if sample_ids else ""
+                        )
+                        result.warnings.append(
+                            f"Extra field {target}.{mapped['key']} was preserved: "
+                            f"{incompatible_count} existing record value(s) are "
+                            "incompatible with the requested System Extra Field"
+                            f"{examples}."
+                        )
+                        continue
                     local = SystemExtraField(
                         target_type=target,
                         key=mapped["key"],

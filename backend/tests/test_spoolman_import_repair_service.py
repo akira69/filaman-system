@@ -1,8 +1,13 @@
+import pytest
 from sqlalchemy import select
 
 from app.models.filament import Filament, Manufacturer
 from app.models.system_extra_field import SystemExtraField
-from app.services.spoolman_import_repair_service import SpoolmanImportRepairService
+from app.services.spoolman_extra_field_mapping import SpoolmanFieldError
+from app.services.spoolman_import_repair_service import (
+    SpoolmanImportRepairService,
+    SpoolmanRepairError,
+)
 
 
 async def _legacy_filament(db_session, custom_fields):
@@ -147,17 +152,128 @@ async def test_repair_never_overwrites_top_level_value(db_session):
     service = SpoolmanImportRepairService(db_session)
     preview = await service.preview("offline")
     assert preview["summary"]["collisions"] == 1
+    assert preview["mappings"][0]["status"] == "no_promotable"
 
     result = await service.execute(
         "offline",
         preview["preview_fingerprint"],
-        preview["mappings"],
+        [],
     )
 
     assert result["values_promoted"] == 0
     await db_session.refresh(filament)
     assert filament.custom_fields["pressure_advance"] == 0.04
     assert filament.custom_fields["spoolman_extra"]["pressure_advance"] == "0.025"
+
+
+async def test_repair_blocks_system_storage_when_retained_value_is_incompatible(
+    db_session,
+):
+    retained = await _legacy_filament(
+        db_session,
+        {
+            "spoolman_id": 12,
+            "pressure_advance": "not a number",
+            "spoolman_extra": {"notes": "keep"},
+        },
+    )
+    repairable = Filament(
+        manufacturer_id=retained.manufacturer_id,
+        designation="Repairable retained value",
+        material_type="PLA",
+        diameter_mm=1.75,
+        custom_fields={
+            "spoolman_id": 13,
+            "spoolman_extra": {"pressure_advance": "0.025"},
+        },
+    )
+    db_session.add(repairable)
+    await db_session.commit()
+    service = SpoolmanImportRepairService(db_session)
+    preview = await service.preview("offline")
+    pressure = next(
+        item for item in preview["mappings"] if item["key"] == "pressure_advance"
+    )
+
+    assert pressure["status"] == "ready"
+    assert pressure["promotable_occurrences"] == 1
+    assert pressure["system_conflict"]["count"] == 1
+    with pytest.raises(SpoolmanRepairError, match="incompatible retained"):
+        await service.execute(
+            "offline",
+            preview["preview_fingerprint"],
+            [{**pressure, "action": "system"}],
+        )
+
+    result = await service.execute(
+        "offline",
+        preview["preview_fingerprint"],
+        [{**pressure, "action": "local"}],
+    )
+    assert result["local_definitions_created"] == 1
+    assert result["values_promoted"] == 1
+    await db_session.refresh(repairable)
+    assert repairable.custom_fields["pressure_advance"] == 0.025
+
+
+def test_repair_date_conversion_accepts_date_or_datetime_only():
+    mapping = {"field_type": "date", "source_field_type": "datetime"}
+
+    assert (
+        SpoolmanImportRepairService._convert_approved(
+            '"2026-07-27T15:45:30Z"', mapping
+        )
+        == "2026-07-27"
+    )
+    assert (
+        SpoolmanImportRepairService._convert_approved('"2026-07-28"', mapping)
+        == "2026-07-28"
+    )
+    with pytest.raises(SpoolmanFieldError, match="ISO-8601"):
+        SpoolmanImportRepairService._convert_approved('"someday"', mapping)
+
+
+def test_repair_choice_mapping_requires_options():
+    with pytest.raises(SpoolmanRepairError, match="at least one choice"):
+        SpoolmanImportRepairService._validate_approved(
+            {
+                "target_type": "filament",
+                "key": "profile",
+                "label": "Profile",
+                "field_type": "dropdown",
+                "options": [],
+                "action": "system",
+            }
+        )
+
+
+async def test_repair_rejects_edited_mapping_that_converts_no_values(db_session):
+    await _legacy_filament(
+        db_session,
+        {
+            "spoolman_id": 12,
+            "spoolman_extra": {"material_profile": '"PLA"'},
+        },
+    )
+    service = SpoolmanImportRepairService(db_session)
+    preview = await service.preview("offline")
+    mapping = preview["mappings"][0]
+
+    with pytest.raises(SpoolmanRepairError, match="no values compatible"):
+        await service.execute(
+            "offline",
+            preview["preview_fingerprint"],
+            [
+                {
+                    **mapping,
+                    "field_type": "dropdown",
+                    "options": ["PETG"],
+                    "action": "system",
+                }
+            ],
+        )
+
+    assert await db_session.scalar(select(SystemExtraField)) is None
 
 
 async def test_repair_is_idempotent(db_session):

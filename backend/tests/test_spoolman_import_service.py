@@ -664,6 +664,63 @@ async def test_existing_incompatible_definition_preserves_source_value(db_sessio
     assert result.extra_fields_conflicted == 1
 
 
+async def test_retained_incompatible_value_blocks_new_system_definition(db_session):
+    manufacturer = Manufacturer(name="Retained Value Test")
+    db_session.add(manufacturer)
+    await db_session.flush()
+    db_session.add(
+        Filament(
+            manufacturer_id=manufacturer.id,
+            designation="Legacy retained value",
+            material_type="PLA",
+            diameter_mm=1.75,
+            custom_fields={"nozzle_range": "not a range"},
+        )
+    )
+    await db_session.commit()
+    service = SpoolmanImportService(db_session)
+
+    preview = await service._preview_extra_field_definitions(_definitions())
+    nozzle_preview = next(item for item in preview if item["key"] == "nozzle_range")
+    assert nozzle_preview["status"] == "create"
+    assert nozzle_preview["system_conflict"]["count"] == 1
+
+    result = ImportResult()
+    mappings = await service._import_extra_field_definitions(_definitions(), result)
+
+    assert ("filament", "nozzle_range") not in mappings
+    assert result.extra_fields_conflicted == 1
+    assert "incompatible with the requested System Extra Field" in result.warnings[0]
+    assert await db_session.scalar(
+        select(SystemExtraField).where(SystemExtraField.key == "nozzle_range")
+    ) is None
+
+
+async def test_retained_value_does_not_block_record_local_import(db_session):
+    manufacturer = Manufacturer(name="Record Local Test")
+    db_session.add(manufacturer)
+    await db_session.flush()
+    db_session.add(
+        Filament(
+            manufacturer_id=manufacturer.id,
+            designation="Legacy retained value",
+            material_type="PLA",
+            diameter_mm=1.75,
+            custom_fields={"nozzle_range": "not a range"},
+        )
+    )
+    await db_session.commit()
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    mappings = await service._import_extra_field_definitions(
+        _definitions(), result, default_action="local"
+    )
+
+    assert mappings[("filament", "nozzle_range")]["storage"] == "local"
+    assert await db_session.scalar(select(SystemExtraField)) is None
+
+
 async def test_field_endpoints_are_optional(db_session):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/field/filament"):

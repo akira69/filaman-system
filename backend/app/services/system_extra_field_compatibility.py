@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any, Literal
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import Filament, Spool
+
 CustomFieldPathState = Literal["missing", "value", "collision"]
+_TARGET_MODELS = {
+    "filament": Filament,
+    "spool": Spool,
+}
 
 
 def resolve_custom_field_value(
@@ -113,6 +123,94 @@ def is_existing_value_compatible(
 
     # Preserve the existing API contract for legacy and plugin-defined types.
     return field_type != "formula"
+
+
+async def find_incompatible_existing_values(
+    db: AsyncSession,
+    *,
+    target_type: str,
+    key: str,
+    field_type: str,
+    options: list[str] | None,
+    config: dict[str, Any] | None,
+    sample_size: int = 5,
+) -> tuple[int, list[int]]:
+    """Find retained values or record-local definitions that block promotion."""
+    model = _TARGET_MODELS.get(target_type)
+    if model is None:
+        return 0, []
+
+    result = await db.stream(
+        select(model.id, model.custom_fields, model.custom_field_definitions)
+    )
+    incompatible_count = 0
+    sample_record_ids: list[int] = []
+    async for record_id, custom_fields, definitions in result:
+        path_state, value = resolve_custom_field_value(custom_fields, key)
+        value_blocks = path_state != "missing" and not (
+            path_state == "value"
+            and is_existing_value_compatible(
+                value,
+                field_type,
+                options,
+                config,
+            )
+        )
+        if not value_blocks and not _local_definition_conflicts(
+            definitions,
+            key,
+            field_type,
+        ):
+            continue
+        incompatible_count += 1
+        if len(sample_record_ids) < sample_size:
+            sample_record_ids.append(record_id)
+
+    return incompatible_count, sample_record_ids
+
+
+def _local_definition_conflicts(
+    definitions: dict[str, Any] | None,
+    key: str,
+    field_type: str,
+) -> bool:
+    """Return whether a record-local definition contradicts a system field."""
+    if not isinstance(definitions, dict):
+        return False
+    for local_key, definition in definitions.items():
+        if not _field_paths_overlap(local_key, key):
+            continue
+        if local_key != key:
+            return True
+        local_type = (definition or {}).get("field_type", "text")
+        if local_type != field_type:
+            return True
+    return False
+
+
+def _field_paths_overlap(left: str, right: str) -> bool:
+    return left == right or left.startswith(f"{right}.") or right.startswith(f"{left}.")
+
+
+async def find_definition_value_conflict(
+    db: AsyncSession,
+    definition: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Describe retained values that block creation of a typed definition."""
+    incompatible_count, sample_ids = await find_incompatible_existing_values(
+        db,
+        target_type=definition["target_type"],
+        key=definition["key"],
+        field_type=definition["field_type"],
+        options=definition.get("options"),
+        config=definition.get("config"),
+    )
+    if not incompatible_count:
+        return None
+    return {
+        "count": incompatible_count,
+        "sample_record_ids": sample_ids,
+    }
 
 
 def _is_finite_number(value: Any) -> bool:
