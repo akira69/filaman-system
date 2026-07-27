@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   RepairMappingValidationError,
+  buildImportExtraFieldResultSummary,
   buildImportFieldActions,
   buildRepairMappingPayload,
   convertRepairExampleValue,
@@ -241,6 +242,39 @@ describe("Spoolman repair payloads", () => {
 });
 
 describe("Spoolman import overrides", () => {
+  it("summarizes created, reused, local, converted, and preserved fields", () => {
+    expect(
+      buildImportExtraFieldResultSummary({
+        extra_fields_created: 6,
+        extra_fields_reused: 2,
+        extra_local_definitions: 1,
+        extra_values_promoted: 29,
+        extra_values_preserved: 3,
+        extra_fields_conflicted: 1,
+      }),
+    ).toEqual({
+      systemCreated: 6,
+      systemReused: 2,
+      localCreated: 1,
+      valuesConverted: 29,
+      valuesPreserved: 3,
+      conflicts: 1,
+      hasActivity: true,
+    });
+  });
+
+  it("hides the extra-field result section when every counter is absent", () => {
+    expect(buildImportExtraFieldResultSummary({})).toEqual({
+      systemCreated: 0,
+      systemReused: 0,
+      localCreated: 0,
+      valuesConverted: 0,
+      valuesPreserved: 0,
+      conflicts: 0,
+      hasActivity: false,
+    });
+  });
+
   it("omits inherited and incomplete selections", () => {
     expect(
       buildImportFieldActions([

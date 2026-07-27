@@ -43,9 +43,10 @@ import Layout from '../../../layouts/Layout.astro'
       <span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 0.85rem; margin-right: 10px;">3</span>
       <span data-i18n="spoolman.stepImport">Import</span>
     </h2>
-    <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;" data-i18n="spoolman.importDesc">Start the import. Existing data will not be overwritten.</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items: flex-start; margin-bottom: 12px;">
-      <div style="max-width:680px;min-width:280px;flex:1 1 auto;">
+    <div id="import-controls">
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;" data-i18n="spoolman.importDesc">Start the import. Existing data will not be overwritten.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items: flex-start; margin-bottom: 12px;">
+        <div style="max-width:680px;min-width:280px;flex:1 1 auto;">
         <label class="fm-label" for="extra-field-mode" data-i18n="spoolman.extraFieldMode">Spoolman extra fields</label>
         <select id="extra-field-mode" class="fm-select" style="width:100%;">
           <option value="system" selected data-i18n="spoolman.extraFieldModeSystem">Create or reuse System Extra Fields</option>
@@ -58,11 +59,12 @@ import Layout from '../../../layouts/Layout.astro'
       <button id="btn-import" class="fm-btn fm-btn-primary" data-i18n="spoolman.startImport">Start Import</button>
       <button id="btn-repair-transparency" class="fm-btn fm-btn-outline hidden">Fix transparency hex</button>
     </div>
-    <div id="transparency-repair-note" class="hidden" style="margin-top: 12px; padding: 12px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid var(--accent-2);">
-      <strong id="transparency-repair-count" style="color: var(--accent);"></strong>
-      <p style="margin: 4px 0 0; color: var(--text-muted); font-size: 0.85rem;" data-i18n="spoolman.repairTransparencyDesc">
-        Repairs only existing filament color assignments linked by spoolman_id to the connected Spoolman data. No manufacturers, locations, filaments, spools, or unrelated fields are imported.
-      </p>
+      <div id="transparency-repair-note" class="hidden" style="margin-top: 12px; padding: 12px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid var(--accent-2);">
+        <strong id="transparency-repair-count" style="color: var(--accent);"></strong>
+        <p style="margin: 4px 0 0; color: var(--text-muted); font-size: 0.85rem;" data-i18n="spoolman.repairTransparencyDesc">
+          Repairs only existing filament color assignments linked by spoolman_id to the connected Spoolman data. No manufacturers, locations, filaments, spools, or unrelated fields are imported.
+        </p>
+      </div>
     </div>
     <div id="import-progress" style="margin-top: 16px; display: none;">
       <div style="background: var(--bg-soft); border-radius: 999px; overflow: hidden; height: 8px;">
@@ -248,6 +250,7 @@ import Layout from '../../../layouts/Layout.astro'
     import { toColorSwatchBackground } from '../../../lib/colors'
     import {
       RepairMappingValidationError,
+      buildImportExtraFieldResultSummary,
       buildImportFieldActions,
       buildRepairMappingPayload,
       convertRepairExampleValue,
@@ -473,6 +476,8 @@ import Layout from '../../../layouts/Layout.astro'
             definitionAvailability,
           )}
         `
+
+        resetImportCompletionState()
 
         // Enable step 3
         enableStep('step-import')
@@ -703,7 +708,9 @@ import Layout from '../../../layouts/Layout.astro'
         },
         renderResult: (result) => {
           updateTransparencyRepairAction(0)
-          return renderImportResult(result)
+          const html = renderImportResult(result)
+          finishImportUi()
+          return html
         },
       })
     })
@@ -757,9 +764,35 @@ import Layout from '../../../layouts/Layout.astro'
       `
     }
 
-    function renderImportResult(r: SpoolmanImportResult): string {
+    function resetImportCompletionState(): void {
+      const controls = document.getElementById('import-controls')!
+      const progress = document.getElementById('import-progress')!
+      const result = document.getElementById('import-result')!
+      controls.style.display = 'block'
+      progress.style.display = 'none'
+      result.style.display = 'none'
+      result.replaceChildren()
+    }
+
+    function finishImportUi(): void {
+      previewData = null
+      const previewResult = document.getElementById('preview-result')!
+      const controls = document.getElementById('import-controls')!
+      const progress = document.getElementById('import-progress')!
+      const previewButton = document.getElementById(
+        'btn-preview',
+      ) as HTMLButtonElement
+      previewResult.style.display = 'none'
+      previewResult.replaceChildren()
+      controls.style.display = 'none'
+      progress.style.display = 'none'
+      previewButton.textContent = t('spoolman.loadNewPreview')
+    }
+
+    function renderImportResult(r: any): string {
       const hasErrors = r.errors && r.errors.length > 0
       const hasWarnings = r.warnings && r.warnings.length > 0
+      const extraFieldSummary = buildImportExtraFieldResultSummary(r)
 
       let html = `
         <div style="padding: 16px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid ${hasErrors ? 'var(--error-text)' : 'var(--accent-2)'};">
@@ -772,6 +805,74 @@ import Layout from '../../../layouts/Layout.astro'
             ${resultCard(t('spools.title'), r.spools_created, r.spools_skipped)}
           </div>
       `
+
+      if (extraFieldSummary.hasActivity) {
+        const extraFieldCards: string[] = []
+        if (
+          extraFieldSummary.systemCreated > 0 ||
+          extraFieldSummary.systemReused > 0
+        ) {
+          extraFieldCards.push(
+            resultMetricCard(t('spoolman.extraFieldSystemDefinitions'), [
+              {
+                count: extraFieldSummary.systemCreated,
+                label: t('spoolman.created'),
+              },
+              {
+                count: extraFieldSummary.systemReused,
+                label: t('spoolman.reused'),
+              },
+            ]),
+          )
+        }
+        if (extraFieldSummary.localCreated > 0) {
+          extraFieldCards.push(
+            resultMetricCard(t('spoolman.extraFieldLocalDefinitions'), [
+              {
+                count: extraFieldSummary.localCreated,
+                label: t('spoolman.created'),
+              },
+            ]),
+          )
+        }
+        if (
+          extraFieldSummary.valuesConverted > 0 ||
+          extraFieldSummary.valuesPreserved > 0
+        ) {
+          extraFieldCards.push(
+            resultMetricCard(t('spoolman.extraFieldValues'), [
+              {
+                count: extraFieldSummary.valuesConverted,
+                label: t('spoolman.converted'),
+              },
+              {
+                count: extraFieldSummary.valuesPreserved,
+                label: t('spoolman.preserved'),
+              },
+            ]),
+          )
+        }
+        if (extraFieldSummary.conflicts > 0) {
+          extraFieldCards.push(
+            resultMetricCard(
+              t('spoolman.extraFieldConflicts'),
+              [
+                {
+                  count: extraFieldSummary.conflicts,
+                  label: t('spoolman.preserved'),
+                },
+              ],
+              'var(--error-text)',
+            ),
+          )
+        }
+        html += `
+          <h4 style="font-size: 0.9rem; font-weight: 600; margin: 18px 0 10px;">${escapeHtml(t('spoolman.extraFieldResults'))}</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+            ${extraFieldCards.join('')}
+          </div>
+        `
+      }
 
       if (hasWarnings) {
         html += `
@@ -795,6 +896,11 @@ import Layout from '../../../layouts/Layout.astro'
         `
       }
 
+      html += `
+        <p style="margin:16px 0 0;color:var(--text-muted);font-size:0.82rem;line-height:1.5;">
+          ${escapeHtml(t('spoolman.importAgainHint'))}
+        </p>
+      `
       html += '</div>'
       return html
     }
@@ -806,6 +912,30 @@ import Layout from '../../../layouts/Layout.astro'
           <div style="font-size: 1.3rem; font-weight: 700; color: var(--accent);">${created}</div>
           <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t('spoolman.created'))}</div>
           ${skipped > 0 ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">${skipped} ${escapeHtml(t('spoolman.skipped'))}</div>` : ''}
+        </div>
+      `
+    }
+
+    function resultMetricCard(
+      label: string,
+      metrics: Array<{ count: number; label: string }>,
+      color = 'var(--accent)',
+    ): string {
+      return `
+        <div style="background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; text-align: center;">
+          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">${escapeHtml(label)}</div>
+          <div style="display: flex; justify-content: center; gap: 24px;">
+            ${metrics
+              .map(
+                metric => `
+                  <div>
+                    <div style="font-size: 1.3rem; font-weight: 700; color: ${color};">${metric.count}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(metric.label)}</div>
+                  </div>
+                `,
+              )
+              .join('')}
+          </div>
         </div>
       `
     }

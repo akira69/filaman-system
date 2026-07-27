@@ -61,6 +61,16 @@ export interface ImportDefinitionAvailability {
   missingTargets: ImportFieldTarget[];
 }
 
+export interface ImportExtraFieldResultSummary {
+  systemCreated: number;
+  systemReused: number;
+  localCreated: number;
+  valuesConverted: number;
+  valuesPreserved: number;
+  conflicts: number;
+  hasActivity: boolean;
+}
+
 export interface RepairMapping {
   target_type: "filament" | "spool";
   key: string;
@@ -437,5 +447,28 @@ export function resolveImportDefinitionAvailability(
   return {
     typedDefinitionsAvailable: missingTargets.length < 2,
     missingTargets,
+  };
+}
+
+function importResultCounter(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : 0;
+}
+
+export function buildImportExtraFieldResultSummary(
+  result: Record<string, unknown>,
+): ImportExtraFieldResultSummary {
+  const summary = {
+    systemCreated: importResultCounter(result.extra_fields_created),
+    systemReused: importResultCounter(result.extra_fields_reused),
+    localCreated: importResultCounter(result.extra_local_definitions),
+    valuesConverted: importResultCounter(result.extra_values_promoted),
+    valuesPreserved: importResultCounter(result.extra_values_preserved),
+    conflicts: importResultCounter(result.extra_fields_conflicted),
+  };
+  return {
+    ...summary,
+    hasActivity: Object.values(summary).some((count) => count > 0),
   };
 }
