@@ -1232,7 +1232,7 @@
     "extraFieldDefinitionsPartial": "Typed extra-field definitions are unavailable for: {targets}. Extra values for those record types will use Legacy storage.",
     "extraFieldOverrideHint": "Per-field choices override the default selected in the import step.",
     "extraFieldAction": "Storage",
-    "extraFieldActionDefault": "Use import default",
+    "extraFieldActionDefault": "{action} (default)",
     "extraFieldActionSystem": "System Extra Field",
     "extraFieldActionReuseSystem": "Reuse System Extra Field",
     "extraFieldActionLocal": "Record-specific typed field",

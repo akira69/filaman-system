@@ -1233,7 +1233,7 @@
     "extraFieldDefinitionsPartial": "Typisierte Zusatzfelddefinitionen sind nicht verfügbar für: {targets}. Zusatzwerte dieser Datensatztypen werden im bisherigen Format gespeichert.",
     "extraFieldOverrideHint": "Die Auswahl pro Feld überschreibt den Standard aus dem Importschritt.",
     "extraFieldAction": "Speicherung",
-    "extraFieldActionDefault": "Importstandard verwenden",
+    "extraFieldActionDefault": "{action} (Standard)",
     "extraFieldActionSystem": "System-Extra-Feld",
     "extraFieldActionReuseSystem": "System-Extra-Feld wiederverwenden",
     "extraFieldActionLocal": "Datensatzspezifisches typisiertes Feld",

@@ -255,6 +255,7 @@ import Layout from '../../../layouts/Layout.astro'
       buildRepairMappingPayload,
       convertRepairExampleValue,
       formatRepairExampleValue,
+      importStorageActionTranslationKey,
       repairConfidenceReason,
       repairConfidenceTone,
       repairDetailsState,
@@ -961,6 +962,31 @@ import Layout from '../../../layouts/Layout.astro'
       return definitionAvailability
     }
 
+    function importDefaultActionLabel(): string {
+      const mode = (
+        document.getElementById('extra-field-mode') as HTMLSelectElement
+      ).value as ImportStorageMode
+      const action = t(
+        `spoolman.${importStorageActionTranslationKey(mode)}`,
+      )
+      return t('spoolman.extraFieldActionDefault').replace('{action}', action)
+    }
+
+    function updateImportDefaultActionLabels(): void {
+      const label = importDefaultActionLabel()
+      document
+        .querySelectorAll<HTMLOptionElement>(
+          '.import-field-action option[value="inherit"]',
+        )
+        .forEach(option => {
+          option.textContent = label
+        })
+    }
+
+    document
+      .getElementById('extra-field-mode')
+      ?.addEventListener('change', updateImportDefaultActionLabels)
+
     function renderExtraFieldPreview(
       fields: any[],
       availability: ImportDefinitionAvailability,
@@ -1020,7 +1046,7 @@ import Layout from '../../../layouts/Layout.astro'
                     <td><strong>${escapeHtml(field.target_type)}.${escapeHtml(field.key || '')}</strong><br><span style="color:var(--text-muted);font-size:0.78rem;">${escapeHtml(field.label || field.reason || '')}</span>${retainedConflict}</td>
                     <td>${escapeHtml(field.field_type || field.status)}</td>
                     <td>${supportsTypedImport ? `<select class="fm-select import-field-action" data-target="${escapeHtml(field.target_type)}" data-key="${escapeHtml(field.key || '')}">
-                      <option value="inherit">${escapeHtml(t('spoolman.extraFieldActionDefault'))}</option>
+                      <option value="inherit">${escapeHtml(importDefaultActionLabel())}</option>
                       <option value="system"${systemUnavailable ? ' disabled' : ''}>${escapeHtml(t('spoolman.extraFieldActionSystem'))}</option>
                       <option value="local"${localUnavailable ? ' disabled' : ''}>${escapeHtml(t('spoolman.extraFieldActionLocal'))}</option>
                       <option value="preserve">${escapeHtml(t('spoolman.extraFieldActionPreserve'))}</option>
