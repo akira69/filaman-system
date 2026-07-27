@@ -17,6 +17,10 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
 from app.core.seeds import run_all_seeds
 from app.models import Base
 from app.models.filament import Filament
@@ -32,9 +36,6 @@ from app.services.spoolman_import_service import (
     SpoolmanImportError,
     SpoolmanImportService,
 )
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
 SPOOLMAN_TEST_URL = os.getenv("SPOOLMAN_TEST_URL", "").rstrip("/")
 
@@ -622,28 +623,40 @@ async def test_live_admin_api_initial_import_round_trip(
     assert result["extra_values_promoted"] > 0
 
 
-async def test_live_admin_api_legacy_to_date_repair_round_trip(
+async def test_live_admin_api_old_request_to_new_style_repair_round_trip(
     auth_client,
+    db_session,
     live_spoolman_snapshot,
 ):
     client, csrf = auth_client
-    preview_response = await client.post(
-        "/api/v1/admin/system/spoolman-import/preview",
+
+    # Reproduce the pre-rich-field API contract exactly: an old client sends
+    # only the URL and knows nothing about fingerprints, modes, or field actions.
+    import_response = await client.post(
+        "/api/v1/admin/system/spoolman-import/execute",
         json={"url": SPOOLMAN_TEST_URL},
         headers={"X-CSRF-Token": csrf},
     )
-    preview = preview_response.json()
-    import_response = await client.post(
-        "/api/v1/admin/system/spoolman-import/execute",
-        json={
-            "url": SPOOLMAN_TEST_URL,
-            "extra_field_fingerprint": preview["extra_field_fingerprint"],
-            "extra_field_mode": "legacy",
-        },
-        headers={"X-CSRF-Token": csrf},
-    )
     assert import_response.status_code == 200
-    assert import_response.json()["errors"] == []
+    import_result = import_response.json()
+    assert import_result["errors"] == []
+    assert (
+        import_result["filaments_created"]
+        == live_spoolman_snapshot.summary["filaments"]
+    )
+    assert import_result["spools_created"] == live_spoolman_snapshot.summary["spools"]
+    assert import_result["extra_values_preserved"] > 0
+
+    # The old path must leave fields in the legacy nested object, without
+    # creating either reusable System definitions or record-local definitions.
+    assert await _system_definitions(db_session) == {}
+    source = _source_spool(live_spoolman_snapshot, "tag", "dry")
+    imported = await _imported_spool(db_session, source["id"])
+    nested = imported.custom_fields["spoolman_extra"]
+    cleaner = SpoolmanImportService(db_session)
+    assert nested["tag"] == cleaner._clean_dict({"tag": source["extra"]["tag"]})["tag"]
+    assert nested["dry"] == cleaner._clean_dict({"dry": source["extra"]["dry"]})["dry"]
+    assert imported.custom_field_definitions is None
 
     repair_preview_response = await client.post(
         "/api/v1/admin/system/spoolman-import/repair/preview",
@@ -652,14 +665,18 @@ async def test_live_admin_api_legacy_to_date_repair_round_trip(
     )
     assert repair_preview_response.status_code == 200
     repair_preview = repair_preview_response.json()
+    tag = _ready_mapping(repair_preview, "spool", "tag")
     dry = _ready_mapping(repair_preview, "spool", "dry")
-    approved = {
-        **dry,
-        "field_type": "date",
-        "config": None,
-        "default_value": None,
-        "action": "system",
-    }
+    approved = [
+        {**tag, "action": "local"},
+        {
+            **dry,
+            "field_type": "date",
+            "config": None,
+            "default_value": None,
+            "action": "system",
+        },
+    ]
 
     execute_repair_response = await client.post(
         "/api/v1/admin/system/spoolman-import/repair/execute",
@@ -667,7 +684,7 @@ async def test_live_admin_api_legacy_to_date_repair_round_trip(
             "mode": "server",
             "url": SPOOLMAN_TEST_URL,
             "preview_fingerprint": repair_preview["preview_fingerprint"],
-            "approved_mappings": [approved],
+            "approved_mappings": approved,
         },
         headers={"X-CSRF-Token": csrf},
     )
@@ -675,5 +692,22 @@ async def test_live_admin_api_legacy_to_date_repair_round_trip(
     assert execute_repair_response.status_code == 200
     result = execute_repair_response.json()
     assert result["definitions_created"] == 1
-    assert result["values_promoted"] == dry["promotable_occurrences"]
+    assert result["local_definitions_created"] > 0
+    assert result["values_promoted"] == (
+        tag["promotable_occurrences"] + dry["promotable_occurrences"]
+    )
     assert result["records_updated"] > 0
+
+    definitions = await _system_definitions(db_session)
+    assert set(definitions) == {("spool", "dry")}
+    assert definitions[("spool", "dry")].field_type == "date"
+
+    await db_session.refresh(imported)
+    custom = imported.custom_fields or {}
+    assert custom["tag"] == convert_spoolman_value(source["extra"]["tag"], "text")
+    assert (
+        custom["dry"] == convert_spoolman_value(source["extra"]["dry"], "datetime")[:10]
+    )
+    assert "tag" not in custom.get("spoolman_extra", {})
+    assert "dry" not in custom.get("spoolman_extra", {})
+    assert imported.custom_field_definitions["tag"]["field_type"] == "text"
