@@ -96,20 +96,102 @@ import Layout from '../../../layouts/Layout.astro'
   </div>
 
   <style is:global>
-    #repair-preview-result .repair-control-row > td {
-      vertical-align: top;
-      border-bottom: 0;
-      padding-bottom: 10px;
+    #repair-preview-result .repair-mapping-list {
+      display: grid;
+      gap: 14px;
     }
 
-    #repair-preview-result .repair-evidence-row > td {
-      border-top: 0;
-      padding-top: 0;
-      padding-bottom: 18px;
+    #repair-preview-result .repair-mapping-card {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--bg-soft);
     }
 
-    #repair-preview-result .repair-evidence-row:not(:last-child) > td {
-      border-bottom: 2px solid var(--border);
+    #repair-preview-result .repair-mapping-header {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.9fr) minmax(380px, 1.6fr);
+      align-items: start;
+      gap: 24px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #repair-preview-result .repair-field-heading {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      min-width: 0;
+      cursor: pointer;
+    }
+
+    #repair-preview-result .repair-field-heading input {
+      margin-top: 3px;
+    }
+
+    #repair-preview-result
+      :is(.repair-section-label, .repair-control > span) {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      font-weight: 650;
+      line-height: 1.3;
+    }
+
+    #repair-preview-result .repair-section-label {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    #repair-preview-result .repair-field-key {
+      display: block;
+      overflow-wrap: anywhere;
+      font-size: 0.9rem;
+    }
+
+    #repair-preview-result .repair-controls {
+      display: grid;
+      grid-template-columns:
+        minmax(200px, 1.25fr)
+        minmax(150px, 0.8fr)
+        minmax(170px, 1fr)
+        minmax(210px, 1.15fr);
+      align-items: end;
+      gap: 12px;
+      padding: 14px 0;
+    }
+
+    #repair-preview-result .repair-control {
+      display: grid;
+      grid-template-rows: minmax(2em, auto) auto;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    #repair-preview-result .repair-control > span {
+      align-self: end;
+    }
+
+    #repair-preview-result .repair-control :is(input, select) {
+      width: 100%;
+      min-width: 0;
+    }
+
+    #repair-preview-result .repair-confidence-content {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      align-items: start;
+      gap: 16px;
+    }
+
+    #repair-preview-result .repair-confidence-rating {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #repair-preview-result .repair-conversion-preview {
+      background: var(--bg);
     }
 
     #repair-preview-result .repair-example-grid {
@@ -135,6 +217,28 @@ import Layout from '../../../layouts/Layout.astro'
       white-space: normal;
       overflow-wrap: anywhere;
       line-height: 1.35;
+    }
+
+    @media (max-width: 1050px) {
+      #repair-preview-result .repair-mapping-header {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      #repair-preview-result .repair-controls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 620px) {
+      #repair-preview-result .repair-controls {
+        grid-template-columns: 1fr;
+      }
+
+      #repair-preview-result .repair-confidence-content {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
     }
   </style>
 
@@ -791,6 +895,9 @@ import Layout from '../../../layouts/Layout.astro'
         date_pattern: 'spoolman.repairConfidenceReasonDatePattern',
         url_pattern: 'spoolman.repairConfidenceReasonUrlPattern',
         majority_match: 'spoolman.repairConfidenceReasonMajorityMatch',
+        legacy_text: 'spoolman.repairConfidenceReasonLegacyText',
+        legacy_number: 'spoolman.repairConfidenceReasonLegacyNumber',
+        legacy_checkbox: 'spoolman.repairConfidenceReasonLegacyCheckbox',
         legacy_scalar: 'spoolman.repairConfidenceReasonLegacyScalar',
         fallback_text: 'spoolman.repairConfidenceReasonFallbackText',
         mixed_text: 'spoolman.repairConfidenceReasonMixedText',
@@ -812,10 +919,16 @@ import Layout from '../../../layouts/Layout.astro'
         repairTypeLabel(selectedType),
       )
       return `
-        <div style="margin-bottom:5px;font-size:0.78rem;font-weight:650;">${escapeHtml(asType)}</div>
-        <span title="${escapeHtml(t(reasonKey))}" style="display:inline-flex;align-items:center;padding:3px 9px;border:1px solid;border-radius:999px;font-size:0.75rem;font-weight:650;${styles[tone]}">${escapeHtml(t(labelKey))}</span>
-        <div style="margin-top:7px;color:var(--text-muted);font-size:0.72rem;line-height:1.4;">${escapeHtml(t(reasonKey))}</div>
-        ${manual ? '' : `<div style="margin-top:6px;color:var(--text-muted);font-size:0.72rem;line-height:1.3;font-weight:600;">${escapeHtml(coverage)}</div>`}
+        <div class="repair-confidence-content">
+          <div class="repair-confidence-rating">
+            <strong style="font-size:0.78rem;">${escapeHtml(asType)}</strong>
+            <span title="${escapeHtml(t(reasonKey))}" style="display:inline-flex;align-items:center;padding:3px 9px;border:1px solid;border-radius:999px;font-size:0.75rem;font-weight:650;${styles[tone]}">${escapeHtml(t(labelKey))}</span>
+          </div>
+          <div>
+            <div style="color:var(--text-muted);font-size:0.75rem;line-height:1.45;">${escapeHtml(t(reasonKey))}</div>
+            ${manual ? '' : `<div style="margin-top:5px;color:var(--text-muted);font-size:0.72rem;line-height:1.3;font-weight:600;">${escapeHtml(coverage)}</div>`}
+          </div>
+        </div>
       `
     }
 
@@ -920,18 +1033,43 @@ import Layout from '../../../layouts/Layout.astro'
           <option value="local"${mapping.existing ? ' disabled' : ''}${systemUnavailable && !mapping.existing ? ' selected' : ''}>${escapeHtml(t('spoolman.extraFieldActionLocal'))}</option>
           <option value="preserve">${escapeHtml(t('spoolman.extraFieldActionPreserve'))}</option>`
         return `
-          <tr class="repair-control-row" data-repair-index="${index}">
-            <td><input type="checkbox" class="repair-approve"${disabled ? ' disabled' : ''} aria-label="${escapeHtml(t('spoolman.repairApprove'))}" /></td>
-            <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" />${retainedConflict}${noPromotable}</td>
-            <td><select class="fm-select repair-type" data-current-type="${escapeHtml(mapping.field_type)}" style="min-width:160px;"${disabled ? ' disabled' : ''}>${options}</select></td>
-            <td><input class="fm-input repair-details" value="${escapeHtml(detailsValue)}" placeholder="${escapeHtml(details.kind === 'choices' ? t('spoolman.repairChoicesPlaceholder') : '')}" style="min-width:150px;"${disabled || details.disabled ? ' disabled' : ''}${details.required ? ' required' : ''} /></td>
-            <td><select class="fm-select repair-action" style="min-width:180px;"${disabled ? ' disabled' : ''}>${actionOptions}</select></td>
-            <td><div class="repair-confidence-host">${renderRepairConfidence(mapping)}</div></td>
-          </tr>
-          <tr class="repair-evidence-row" data-repair-evidence-index="${index}">
-            <td aria-hidden="true"></td>
-            <td colspan="5"><div class="repair-conversion-host">${renderRepairConversionExamples(mapping)}</div></td>
-          </tr>
+          <section class="repair-mapping-card" data-repair-index="${index}">
+            <div class="repair-mapping-header">
+              <div>
+                <label class="repair-field-heading">
+                  <input type="checkbox" class="repair-approve"${disabled ? ' disabled' : ''} aria-label="${escapeHtml(t('spoolman.repairApprove'))}" />
+                  <span>
+                    <span class="repair-section-label">${escapeHtml(t('spoolman.repairApprove'))}</span>
+                    <strong class="repair-field-key">${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong>
+                  </span>
+                </label>
+                ${retainedConflict}${noPromotable}
+              </div>
+              <div>
+                <span class="repair-section-label">${escapeHtml(t('spoolman.repairConfidence'))}</span>
+                <div class="repair-confidence-host">${renderRepairConfidence(mapping)}</div>
+              </div>
+            </div>
+            <div class="repair-controls">
+              <label class="repair-control">
+                <span>${escapeHtml(t('admin.displayLabel'))}</span>
+                <input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" />
+              </label>
+              <label class="repair-control">
+                <span>${escapeHtml(t('spoolman.repairType'))}</span>
+                <select class="fm-select repair-type" data-current-type="${escapeHtml(mapping.field_type)}"${disabled ? ' disabled' : ''}>${options}</select>
+              </label>
+              <label class="repair-control">
+                <span>${escapeHtml(t('spoolman.repairDetails'))}</span>
+                <input class="fm-input repair-details" value="${escapeHtml(detailsValue)}" placeholder="${escapeHtml(details.kind === 'choices' ? t('spoolman.repairChoicesPlaceholder') : '')}"${disabled || details.disabled ? ' disabled' : ''}${details.required ? ' required' : ''} />
+              </label>
+              <label class="repair-control">
+                <span>${escapeHtml(t('spoolman.extraFieldAction'))}</span>
+                <select class="fm-select repair-action"${disabled ? ' disabled' : ''}>${actionOptions}</select>
+              </label>
+            </div>
+            <div class="repair-conversion-host">${renderRepairConversionExamples(mapping)}</div>
+          </section>
         `
       }).join('')
       return `
@@ -942,7 +1080,7 @@ import Layout from '../../../layouts/Layout.astro'
           ${repairMetric(t('spoolman.repairCollisions'), summary.collisions)}
           ${repairMetric(t('spoolman.repairUnresolved'), summary.unresolved + summary.invalid)}
         </div>
-        ${rows ? `<div style="overflow-x:auto;"><table class="fm-table" style="table-layout:fixed;min-width:1100px;"><colgroup><col style="width:7%"><col style="width:21%"><col style="width:14%"><col style="width:18%"><col style="width:18%"><col style="width:22%"></colgroup><thead><tr><th>${escapeHtml(t('spoolman.repairApprove'))}</th><th>${escapeHtml(t('spoolman.repairField'))}</th><th>${escapeHtml(t('spoolman.repairType'))}</th><th>${escapeHtml(t('spoolman.repairDetails'))}</th><th>${escapeHtml(t('spoolman.extraFieldAction'))}</th><th>${escapeHtml(t('spoolman.repairConfidence'))}</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+        ${rows ? `<div class="repair-mapping-list">${rows}</div>` : ''}
       `
     }
 
@@ -951,7 +1089,7 @@ import Layout from '../../../layouts/Layout.astro'
     }
 
     function updateRepairEvidence(
-      row: HTMLTableRowElement,
+      row: HTMLElement,
       source: RepairMapping,
     ): void {
       const selectedType = (
@@ -960,11 +1098,7 @@ import Layout from '../../../layouts/Layout.astro'
       ) as RepairFieldType
       const details =
         row.querySelector<HTMLInputElement>('.repair-details')?.value || ''
-      const index = row.dataset.repairIndex
-      const evidenceRow = row.parentElement?.querySelector<HTMLTableRowElement>(
-        `tr[data-repair-evidence-index="${index}"]`,
-      )
-      const conversionHost = evidenceRow?.querySelector<HTMLElement>(
+      const conversionHost = row.querySelector<HTMLElement>(
         '.repair-conversion-host',
       )
       const confidenceHost = row.querySelector<HTMLElement>('.repair-confidence-host')
@@ -1007,7 +1141,7 @@ import Layout from '../../../layouts/Layout.astro'
         result.innerHTML = renderRepairPreview(data)
         result.querySelectorAll<HTMLSelectElement>('.repair-type').forEach(select => {
           select.addEventListener('change', () => {
-            const row = select.closest<HTMLTableRowElement>('tr[data-repair-index]')
+            const row = select.closest<HTMLElement>('[data-repair-index]')
             if (!row || !repairPreview) return
             const source = repairPreview.mappings[Number(row.dataset.repairIndex)] as RepairMapping
             const detailsInput = row.querySelector<HTMLInputElement>('.repair-details')
@@ -1035,7 +1169,7 @@ import Layout from '../../../layouts/Layout.astro'
         })
         result.querySelectorAll<HTMLInputElement>('.repair-details').forEach(input => {
           input.addEventListener('input', () => {
-            const row = input.closest<HTMLTableRowElement>('tr[data-repair-index]')
+            const row = input.closest<HTMLElement>('[data-repair-index]')
             if (!row || !repairPreview) return
             const source = repairPreview.mappings[
               Number(row.dataset.repairIndex)
@@ -1059,7 +1193,7 @@ import Layout from '../../../layouts/Layout.astro'
       if (!repairPreview) return
       let approved: RepairMapping[]
       try {
-        approved = Array.from(document.querySelectorAll<HTMLTableRowElement>('tr[data-repair-index]')).flatMap(row => {
+        approved = Array.from(document.querySelectorAll<HTMLElement>('[data-repair-index]')).flatMap(row => {
           const checkbox = row.querySelector<HTMLInputElement>('.repair-approve')
           if (!checkbox?.checked) return []
           const source = repairPreview.mappings[Number(row.dataset.repairIndex)] as RepairMapping

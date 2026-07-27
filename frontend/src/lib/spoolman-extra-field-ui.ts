@@ -25,6 +25,9 @@ export type RepairConfidenceReason =
   | "date_pattern"
   | "url_pattern"
   | "majority_match"
+  | "legacy_text"
+  | "legacy_number"
+  | "legacy_checkbox"
   | "legacy_scalar"
   | "fallback_text"
   | "mixed_text"
@@ -107,6 +110,11 @@ export function repairConfidenceReason(
   selectedType: RepairFieldType = mapping.field_type,
 ): RepairConfidenceReason {
   if (selectedType !== mapping.field_type) return "manual";
+  if (mapping.confidence_reason === "legacy_scalar") {
+    if (selectedType === "text") return "legacy_text";
+    if (selectedType === "number") return "legacy_number";
+    if (selectedType === "checkbox") return "legacy_checkbox";
+  }
   const supported = new Set<RepairConfidenceReason>([
     "source_definition",
     "structured_values",

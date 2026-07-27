@@ -75,9 +75,27 @@ describe("Spoolman repair preview evidence", () => {
       confidence_reason: "legacy_scalar",
     };
 
-    expect(repairConfidenceReason(legacyText)).toBe("legacy_scalar");
+    expect(repairConfidenceReason(legacyText)).toBe("legacy_text");
     expect(repairConfidenceReason(legacyText, "datetime")).toBe("manual");
   });
+
+  it.each([
+    ["text", "legacy_text"],
+    ["number", "legacy_number"],
+    ["checkbox", "legacy_checkbox"],
+  ] as const)(
+    "explains which source types a legacy %s value could represent",
+    (fieldType, reason) => {
+      expect(
+        repairConfidenceReason({
+          ...source,
+          field_type: fieldType,
+          confidence: "low",
+          confidence_reason: "legacy_scalar",
+        }),
+      ).toBe(reason);
+    },
+  );
 
   it("falls back to a confidence-specific reason for older previews", () => {
     expect(
