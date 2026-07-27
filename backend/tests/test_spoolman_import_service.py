@@ -4,6 +4,7 @@ import httpx
 import pytest
 from app.api.v1 import system as system_api
 from app.models.filament import Color, Filament, FilamentColor, Manufacturer
+from app.models.spool import Spool
 from app.models.system_extra_field import SystemExtraField
 from app.services.spoolman_import_service import (
     ImportPreview,
@@ -987,3 +988,45 @@ async def test_admin_execute_passes_explicit_extra_field_choices(
             }
         ],
     }
+
+
+async def test_import_entities_without_extra_objects(db_session):
+    preview = ImportPreview(
+        vendors=[{"id": 1, "name": "No Extra Vendor"}],
+        filaments=[
+            {
+                "id": 1,
+                "name": "No Extra PLA",
+                "vendor": {"id": 1},
+                "material": "PLA",
+                "diameter": 1.75,
+                "weight": 1000,
+                "spool_weight": 200,
+            }
+        ],
+        spools=[
+            {
+                "id": 1,
+                "filament": {"id": 1},
+                "remaining_weight": 1000,
+                "used_weight": 0,
+                "archived": False,
+            }
+        ],
+        field_definitions={"vendor": [], "filament": [], "spool": []},
+    )
+    service = SpoolmanImportService(db_session)
+
+    async def cached_preview(_base_url):
+        return preview
+
+    service.preview = cached_preview
+    result = await service.execute("http://spoolman")
+
+    assert result.errors == []
+    assert result.filaments_created == 1
+    assert result.spools_created == 1
+    filament = await db_session.scalar(select(Filament))
+    spool = await db_session.scalar(select(Spool))
+    assert filament.custom_field_definitions is None
+    assert spool.custom_field_definitions is None

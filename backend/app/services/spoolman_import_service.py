@@ -1185,6 +1185,7 @@ class SpoolmanImportService:
             if fil_data.get("settings_bed_temp"):
                 custom["settings_bed_temp"] = fil_data["settings_bed_temp"]
             # Extra-Dict: bekannte Felder mappen, Rest als spoolman_extra
+            local_definitions: dict[str, Any] = {}
             extra = fil_data.get("extra")
             if extra and isinstance(extra, dict):
                 extracted_keys: set[str] = set()
@@ -1455,6 +1456,7 @@ class SpoolmanImportService:
             spool_comment = self._clean(spool_data.get("comment"))
             if spool_comment:
                 custom["comment"] = spool_comment
+            local_definitions: dict[str, Any] = {}
             if extra and isinstance(extra, dict):
                 (
                     promoted,
