@@ -9,6 +9,8 @@ import {
   repairConfidenceReason,
   repairConfidenceTone,
   repairDetailsState,
+  resolveImportDefinitionAvailability,
+  resolveImportModeAvailability,
   type RepairMapping,
 } from "./spoolman-extra-field-ui";
 
@@ -257,5 +259,45 @@ describe("Spoolman import overrides", () => {
         action: "local",
       },
     ]);
+  });
+
+  it("falls back explicitly when typed definitions are unavailable", () => {
+    expect(resolveImportModeAvailability("system", false)).toEqual({
+      mode: "legacy",
+      typedModesDisabled: true,
+    });
+    expect(resolveImportModeAvailability("local", false)).toEqual({
+      mode: "legacy",
+      typedModesDisabled: true,
+    });
+    expect(resolveImportModeAvailability("preserve", false)).toEqual({
+      mode: "preserve",
+      typedModesDisabled: true,
+    });
+    expect(resolveImportModeAvailability("system", true)).toEqual({
+      mode: "system",
+      typedModesDisabled: false,
+    });
+  });
+
+  it("detects complete, partial, and unavailable typed field targets", () => {
+    expect(
+      resolveImportDefinitionAvailability(["vendor", "filament", "spool"]),
+    ).toEqual({
+      typedDefinitionsAvailable: true,
+      missingTargets: [],
+    });
+    expect(resolveImportDefinitionAvailability(["filament"])).toEqual({
+      typedDefinitionsAvailable: true,
+      missingTargets: ["spool"],
+    });
+    expect(resolveImportDefinitionAvailability(["vendor"])).toEqual({
+      typedDefinitionsAvailable: false,
+      missingTargets: ["filament", "spool"],
+    });
+    expect(resolveImportDefinitionAvailability(undefined)).toEqual({
+      typedDefinitionsAvailable: false,
+      missingTargets: ["filament", "spool"],
+    });
   });
 });

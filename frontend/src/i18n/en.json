@@ -1218,6 +1218,8 @@
     "extraFieldModePreserve": "Preserve source values unchanged under spoolman_extra",
     "extraFieldModeLegacy": "Legacy import: keep values under spoolman_extra",
     "extraFieldModeHint": "Choose a default here, then optionally override individual fields in the preview.",
+    "extraFieldDefinitionsUnavailable": "This Spoolman server does not expose typed extra-field definitions. System and record-specific typed import are unavailable, so Legacy import was selected. Preserve remains available if you need the source values unchanged.",
+    "extraFieldDefinitionsPartial": "Typed extra-field definitions are unavailable for: {targets}. Extra values for those record types will use Legacy storage.",
     "extraFieldOverrideHint": "Per-field choices override the default selected in the import step.",
     "extraFieldAction": "Storage",
     "extraFieldActionDefault": "Use import default",

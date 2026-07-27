@@ -4,20 +4,46 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Filament, Spool
+from app.models import Filament, Spool, SystemExtraField
 
 CustomFieldPathState = Literal["missing", "value", "collision"]
 _TARGET_MODELS = {
     "filament": Filament,
     "spool": Spool,
 }
+
+
+def field_paths_overlap(left: str, right: str) -> bool:
+    """Return whether two custom-field paths are identical or nested."""
+    return (
+        left == right
+        or left.startswith(f"{right}.")
+        or right.startswith(f"{left}.")
+    )
+
+
+def find_overlapping_definition(
+    definitions: Iterable[SystemExtraField],
+    target_type: str,
+    key: str,
+) -> SystemExtraField | None:
+    """Find an exact, parent, or child System Extra Field definition."""
+    return next(
+        (
+            definition
+            for definition in definitions
+            if definition.target_type == target_type
+            and field_paths_overlap(definition.key, key)
+        ),
+        None,
+    )
 
 
 def resolve_custom_field_value(
@@ -178,7 +204,7 @@ def _local_definition_conflicts(
     if not isinstance(definitions, dict):
         return False
     for local_key, definition in definitions.items():
-        if not _field_paths_overlap(local_key, key):
+        if not field_paths_overlap(local_key, key):
             continue
         if local_key != key:
             return True
@@ -186,10 +212,6 @@ def _local_definition_conflicts(
         if local_type != field_type:
             return True
     return False
-
-
-def _field_paths_overlap(left: str, right: str) -> bool:
-    return left == right or left.startswith(f"{right}.") or right.startswith(f"{left}.")
 
 
 async def find_definition_value_conflict(

@@ -27,6 +27,7 @@ from app.services.spoolman_extra_field_mapping import (
 )
 from app.services.system_extra_field_compatibility import (
     find_definition_value_conflict,
+    find_overlapping_definition,
 )
 
 
@@ -77,13 +78,24 @@ class SpoolmanImportRepairService:
         existing = await self._existing_definitions()
 
         for item in mappings:
-            local = existing.get((item["target_type"], item["key"]))
-            item["existing"] = local is not None
+            local = find_overlapping_definition(
+                existing,
+                item["target_type"],
+                item["key"],
+            )
+            exact_match = local is not None and local.key == item["key"]
+            item["existing"] = exact_match
             item["status"] = (
                 "conflict"
-                if local is not None and not definitions_compatible(item, local)
+                if local is not None
+                and (
+                    not exact_match
+                    or not definitions_compatible(item, local)
+                )
                 else "ready"
             )
+            if local is not None and not exact_match:
+                item["conflicting_key"] = local.key
             item["suggested_action"] = "system"
             item.setdefault(
                 "confidence", "authoritative" if mode == "server" else "low"
@@ -338,9 +350,9 @@ class SpoolmanImportRepairService:
                 rows.append(row)
         return rows
 
-    async def _existing_definitions(self) -> dict[tuple[str, str], SystemExtraField]:
+    async def _existing_definitions(self) -> list[SystemExtraField]:
         result = await self.db.execute(select(SystemExtraField))
-        return {(item.target_type, item.key): item for item in result.scalars()}
+        return list(result.scalars())
 
     @staticmethod
     def _preview_sample(value: Any) -> Any:
@@ -517,10 +529,19 @@ class SpoolmanImportRepairService:
         created = 0
         for item in mappings:
             identity = (item["target_type"], item["key"])
-            if identity in existing:
-                if not definitions_compatible(item, existing[identity]):
+            overlapping = find_overlapping_definition(
+                existing,
+                identity[0],
+                identity[1],
+            )
+            if overlapping is not None:
+                if (
+                    overlapping.key != identity[1]
+                    or not definitions_compatible(item, overlapping)
+                ):
                     raise SpoolmanRepairError(
-                        f"Field {identity[0]}.{identity[1]} now conflicts.",
+                        f"Field {identity[0]}.{identity[1]} conflicts with "
+                        f"System Extra Field {identity[0]}.{overlapping.key}.",
                         "field_conflict",
                     )
                 continue
@@ -546,7 +567,7 @@ class SpoolmanImportRepairService:
                 source=None,
             )
             self.db.add(definition)
-            existing[identity] = definition
+            existing.append(definition)
             created += 1
         await self.db.flush()
         return created

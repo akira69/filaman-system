@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.models.system_extra_field import SystemExtraField
 from app.services.system_extra_field_compatibility import (
     find_incompatible_existing_values,
+    find_overlapping_definition,
 )
 
 router = APIRouter()
@@ -47,10 +48,6 @@ def _invalidate_extra_fields_cache(
         response_cache.delete(f"extra_fields:{target_type}:all")
     # Always invalidate the "all" queries
     response_cache.delete("extra_fields:all:all")
-
-
-def _field_paths_overlap(left: str, right: str) -> bool:
-    return left == right or left.startswith(f"{right}.") or right.startswith(f"{left}.")
 
 
 def _raise_incompatible_values(
@@ -141,13 +138,10 @@ async def create_system_extra_field(
         SystemExtraField.target_type == field.target_type,
     )
     existing = await db.execute(query)
-    overlapping = next(
-        (
-            item
-            for item in existing.scalars()
-            if _field_paths_overlap(item.key, field.key)
-        ),
-        None,
+    overlapping = find_overlapping_definition(
+        existing.scalars(),
+        field.target_type,
+        field.key,
     )
     if overlapping:
         if overlapping.key == field.key:

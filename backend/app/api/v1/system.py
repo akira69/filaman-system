@@ -912,6 +912,7 @@ class SpoolmanPreviewResponse(BaseModel):
     locations: list[dict[str, Any]]
     colors: list[dict[str, str]]
     extra_fields: list[dict[str, Any]] = Field(default_factory=list)
+    extra_field_targets: list[str] = Field(default_factory=list)
     extra_field_fingerprint: str | None = None
     warnings: list[str] = Field(default_factory=list)
 
@@ -1011,6 +1012,7 @@ async def spoolman_preview(
             response.update(
                 {
                     "extra_fields": preview.extra_fields,
+                    "extra_field_targets": sorted(preview.available_field_targets),
                     "extra_field_fingerprint": preview.extra_field_fingerprint,
                     "warnings": preview.warnings,
                 }

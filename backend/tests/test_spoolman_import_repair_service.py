@@ -219,6 +219,38 @@ async def test_repair_blocks_system_storage_when_retained_value_is_incompatible(
     assert repairable.custom_fields["pressure_advance"] == 0.025
 
 
+async def test_repair_rejects_overlapping_system_definition_paths(db_session):
+    await _legacy_filament(
+        db_session,
+        {
+            "spoolman_id": 12,
+            "spoolman_extra": {"pressure_advance": "0.025"},
+        },
+    )
+    db_session.add(
+        SystemExtraField(
+            target_type="filament",
+            key="pressure_advance.calibrated",
+            label="Calibrated pressure advance",
+            field_type="checkbox",
+        )
+    )
+    await db_session.commit()
+    service = SpoolmanImportRepairService(db_session)
+
+    preview = await service.preview("offline")
+    mapping = preview["mappings"][0]
+    assert mapping["status"] == "conflict"
+    assert mapping["conflicting_key"] == "pressure_advance.calibrated"
+
+    with pytest.raises(SpoolmanRepairError, match="not repairable"):
+        await service.execute(
+            "offline",
+            preview["preview_fingerprint"],
+            [mapping],
+        )
+
+
 def test_repair_date_conversion_accepts_date_or_datetime_only():
     mapping = {"field_type": "date", "source_field_type": "datetime"}
 

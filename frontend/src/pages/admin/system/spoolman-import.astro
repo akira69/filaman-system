@@ -256,7 +256,11 @@ import Layout from '../../../layouts/Layout.astro'
       repairConfidenceTone,
       repairDetailsState,
       repairFieldTypes,
+      resolveImportDefinitionAvailability,
+      resolveImportModeAvailability,
+      type ImportDefinitionAvailability,
       type ImportStorageAction,
+      type ImportStorageMode,
       type RepairFieldType,
       type RepairMapping,
       type RepairStorageAction,
@@ -419,6 +423,8 @@ import Layout from '../../../layouts/Layout.astro'
         }
 
         previewData = await response.json()
+        const definitionAvailability =
+          syncImportModeAvailability(previewData)
         updateTransparencyRepairAction(
           previewData.transparency_repair_candidates,
           previewData.transparency_repair_plan_digest
@@ -462,7 +468,10 @@ import Layout from '../../../layouts/Layout.astro'
           ${renderVendorPreview(previewData.vendors)}
           ${renderFilamentPreview(previewData.filaments)}
           ${renderSpoolPreview(previewData.spools)}
-          ${renderExtraFieldPreview(previewData.extra_fields || [])}
+          ${renderExtraFieldPreview(
+            previewData.extra_fields || [],
+            definitionAvailability,
+          )}
         `
 
         // Enable step 3
@@ -801,8 +810,56 @@ import Layout from '../../../layouts/Layout.astro'
       `
     }
 
-    function renderExtraFieldPreview(fields: any[]): string {
-      if (!fields.length) return ''
+    function syncImportModeAvailability(
+      data: { extra_field_targets?: unknown },
+    ): ImportDefinitionAvailability {
+      const definitionAvailability =
+        resolveImportDefinitionAvailability(data.extra_field_targets)
+      const select = document.getElementById(
+        'extra-field-mode',
+      ) as HTMLSelectElement
+      const availability = resolveImportModeAvailability(
+        select.value as ImportStorageMode,
+        definitionAvailability.typedDefinitionsAvailable,
+      )
+      select.querySelectorAll<HTMLOptionElement>(
+        'option[value="system"], option[value="local"]',
+      ).forEach(option => {
+        option.disabled = availability.typedModesDisabled
+      })
+      select.value = availability.mode
+      return definitionAvailability
+    }
+
+    function renderExtraFieldPreview(
+      fields: any[],
+      availability: ImportDefinitionAvailability,
+    ): string {
+      if (!availability.typedDefinitionsAvailable) {
+        return `
+          <div class="fm-card" style="margin-top:12px;padding:14px;border-color:var(--accent-3);">
+            <strong>${escapeHtml(t('spoolman.extraFields'))}</strong>
+            <p style="color:var(--text-muted);font-size:0.85rem;line-height:1.5;margin:8px 0 0;">${escapeHtml(t('spoolman.extraFieldDefinitionsUnavailable'))}</p>
+          </div>
+        `
+      }
+      const missingTargetNotice = availability.missingTargets.length
+        ? `<p style="color:var(--text-muted);font-size:0.85rem;line-height:1.5;margin:8px 0 0;">${escapeHtml(
+            t('spoolman.extraFieldDefinitionsPartial').replace(
+              '{targets}',
+              availability.missingTargets
+                .map(target =>
+                  t(target === 'filament' ? 'filaments.title' : 'spools.title')
+                )
+                .join(', '),
+            ),
+          )}</p>`
+        : ''
+      if (!fields.length) {
+        return missingTargetNotice
+          ? `<div class="fm-card" style="margin-top:12px;padding:14px;border-color:var(--accent-3);"><strong>${escapeHtml(t('spoolman.extraFields'))}</strong>${missingTargetNotice}</div>`
+          : ''
+      }
       const counts = fields.reduce((all: Record<string, number>, field: any) => {
         all[field.status] = (all[field.status] || 0) + 1
         return all
@@ -810,6 +867,7 @@ import Layout from '../../../layouts/Layout.astro'
       return `
         <div class="fm-card" style="margin-top:12px;padding:14px;">
           <strong>${escapeHtml(t('spoolman.extraFields'))}</strong>
+          ${missingTargetNotice}
           <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;color:var(--text-muted);font-size:0.85rem;">
             <span>${escapeHtml(t('spoolman.extraFieldsCreate'))}: ${counts.create || 0}</span>
             <span>${escapeHtml(t('spoolman.extraFieldsReuse'))}: ${counts.reuse || 0}</span>

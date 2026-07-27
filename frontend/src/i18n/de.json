@@ -1219,6 +1219,8 @@
     "extraFieldModePreserve": "Quellwerte unverändert unter spoolman_extra beibehalten",
     "extraFieldModeLegacy": "Bisheriger Import: Werte unter spoolman_extra behalten",
     "extraFieldModeHint": "Hier den Standard wählen und bei Bedarf einzelne Felder in der Vorschau abweichend festlegen.",
+    "extraFieldDefinitionsUnavailable": "Dieser Spoolman-Server stellt keine typisierten Zusatzfelddefinitionen bereit. System- und datensatzspezifischer typisierter Import sind daher nicht verfügbar; der bisherige Import wurde ausgewählt. „Unverändert beibehalten“ bleibt verfügbar, wenn die Quellwerte exakt erhalten werden sollen.",
+    "extraFieldDefinitionsPartial": "Typisierte Zusatzfelddefinitionen sind nicht verfügbar für: {targets}. Zusatzwerte dieser Datensatztypen werden im bisherigen Format gespeichert.",
     "extraFieldOverrideHint": "Die Auswahl pro Feld überschreibt den Standard aus dem Importschritt.",
     "extraFieldAction": "Speicherung",
     "extraFieldActionDefault": "Importstandard verwenden",

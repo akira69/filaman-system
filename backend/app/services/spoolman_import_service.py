@@ -26,6 +26,7 @@ from app.services.spoolman_extra_field_mapping import (
 )
 from app.services.system_extra_field_compatibility import (
     find_definition_value_conflict,
+    find_overlapping_definition,
 )
 from app.utils.db import json_extract_cast_string
 
@@ -513,8 +514,11 @@ class SpoolmanImportService:
             color_map,
             result,
             field_mappings,
-            "filament" in preview.available_field_targets,
-            extra_field_mode == "legacy",
+            extra_field_mode == "legacy"
+            or (
+                extra_field_mode in {"system", "local"}
+                and "filament" not in preview.available_field_targets
+            ),
         )
 
         # 6. Spools importieren
@@ -526,8 +530,11 @@ class SpoolmanImportService:
             status_map,
             result,
             field_mappings,
-            "spool" in preview.available_field_targets,
-            extra_field_mode == "legacy",
+            extra_field_mode == "legacy"
+            or (
+                extra_field_mode in {"system", "local"}
+                and "spool" not in preview.available_field_targets
+            ),
         )
 
         await self.db.commit()
@@ -741,9 +748,7 @@ class SpoolmanImportService:
         self, definitions: dict[str, list[dict[str, Any]]]
     ) -> list[dict[str, Any]]:
         existing_result = await self.db.execute(select(SystemExtraField))
-        existing = {
-            (item.target_type, item.key): item for item in existing_result.scalars()
-        }
+        existing_items = list(existing_result.scalars())
         preview: list[dict[str, Any]] = []
         for target in ("vendor", "filament", "spool"):
             for definition in definitions.get(target, []):
@@ -760,14 +765,25 @@ class SpoolmanImportService:
                         }
                     )
                     continue
-                local = existing.get((target, mapped["key"]))
+                local = find_overlapping_definition(
+                    existing_items,
+                    target,
+                    mapped["key"],
+                )
+                exact_match = local is not None and local.key == mapped["key"]
                 mapped["status"] = (
                     "conflict"
-                    if local is not None and not definitions_compatible(mapped, local)
-                    else "reuse"
                     if local is not None
+                    and (
+                        not exact_match
+                        or not definitions_compatible(mapped, local)
+                    )
+                    else "reuse"
+                    if exact_match
                     else "create"
                 )
+                if local is not None and not exact_match:
+                    mapped["conflicting_key"] = local.key
                 if local is None:
                     conflict = await find_definition_value_conflict(self.db, mapped)
                     if conflict:
@@ -804,9 +820,7 @@ class SpoolmanImportService:
             overrides[(target, key)] = action
 
         existing_result = await self.db.execute(select(SystemExtraField))
-        existing = {
-            (item.target_type, item.key): item for item in existing_result.scalars()
-        }
+        existing_items = list(existing_result.scalars())
         mappings: dict[tuple[str, str], dict[str, Any]] = {}
         touched_targets: set[str] = set()
 
@@ -833,24 +847,29 @@ class SpoolmanImportService:
                 identity = (target, mapped["key"])
                 action = overrides.get(identity, action)
                 mapped["storage"] = action
-                local = existing.get(identity)
+                local = find_overlapping_definition(
+                    existing_items,
+                    target,
+                    mapped["key"],
+                )
+                exact_match = local is not None and local.key == mapped["key"]
                 if action == "local":
                     if local is not None:
                         result.extra_fields_conflicted += 1
                         result.warnings.append(
                             f"Extra field {target}.{mapped['key']} conflicts "
-                            "with a System Extra Field."
+                            f"with System Extra Field {target}.{local.key}."
                         )
                         continue
                     mappings[identity] = mapped
                     result.extra_local_definitions += 1
                     continue
                 if local is not None:
-                    if not definitions_compatible(mapped, local):
+                    if not exact_match or not definitions_compatible(mapped, local):
                         result.extra_fields_conflicted += 1
                         result.warnings.append(
                             f"Extra field {target}.{mapped['key']} conflicts "
-                            "with a System Extra Field."
+                            f"with System Extra Field {target}.{local.key}."
                         )
                         continue
                     result.extra_fields_reused += 1
@@ -881,7 +900,7 @@ class SpoolmanImportService:
                         source=None,
                     )
                     self.db.add(local)
-                    existing[identity] = local
+                    existing_items.append(local)
                     result.extra_fields_created += 1
                     touched_targets.add(target)
                 mappings[identity] = mapped
@@ -1093,7 +1112,6 @@ class SpoolmanImportService:
         color_map: dict[str, int],
         result: ImportResult,
         field_mappings: dict[tuple[str, str], dict[str, Any]],
-        authoritative_fields_available: bool,
         clean_unmapped_extra_values: bool = False,
     ) -> dict[int, int]:
         """Filamente importieren. Gibt Spoolman-Filament-ID -> FilaMan-ID."""
@@ -1221,7 +1239,6 @@ class SpoolmanImportService:
                     extracted_keys,
                     field_mappings,
                     result,
-                    authoritative_fields_available,
                     set(custom),
                     clean_unmapped_extra_values,
                 )
@@ -1296,7 +1313,6 @@ class SpoolmanImportService:
         status_map: dict[str, int],
         result: ImportResult,
         field_mappings: dict[tuple[str, str], dict[str, Any]],
-        authoritative_fields_available: bool,
         clean_unmapped_extra_values: bool = False,
     ) -> None:
         """Spools importieren."""
@@ -1468,7 +1484,6 @@ class SpoolmanImportService:
                     extracted_keys,
                     field_mappings,
                     result,
-                    authoritative_fields_available,
                     set(custom),
                     clean_unmapped_extra_values,
                 )
@@ -1590,7 +1605,6 @@ class SpoolmanImportService:
         extracted: set[str],
         mappings: dict[tuple[str, str], dict[str, Any]],
         result: ImportResult,
-        authoritative_fields_available: bool = True,
         reserved_keys: set[str] | None = None,
         clean_unmapped_values: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -1603,9 +1617,9 @@ class SpoolmanImportService:
             mapping = mappings.get((target_type, key))
             if mapping is None:
                 preserved[key] = (
-                    raw
-                    if authoritative_fields_available and not clean_unmapped_values
-                    else SpoolmanImportService._clean_dict({key: raw})[key]
+                    SpoolmanImportService._clean_dict({key: raw})[key]
+                    if clean_unmapped_values
+                    else raw
                 )
                 result.extra_values_preserved += 1
                 continue

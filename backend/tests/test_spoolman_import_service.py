@@ -665,6 +665,44 @@ async def test_existing_incompatible_definition_preserves_source_value(db_sessio
     assert result.extra_fields_conflicted == 1
 
 
+async def test_overlapping_system_definition_blocks_import_and_local_storage(
+    db_session,
+):
+    db_session.add(
+        SystemExtraField(
+            target_type="filament",
+            key="nozzle_range.min",
+            label="Minimum nozzle temperature",
+            field_type="number",
+        )
+    )
+    await db_session.flush()
+    service = SpoolmanImportService(db_session)
+
+    preview = await service._preview_extra_field_definitions(_definitions())
+    nozzle_preview = next(item for item in preview if item["key"] == "nozzle_range")
+    assert nozzle_preview["status"] == "conflict"
+    assert nozzle_preview["conflicting_key"] == "nozzle_range.min"
+
+    for action in ("system", "local"):
+        result = ImportResult()
+        mappings = await service._import_extra_field_definitions(
+            _definitions(),
+            result,
+            default_action="preserve",
+            field_actions=[
+                {
+                    "target_type": "filament",
+                    "key": "nozzle_range",
+                    "action": action,
+                }
+            ],
+        )
+        assert ("filament", "nozzle_range") not in mappings
+        assert result.extra_fields_conflicted == 1
+        assert "nozzle_range.min" in result.warnings[0]
+
+
 async def test_retained_incompatible_value_blocks_new_system_definition(db_session):
     manufacturer = Manufacturer(name="Retained Value Test")
     db_session.add(manufacturer)
@@ -753,12 +791,29 @@ def test_unavailable_field_endpoint_preserves_legacy_cleaned_extra_shape(db_sess
         set(),
         {},
         result,
-        authoritative_fields_available=False,
+        clean_unmapped_values=True,
     )
 
     assert promoted == {}
     assert local_definitions == {}
     assert preserved == {"profile": "PLA", "numeric_text": "00123"}
+
+
+def test_unavailable_field_endpoint_can_preserve_raw_extra_shape(db_session):
+    service = SpoolmanImportService(db_session)
+    result = ImportResult()
+
+    promoted, local_definitions, preserved = service._promote_extra_values(
+        "filament",
+        {"profile": '"PLA"', "numeric_text": "00123"},
+        set(),
+        {},
+        result,
+    )
+
+    assert promoted == {}
+    assert local_definitions == {}
+    assert preserved == {"profile": '"PLA"', "numeric_text": "00123"}
 
 
 async def test_local_mode_promotes_values_without_system_definitions(db_session):
@@ -873,6 +928,7 @@ async def test_supported_empty_field_endpoints_still_return_preview_fingerprint(
 
     assert response.status_code == 200
     assert response.json()["extra_fields"] == []
+    assert response.json()["extra_field_targets"] == ["filament", "spool", "vendor"]
     assert response.json()["extra_field_fingerprint"] == "stable"
 
 

@@ -54,6 +54,12 @@ export type ImportStorageAction =
   | "local"
   | "preserve"
   | "legacy";
+export type ImportStorageMode = Exclude<ImportStorageAction, "inherit">;
+export type ImportFieldTarget = "filament" | "spool";
+export interface ImportDefinitionAvailability {
+  typedDefinitionsAvailable: boolean;
+  missingTargets: ImportFieldTarget[];
+}
 
 export interface RepairMapping {
   target_type: "filament" | "spool";
@@ -394,4 +400,42 @@ export function buildImportFieldActions(
       },
     ];
   });
+}
+
+export function resolveImportModeAvailability(
+  currentMode: ImportStorageMode,
+  typedDefinitionsAvailable: boolean,
+): {
+  mode: ImportStorageMode;
+  typedModesDisabled: boolean;
+} {
+  if (
+    !typedDefinitionsAvailable &&
+    (currentMode === "system" || currentMode === "local")
+  ) {
+    return { mode: "legacy", typedModesDisabled: true };
+  }
+  return {
+    mode: currentMode,
+    typedModesDisabled: !typedDefinitionsAvailable,
+  };
+}
+
+export function resolveImportDefinitionAvailability(
+  availableTargets: unknown,
+): ImportDefinitionAvailability {
+  const available = new Set<string>(
+    Array.isArray(availableTargets)
+      ? availableTargets.filter(
+          (target): target is string => typeof target === "string",
+        )
+      : [],
+  );
+  const missingTargets = (["filament", "spool"] as const).filter(
+    (target) => !available.has(target),
+  );
+  return {
+    typedDefinitionsAvailable: missingTargets.length < 2,
+    missingTargets,
+  };
 }
