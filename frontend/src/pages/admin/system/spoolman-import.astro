@@ -95,6 +95,49 @@ import Layout from '../../../layouts/Layout.astro'
     <div id="repair-result" style="margin-top:16px;display:none;"></div>
   </div>
 
+  <style is:global>
+    #repair-preview-result .repair-control-row > td {
+      vertical-align: top;
+      border-bottom: 0;
+      padding-bottom: 10px;
+    }
+
+    #repair-preview-result .repair-evidence-row > td {
+      border-top: 0;
+      padding-top: 0;
+      padding-bottom: 18px;
+    }
+
+    #repair-preview-result .repair-evidence-row:not(:last-child) > td {
+      border-bottom: 2px solid var(--border);
+    }
+
+    #repair-preview-result .repair-example-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 8px;
+    }
+
+    #repair-preview-result .repair-example {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+    }
+
+    #repair-preview-result .repair-example code {
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.35;
+    }
+  </style>
+
   <script>
     import { t, initI18n } from '../../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
@@ -105,6 +148,7 @@ import Layout from '../../../layouts/Layout.astro'
       buildRepairMappingPayload,
       convertRepairExampleValue,
       formatRepairExampleValue,
+      repairConfidenceReason,
       repairConfidenceTone,
       repairDetailsState,
       repairFieldTypes,
@@ -703,6 +747,22 @@ import Layout from '../../../layouts/Layout.astro'
       return (document.querySelector<HTMLInputElement>('input[name="repair-mode"]:checked')?.value || 'offline')
     }
 
+    function repairTypeLabel(fieldType: RepairFieldType): string {
+      return t(`admin.fieldType_${fieldType}`)
+    }
+
+    function repairDetailsValue(
+      fieldType: RepairFieldType,
+      kind: 'unit' | 'choices' | 'none',
+      value: string,
+    ): string {
+      if (kind !== 'none') return value
+      return t('spoolman.repairNotApplicableFor').replace(
+        '{type}',
+        repairTypeLabel(fieldType),
+      )
+    }
+
     function renderRepairConfidence(
       mapping: RepairMapping,
       selectedType: RepairFieldType = mapping.field_type,
@@ -725,22 +785,37 @@ import Layout from '../../../layouts/Layout.astro'
         unresolved: 'spoolman.repairConfidenceUnresolved',
         manual: 'spoolman.repairConfidenceManual',
       }[confidence] || 'spoolman.repairConfidenceUnresolved'
-      const hintKey = {
-        authoritative: 'spoolman.repairConfidenceAuthoritativeHint',
-        high: 'spoolman.repairConfidenceHighHint',
-        medium: 'spoolman.repairConfidenceMediumHint',
-        low: 'spoolman.repairConfidenceLowHint',
-        unresolved: 'spoolman.repairConfidenceUnresolvedHint',
+      const reasonKey = {
+        source_definition: 'spoolman.repairConfidenceReasonSourceDefinition',
+        structured_values: 'spoolman.repairConfidenceReasonStructuredValues',
+        date_pattern: 'spoolman.repairConfidenceReasonDatePattern',
+        url_pattern: 'spoolman.repairConfidenceReasonUrlPattern',
+        majority_match: 'spoolman.repairConfidenceReasonMajorityMatch',
+        legacy_scalar: 'spoolman.repairConfidenceReasonLegacyScalar',
+        fallback_text: 'spoolman.repairConfidenceReasonFallbackText',
+        mixed_text: 'spoolman.repairConfidenceReasonMixedText',
+        invalid_key: 'spoolman.repairConfidenceReasonInvalidKey',
+        mixed_values: 'spoolman.repairConfidenceReasonMixedValues',
         manual: 'spoolman.repairConfidenceManualHint',
-      }[confidence] || 'spoolman.repairConfidenceUnresolvedHint'
+        generic_high: 'spoolman.repairConfidenceReasonGenericHigh',
+        generic_medium: 'spoolman.repairConfidenceReasonGenericMedium',
+        generic_low: 'spoolman.repairConfidenceReasonGenericLow',
+        generic_unresolved: 'spoolman.repairConfidenceReasonGenericUnresolved',
+      }[repairConfidenceReason(mapping, selectedType)]
       const ready = Number(mapping.promotable_occurrences || 0)
       const total = Number(mapping.occurrences || 0)
       const coverage = t('spoolman.repairConfidenceValues')
         .replace('{ready}', String(ready))
         .replace('{total}', String(total))
+      const asType = t('spoolman.repairConfidenceAs').replace(
+        '{type}',
+        repairTypeLabel(selectedType),
+      )
       return `
-        <span title="${escapeHtml(t(hintKey))}" style="display:inline-flex;align-items:center;padding:3px 9px;border:1px solid;border-radius:999px;font-size:0.75rem;font-weight:650;${styles[tone]}">${escapeHtml(t(labelKey))}</span>
-        ${manual ? '' : `<div style="margin-top:6px;color:var(--text-muted);font-size:0.72rem;line-height:1.3;">${escapeHtml(coverage)}</div>`}
+        <div style="margin-bottom:5px;font-size:0.78rem;font-weight:650;">${escapeHtml(asType)}</div>
+        <span title="${escapeHtml(t(reasonKey))}" style="display:inline-flex;align-items:center;padding:3px 9px;border:1px solid;border-radius:999px;font-size:0.75rem;font-weight:650;${styles[tone]}">${escapeHtml(t(labelKey))}</span>
+        <div style="margin-top:7px;color:var(--text-muted);font-size:0.72rem;line-height:1.4;">${escapeHtml(t(reasonKey))}</div>
+        ${manual ? '' : `<div style="margin-top:6px;color:var(--text-muted);font-size:0.72rem;line-height:1.3;font-weight:600;">${escapeHtml(coverage)}</div>`}
       `
     }
 
@@ -794,10 +869,10 @@ import Layout from '../../../layouts/Layout.astro'
           unchecked,
         )
         return `
-          <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:7px;">
-            <code title="${escapeHtml(source)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 6px;border-radius:6px;background:var(--bg-soft);">${escapeHtml(source)}</code>
+          <div class="repair-example">
+            <code title="${escapeHtml(source)}" style="padding:3px 6px;border-radius:6px;background:var(--bg-soft);">${escapeHtml(source)}</code>
             <span aria-hidden="true" style="color:var(--accent);font-weight:700;">→</span>
-            <code title="${escapeHtml(converted)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 6px;border-radius:6px;background:var(--success-bg);color:var(--success-text);">${escapeHtml(converted)}</code>
+            <code title="${escapeHtml(converted)}" style="padding:3px 6px;border-radius:6px;background:var(--success-bg);color:var(--success-text);">${escapeHtml(converted)}</code>
           </div>
         `
       }).join('')
@@ -811,10 +886,12 @@ import Layout from '../../../layouts/Layout.astro'
               .replace('{count}', String(mapping.promotable_occurrences || 0))
       )
       return `
-        <div class="repair-conversion-preview" data-preview-type="${escapeHtml(selectedType)}" style="margin-top:9px;padding:8px;border:1px solid var(--border);border-radius:9px;background:var(--bg-soft);">
-          <div style="font-size:0.75rem;font-weight:650;margin-bottom:6px;">${escapeHtml(t(manual ? 'spoolman.repairManualConversionPreview' : 'spoolman.repairConversionPreview'))}</div>
-          ${rows ? `<div style="display:grid;gap:5px;font-size:0.76rem;">${rows}</div>` : `<div style="font-size:0.76rem;color:var(--error-text);">${escapeHtml(t('spoolman.repairManualConversionUnavailable'))}</div>`}
-          <div style="margin-top:6px;color:var(--text-muted);font-size:0.7rem;">${escapeHtml(coverage)}</div>
+        <div class="repair-conversion-preview" data-preview-type="${escapeHtml(selectedType)}" style="padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft);">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+            <div style="font-size:0.8rem;font-weight:700;">${escapeHtml(t(manual ? 'spoolman.repairManualConversionPreview' : 'spoolman.repairConversionPreview'))}</div>
+            <div style="color:var(--text-muted);font-size:0.72rem;">${escapeHtml(coverage)}</div>
+          </div>
+          ${rows ? `<div class="repair-example-grid" style="font-size:0.76rem;">${rows}</div>` : `<div style="font-size:0.76rem;color:var(--error-text);">${escapeHtml(t('spoolman.repairManualConversionUnavailable'))}</div>`}
         </div>
       `
     }
@@ -824,8 +901,13 @@ import Layout from '../../../layouts/Layout.astro'
       const mappings = data.mappings || []
       const rows = mappings.map((mapping: any, index: number) => {
         const disabled = mapping.status !== 'ready' || mapping.confidence === 'unresolved'
-        const options = repairFieldTypes.map(type => `<option value="${type}"${type === mapping.field_type ? ' selected' : ''}>${type}</option>`).join('')
+        const options = repairFieldTypes.map(type => `<option value="${type}"${type === mapping.field_type ? ' selected' : ''}>${escapeHtml(repairTypeLabel(type))}</option>`).join('')
         const details = repairDetailsState(mapping, mapping.field_type)
+        const detailsValue = repairDetailsValue(
+          mapping.field_type,
+          details.kind,
+          details.value,
+        )
         const systemUnavailable = Boolean(mapping.system_conflict)
         const retainedConflict = mapping.system_conflict
           ? `<div style="margin-top:6px;color:var(--error-text);font-size:0.78rem;">${escapeHtml(t('spoolman.extraFieldRetainedConflict').replace('{count}', String(mapping.system_conflict.count)))}</div>`
@@ -838,13 +920,17 @@ import Layout from '../../../layouts/Layout.astro'
           <option value="local"${mapping.existing ? ' disabled' : ''}${systemUnavailable && !mapping.existing ? ' selected' : ''}>${escapeHtml(t('spoolman.extraFieldActionLocal'))}</option>
           <option value="preserve">${escapeHtml(t('spoolman.extraFieldActionPreserve'))}</option>`
         return `
-          <tr data-repair-index="${index}">
+          <tr class="repair-control-row" data-repair-index="${index}">
             <td><input type="checkbox" class="repair-approve"${disabled ? ' disabled' : ''} aria-label="${escapeHtml(t('spoolman.repairApprove'))}" /></td>
-            <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" /><div class="repair-conversion-host">${renderRepairConversionExamples(mapping)}</div>${retainedConflict}${noPromotable}</td>
+            <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" />${retainedConflict}${noPromotable}</td>
             <td><select class="fm-select repair-type" data-current-type="${escapeHtml(mapping.field_type)}" style="min-width:160px;"${disabled ? ' disabled' : ''}>${options}</select></td>
-            <td><span class="repair-details-label" style="display:block;color:var(--text-muted);font-size:0.75rem;margin-bottom:4px;">${escapeHtml(t(details.kind === 'unit' ? 'spoolman.repairUnit' : details.kind === 'choices' ? 'spoolman.repairChoices' : 'spoolman.repairNotApplicable'))}</span><input class="fm-input repair-details" value="${escapeHtml(details.value)}" placeholder="${escapeHtml(details.kind === 'choices' ? t('spoolman.repairChoicesPlaceholder') : '')}" style="min-width:150px;"${disabled || details.disabled ? ' disabled' : ''}${details.required ? ' required' : ''} /></td>
+            <td><input class="fm-input repair-details" value="${escapeHtml(detailsValue)}" placeholder="${escapeHtml(details.kind === 'choices' ? t('spoolman.repairChoicesPlaceholder') : '')}" style="min-width:150px;"${disabled || details.disabled ? ' disabled' : ''}${details.required ? ' required' : ''} /></td>
             <td><select class="fm-select repair-action" style="min-width:180px;"${disabled ? ' disabled' : ''}>${actionOptions}</select></td>
             <td><div class="repair-confidence-host">${renderRepairConfidence(mapping)}</div></td>
+          </tr>
+          <tr class="repair-evidence-row" data-repair-evidence-index="${index}">
+            <td aria-hidden="true"></td>
+            <td colspan="5"><div class="repair-conversion-host">${renderRepairConversionExamples(mapping)}</div></td>
           </tr>
         `
       }).join('')
@@ -856,7 +942,7 @@ import Layout from '../../../layouts/Layout.astro'
           ${repairMetric(t('spoolman.repairCollisions'), summary.collisions)}
           ${repairMetric(t('spoolman.repairUnresolved'), summary.unresolved + summary.invalid)}
         </div>
-        ${rows ? `<div style="overflow-x:auto;"><table class="fm-table" style="table-layout:fixed;min-width:1050px;"><colgroup><col style="width:8%"><col style="width:25%"><col style="width:16%"><col style="width:16%"><col style="width:20%"><col style="width:13%"></colgroup><thead><tr><th>${escapeHtml(t('spoolman.repairApprove'))}</th><th>${escapeHtml(t('spoolman.repairField'))}</th><th>${escapeHtml(t('spoolman.repairType'))}</th><th>${escapeHtml(t('spoolman.repairDetails'))}</th><th>${escapeHtml(t('spoolman.extraFieldAction'))}</th><th>${escapeHtml(t('spoolman.repairConfidence'))}</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+        ${rows ? `<div style="overflow-x:auto;"><table class="fm-table" style="table-layout:fixed;min-width:1100px;"><colgroup><col style="width:7%"><col style="width:21%"><col style="width:14%"><col style="width:18%"><col style="width:18%"><col style="width:22%"></colgroup><thead><tr><th>${escapeHtml(t('spoolman.repairApprove'))}</th><th>${escapeHtml(t('spoolman.repairField'))}</th><th>${escapeHtml(t('spoolman.repairType'))}</th><th>${escapeHtml(t('spoolman.repairDetails'))}</th><th>${escapeHtml(t('spoolman.extraFieldAction'))}</th><th>${escapeHtml(t('spoolman.repairConfidence'))}</th></tr></thead><tbody>${rows}</tbody></table></div>` : ''}
       `
     }
 
@@ -874,7 +960,13 @@ import Layout from '../../../layouts/Layout.astro'
       ) as RepairFieldType
       const details =
         row.querySelector<HTMLInputElement>('.repair-details')?.value || ''
-      const conversionHost = row.querySelector<HTMLElement>('.repair-conversion-host')
+      const index = row.dataset.repairIndex
+      const evidenceRow = row.parentElement?.querySelector<HTMLTableRowElement>(
+        `tr[data-repair-evidence-index="${index}"]`,
+      )
+      const conversionHost = evidenceRow?.querySelector<HTMLElement>(
+        '.repair-conversion-host',
+      )
       const confidenceHost = row.querySelector<HTMLElement>('.repair-confidence-host')
       if (conversionHost) {
         conversionHost.innerHTML = renderRepairConversionExamples(
@@ -919,8 +1011,7 @@ import Layout from '../../../layouts/Layout.astro'
             if (!row || !repairPreview) return
             const source = repairPreview.mappings[Number(row.dataset.repairIndex)] as RepairMapping
             const detailsInput = row.querySelector<HTMLInputElement>('.repair-details')
-            const detailsLabel = row.querySelector<HTMLElement>('.repair-details-label')
-            if (!detailsInput || !detailsLabel) return
+            if (!detailsInput) return
             const previousType = select.dataset.currentType as RepairFieldType
             const nextType = select.value as RepairFieldType
             const details = repairDetailsState(
@@ -930,18 +1021,15 @@ import Layout from '../../../layouts/Layout.astro'
               detailsInput.value,
             )
             select.dataset.currentType = nextType
-            detailsInput.value = details.value
+            detailsInput.value = repairDetailsValue(
+              nextType,
+              details.kind,
+              details.value,
+            )
             detailsInput.disabled = details.disabled
             detailsInput.required = details.required
             detailsInput.placeholder =
               details.kind === 'choices' ? t('spoolman.repairChoicesPlaceholder') : ''
-            detailsLabel.textContent = t(
-              details.kind === 'unit'
-                ? 'spoolman.repairUnit'
-                : details.kind === 'choices'
-                  ? 'spoolman.repairChoices'
-                  : 'spoolman.repairNotApplicable',
-            )
             updateRepairEvidence(row, source)
           })
         })

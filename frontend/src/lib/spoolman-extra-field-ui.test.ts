@@ -6,6 +6,7 @@ import {
   buildRepairMappingPayload,
   convertRepairExampleValue,
   formatRepairExampleValue,
+  repairConfidenceReason,
   repairConfidenceTone,
   repairDetailsState,
   type RepairMapping,
@@ -63,6 +64,29 @@ describe("Spoolman repair preview evidence", () => {
     ["unresolved", "neutral"],
   ] as const)("maps %s confidence to the %s tone", (confidence, tone) => {
     expect(repairConfidenceTone(confidence)).toBe(tone);
+  });
+
+  it("uses the audited reason and replaces it after a manual type change", () => {
+    const legacyText: RepairMapping = {
+      ...source,
+      field_type: "text",
+      source_field_type: "text",
+      confidence: "low",
+      confidence_reason: "legacy_scalar",
+    };
+
+    expect(repairConfidenceReason(legacyText)).toBe("legacy_scalar");
+    expect(repairConfidenceReason(legacyText, "datetime")).toBe("manual");
+  });
+
+  it("falls back to a confidence-specific reason for older previews", () => {
+    expect(
+      repairConfidenceReason({
+        ...source,
+        confidence: "high",
+        confidence_reason: undefined,
+      }),
+    ).toBe("generic_high");
   });
 
   it("formats actual converted values for compact before/after examples", () => {

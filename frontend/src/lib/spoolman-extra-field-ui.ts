@@ -19,6 +19,22 @@ export type RepairConfidence =
   | "medium"
   | "low"
   | "unresolved";
+export type RepairConfidenceReason =
+  | "source_definition"
+  | "structured_values"
+  | "date_pattern"
+  | "url_pattern"
+  | "majority_match"
+  | "legacy_scalar"
+  | "fallback_text"
+  | "mixed_text"
+  | "invalid_key"
+  | "mixed_values"
+  | "manual"
+  | "generic_high"
+  | "generic_medium"
+  | "generic_low"
+  | "generic_unresolved";
 export type RepairConfidenceTone =
   | "info"
   | "success"
@@ -84,6 +100,33 @@ export function repairConfidenceTone(
   if (confidence === "medium") return "warning";
   if (confidence === "low") return "error";
   return "neutral";
+}
+
+export function repairConfidenceReason(
+  mapping: RepairMapping,
+  selectedType: RepairFieldType = mapping.field_type,
+): RepairConfidenceReason {
+  if (selectedType !== mapping.field_type) return "manual";
+  const supported = new Set<RepairConfidenceReason>([
+    "source_definition",
+    "structured_values",
+    "date_pattern",
+    "url_pattern",
+    "majority_match",
+    "legacy_scalar",
+    "fallback_text",
+    "mixed_text",
+    "invalid_key",
+    "mixed_values",
+  ]);
+  if (supported.has(mapping.confidence_reason as RepairConfidenceReason)) {
+    return mapping.confidence_reason as RepairConfidenceReason;
+  }
+  if (mapping.confidence === "authoritative") return "source_definition";
+  if (mapping.confidence === "high") return "generic_high";
+  if (mapping.confidence === "medium") return "generic_medium";
+  if (mapping.confidence === "low") return "generic_low";
+  return "generic_unresolved";
 }
 
 export function formatRepairExampleValue(
