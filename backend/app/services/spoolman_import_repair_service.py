@@ -55,7 +55,8 @@ class SpoolmanImportRepairService:
                 "mode must be 'server' or 'offline'", "invalid_mode"
             )
 
-        rows = await self._legacy_rows()
+        imported_rows = await self._imported_rows()
+        rows = [row for row in imported_rows if row["nested"]]
         grouped: dict[tuple[str, str], list[Any]] = defaultdict(list)
         for row in rows:
             for key, value in row["nested"].items():
@@ -186,6 +187,7 @@ class SpoolmanImportRepairService:
             "mode": mode,
             "preview_fingerprint": fingerprint(snapshot),
             "summary": {
+                "imported_records": len(imported_rows),
                 "records_scanned": len(rows),
                 "fields_found": len(grouped),
                 "promotable": counts["promotable"],
@@ -329,6 +331,13 @@ class SpoolmanImportRepairService:
         }
 
     async def _legacy_rows(self, include_model: bool = False) -> list[dict[str, Any]]:
+        return [
+            row
+            for row in await self._imported_rows(include_model)
+            if row["nested"]
+        ]
+
+    async def _imported_rows(self, include_model: bool = False) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for target_type, model in (("filament", Filament), ("spool", Spool)):
             result = await self.db.execute(select(model))
@@ -337,13 +346,11 @@ class SpoolmanImportRepairService:
                 if not isinstance(custom, dict) or custom.get("spoolman_id") is None:
                     continue
                 nested = custom.get("spoolman_extra")
-                if not isinstance(nested, dict) or not nested:
-                    continue
                 row = {
                     "target_type": target_type,
                     "entity_id": entity.id,
                     "custom_fields": custom,
-                    "nested": nested,
+                    "nested": nested if isinstance(nested, dict) else {},
                 }
                 if include_model:
                     row["model"] = entity

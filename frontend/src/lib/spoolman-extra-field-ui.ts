@@ -55,11 +55,6 @@ export type ImportStorageAction =
   | "preserve"
   | "legacy";
 export type ImportStorageMode = Exclude<ImportStorageAction, "inherit">;
-export type ImportStorageActionTranslationKey =
-  | "extraFieldActionSystem"
-  | "extraFieldActionLocal"
-  | "extraFieldActionPreserve"
-  | "extraFieldActionLegacy";
 export type ImportFieldTarget = "filament" | "spool";
 export interface ImportDefinitionAvailability {
   typedDefinitionsAvailable: boolean;
@@ -434,21 +429,6 @@ export function resolveImportModeAvailability(
     mode: currentMode,
     typedModesDisabled: !typedDefinitionsAvailable,
   };
-}
-
-export function importStorageActionTranslationKey(
-  mode: ImportStorageMode,
-): ImportStorageActionTranslationKey {
-  switch (mode) {
-    case "system":
-      return "extraFieldActionSystem";
-    case "local":
-      return "extraFieldActionLocal";
-    case "preserve":
-      return "extraFieldActionPreserve";
-    case "legacy":
-      return "extraFieldActionLegacy";
-  }
 }
 
 export function resolveImportDefinitionAvailability(

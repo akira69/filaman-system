@@ -7,7 +7,6 @@ import {
   buildRepairMappingPayload,
   convertRepairExampleValue,
   formatRepairExampleValue,
-  importStorageActionTranslationKey,
   repairConfidenceReason,
   repairConfidenceTone,
   repairDetailsState,
@@ -243,21 +242,6 @@ describe("Spoolman repair payloads", () => {
 });
 
 describe("Spoolman import overrides", () => {
-  it("maps each global storage mode to its resolved per-field label", () => {
-    expect(importStorageActionTranslationKey("system")).toBe(
-      "extraFieldActionSystem",
-    );
-    expect(importStorageActionTranslationKey("local")).toBe(
-      "extraFieldActionLocal",
-    );
-    expect(importStorageActionTranslationKey("preserve")).toBe(
-      "extraFieldActionPreserve",
-    );
-    expect(importStorageActionTranslationKey("legacy")).toBe(
-      "extraFieldActionLegacy",
-    );
-  });
-
   it("summarizes created, reused, local, converted, and preserved fields", () => {
     expect(
       buildImportExtraFieldResultSummary({

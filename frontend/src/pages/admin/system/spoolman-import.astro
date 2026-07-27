@@ -88,7 +88,7 @@ import Layout from '../../../layouts/Layout.astro'
         <span data-i18n="spoolman.repairOfflineMode">Recover from stored imported data</span>
       </label>
     </div>
-    <p style="color:var(--text-muted);font-size:0.82rem;margin:0 0 16px;" data-i18n="spoolman.repairOfflineHint">No source server is required. Suggested mappings must be reviewed and approved individually.</p>
+    <p id="repair-mode-hint" style="color:var(--text-muted);font-size:0.82rem;margin:0 0 16px;" data-i18n="spoolman.repairOfflineHint">No source server is required. Suggested mappings must be reviewed and approved individually.</p>
     <button id="btn-repair-preview" class="fm-btn fm-btn-outline" data-i18n="spoolman.repairPreview">Scan existing imports</button>
     <div id="repair-preview-result" style="margin-top:16px;display:none;"></div>
     <div id="repair-actions" style="margin-top:16px;display:none;">
@@ -255,7 +255,6 @@ import Layout from '../../../layouts/Layout.astro'
       buildRepairMappingPayload,
       convertRepairExampleValue,
       formatRepairExampleValue,
-      importStorageActionTranslationKey,
       repairConfidenceReason,
       repairConfidenceTone,
       repairDetailsState,
@@ -962,31 +961,6 @@ import Layout from '../../../layouts/Layout.astro'
       return definitionAvailability
     }
 
-    function importDefaultActionLabel(): string {
-      const mode = (
-        document.getElementById('extra-field-mode') as HTMLSelectElement
-      ).value as ImportStorageMode
-      const action = t(
-        `spoolman.${importStorageActionTranslationKey(mode)}`,
-      )
-      return t('spoolman.extraFieldActionDefault').replace('{action}', action)
-    }
-
-    function updateImportDefaultActionLabels(): void {
-      const label = importDefaultActionLabel()
-      document
-        .querySelectorAll<HTMLOptionElement>(
-          '.import-field-action option[value="inherit"]',
-        )
-        .forEach(option => {
-          option.textContent = label
-        })
-    }
-
-    document
-      .getElementById('extra-field-mode')
-      ?.addEventListener('change', updateImportDefaultActionLabels)
-
     function renderExtraFieldPreview(
       fields: any[],
       availability: ImportDefinitionAvailability,
@@ -1046,7 +1020,7 @@ import Layout from '../../../layouts/Layout.astro'
                     <td><strong>${escapeHtml(field.target_type)}.${escapeHtml(field.key || '')}</strong><br><span style="color:var(--text-muted);font-size:0.78rem;">${escapeHtml(field.label || field.reason || '')}</span>${retainedConflict}</td>
                     <td>${escapeHtml(field.field_type || field.status)}</td>
                     <td>${supportsTypedImport ? `<select class="fm-select import-field-action" data-target="${escapeHtml(field.target_type)}" data-key="${escapeHtml(field.key || '')}">
-                      <option value="inherit">${escapeHtml(importDefaultActionLabel())}</option>
+                      <option value="inherit">${escapeHtml(t('spoolman.extraFieldActionStep3Default'))}</option>
                       <option value="system"${systemUnavailable ? ' disabled' : ''}>${escapeHtml(t('spoolman.extraFieldActionSystem'))}</option>
                       <option value="local"${localUnavailable ? ' disabled' : ''}>${escapeHtml(t('spoolman.extraFieldActionLocal'))}</option>
                       <option value="preserve">${escapeHtml(t('spoolman.extraFieldActionPreserve'))}</option>
@@ -1064,6 +1038,21 @@ import Layout from '../../../layouts/Layout.astro'
     function repairMode(): string {
       return (document.querySelector<HTMLInputElement>('input[name="repair-mode"]:checked')?.value || 'offline')
     }
+
+    function updateRepairModeHint(): void {
+      const hint = document.getElementById('repair-mode-hint')
+      if (!hint) return
+      const key =
+        repairMode() === 'server'
+          ? 'spoolman.repairServerHint'
+          : 'spoolman.repairOfflineHint'
+      hint.dataset.i18n = key
+      hint.textContent = t(key)
+    }
+
+    document
+      .querySelectorAll<HTMLInputElement>('input[name="repair-mode"]')
+      .forEach(input => input.addEventListener('change', updateRepairModeHint))
 
     function repairTypeLabel(fieldType: RepairFieldType): string {
       return t(`admin.fieldType_${fieldType}`)
@@ -1226,6 +1215,19 @@ import Layout from '../../../layouts/Layout.astro'
     function renderRepairPreview(data: any): string {
       const summary = data.summary
       const mappings = data.mappings || []
+      if (!summary.records_scanned && !mappings.length) {
+        const importedRecords = Number(summary.imported_records || 0)
+        const message = importedRecords
+          ? t('spoolman.repairAlreadyHandled').replace(
+              '{count}',
+              String(importedRecords),
+            )
+          : t('spoolman.repairNoImports')
+        const alertClass = importedRecords
+          ? 'fm-alert-success'
+          : 'fm-alert-info'
+        return `<div class="${alertClass}">${escapeHtml(message)}</div>`
+      }
       const rows = mappings.map((mapping: any, index: number) => {
         const disabled = mapping.status !== 'ready' || mapping.confidence === 'unresolved'
         const options = repairFieldTypes.map(type => `<option value="${type}"${type === mapping.field_type ? ' selected' : ''}>${escapeHtml(repairTypeLabel(type))}</option>`).join('')

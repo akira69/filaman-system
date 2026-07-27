@@ -38,6 +38,7 @@ async def test_offline_preview_is_non_mutating(db_session):
     preview = await service.preview("offline")
 
     assert preview["summary"] == {
+        "imported_records": 1,
         "records_scanned": 1,
         "fields_found": 2,
         "promotable": 2,
@@ -322,8 +323,31 @@ async def test_repair_is_idempotent(db_session):
 
     second_preview = await service.preview("offline")
 
+    assert second_preview["summary"]["imported_records"] == 1
     assert second_preview["summary"]["records_scanned"] == 0
     assert second_preview["summary"]["promotable"] == 0
+
+
+async def test_preview_distinguishes_typed_imports_from_no_imports(db_session):
+    filament = await _legacy_filament(
+        db_session,
+        {"spoolman_id": 12, "dry": True},
+    )
+    service = SpoolmanImportRepairService(db_session)
+
+    typed_preview = await service.preview("offline")
+
+    assert typed_preview["summary"]["imported_records"] == 1
+    assert typed_preview["summary"]["records_scanned"] == 0
+    assert typed_preview["mappings"] == []
+
+    filament.custom_fields = {"dry": True}
+    await db_session.commit()
+    no_import_preview = await service.preview("offline")
+
+    assert no_import_preview["summary"]["imported_records"] == 0
+    assert no_import_preview["summary"]["records_scanned"] == 0
+    assert no_import_preview["mappings"] == []
 
 
 async def test_preview_samples_are_bounded_without_changing_stored_data(db_session):
