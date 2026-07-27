@@ -4,6 +4,9 @@ import {
   RepairMappingValidationError,
   buildImportFieldActions,
   buildRepairMappingPayload,
+  convertRepairExampleValue,
+  formatRepairExampleValue,
+  repairConfidenceTone,
   repairDetailsState,
   type RepairMapping,
 } from "./spoolman-extra-field-ui";
@@ -48,6 +51,97 @@ describe("Spoolman repair field controls", () => {
     expect(
       repairDetailsState(source, "range", "number", "degrees"),
     ).toMatchObject({ kind: "unit", value: "degrees" });
+  });
+});
+
+describe("Spoolman repair preview evidence", () => {
+  it.each([
+    ["authoritative", "info"],
+    ["high", "success"],
+    ["medium", "warning"],
+    ["low", "error"],
+    ["unresolved", "neutral"],
+  ] as const)("maps %s confidence to the %s tone", (confidence, tone) => {
+    expect(repairConfidenceTone(confidence)).toBe(tone);
+  });
+
+  it("formats actual converted values for compact before/after examples", () => {
+    expect(
+      formatRepairExampleValue(
+        "true",
+        "checkbox",
+        false,
+        "Checked",
+        "Unchecked",
+      ),
+    ).toBe("true");
+    expect(
+      formatRepairExampleValue(true, "checkbox", true, "Checked", "Unchecked"),
+    ).toBe("Checked");
+    expect(
+      formatRepairExampleValue(
+        { min: 190, max: 230 },
+        "range",
+        true,
+        "Checked",
+        "Unchecked",
+      ),
+    ).toBe("190 – 230");
+    expect(
+      formatRepairExampleValue(
+        '"2026-07-27T15:45:30Z"',
+        "date",
+        false,
+        "Checked",
+        "Unchecked",
+      ),
+    ).toBe("2026-07-27T15:45:30Z");
+  });
+
+  it("recalculates examples when the user changes the suggested type", () => {
+    const datetimeSource: RepairMapping = {
+      ...source,
+      field_type: "datetime",
+      source_field_type: "datetime",
+      config: null,
+    };
+
+    expect(
+      convertRepairExampleValue(
+        '"2026-07-27T15:45:30Z"',
+        datetimeSource,
+        "date",
+      ),
+    ).toEqual({ ok: true, value: "2026-07-27" });
+    expect(
+      convertRepairExampleValue('"not a date"', datetimeSource, "date"),
+    ).toEqual({ ok: false });
+    expect(convertRepairExampleValue("[190,230]", source, "range")).toEqual({
+      ok: true,
+      value: { min: 190, max: 230 },
+    });
+  });
+
+  it("uses edited choices when previewing dropdown conversions", () => {
+    const choiceSource: RepairMapping = {
+      ...source,
+      field_type: "text",
+      source_field_type: "text",
+      config: null,
+    };
+
+    expect(
+      convertRepairExampleValue("PLA", choiceSource, "dropdown", [
+        "PLA",
+        "PETG",
+      ]),
+    ).toEqual({ ok: true, value: "PLA" });
+    expect(
+      convertRepairExampleValue("TPU", choiceSource, "dropdown", [
+        "PLA",
+        "PETG",
+      ]),
+    ).toEqual({ ok: false });
   });
 });
 

@@ -1,6 +1,4 @@
 import pytest
-from sqlalchemy import select
-
 from app.models.filament import Filament, Manufacturer
 from app.models.system_extra_field import SystemExtraField
 from app.services.spoolman_extra_field_mapping import SpoolmanFieldError
@@ -8,6 +6,7 @@ from app.services.spoolman_import_repair_service import (
     SpoolmanImportRepairService,
     SpoolmanRepairError,
 )
+from sqlalchemy import select
 
 
 async def _legacy_filament(db_session, custom_fields):
@@ -50,6 +49,14 @@ async def test_offline_preview_is_non_mutating(db_session):
         "number",
         "checkbox",
     }
+    pressure = next(
+        item for item in preview["mappings"] if item["key"] == "pressure_advance"
+    )
+    dry = next(item for item in preview["mappings"] if item["key"] == "dry")
+    assert pressure["confidence"] == "low"
+    assert pressure["confidence_reason"] == "legacy_scalar"
+    assert pressure["conversion_examples"] == [{"source": "0.025", "converted": 0.025}]
+    assert dry["conversion_examples"] == [{"source": "true", "converted": True}]
     await db_session.refresh(filament)
     assert filament.custom_fields == {
         "spoolman_id": 12,
@@ -106,9 +113,7 @@ async def test_offline_repair_can_create_record_local_definition(db_session):
     preview = await service.preview("offline")
     approved = [{**preview["mappings"][0], "action": "local"}]
 
-    result = await service.execute(
-        "offline", preview["preview_fingerprint"], approved
-    )
+    result = await service.execute("offline", preview["preview_fingerprint"], approved)
 
     assert result["definitions_created"] == 0
     assert result["local_definitions_created"] == 1
@@ -130,9 +135,7 @@ async def test_offline_repair_can_explicitly_preserve_value(db_session):
     preview = await service.preview("offline")
     approved = [{**preview["mappings"][0], "action": "preserve"}]
 
-    result = await service.execute(
-        "offline", preview["preview_fingerprint"], approved
-    )
+    result = await service.execute("offline", preview["preview_fingerprint"], approved)
 
     assert result["records_updated"] == 0
     assert result["values_promoted"] == 0
@@ -220,9 +223,7 @@ def test_repair_date_conversion_accepts_date_or_datetime_only():
     mapping = {"field_type": "date", "source_field_type": "datetime"}
 
     assert (
-        SpoolmanImportRepairService._convert_approved(
-            '"2026-07-27T15:45:30Z"', mapping
-        )
+        SpoolmanImportRepairService._convert_approved('"2026-07-27T15:45:30Z"', mapping)
         == "2026-07-27"
     )
     assert (
@@ -307,6 +308,43 @@ async def test_preview_samples_are_bounded_without_changing_stored_data(db_sessi
     assert preview["mappings"][0]["samples"][0].endswith("...")
     await db_session.refresh(filament)
     assert filament.custom_fields["spoolman_extra"]["notes"] == long_value
+
+
+async def test_preview_includes_up_to_three_distinct_real_conversion_examples(
+    db_session,
+):
+    first = await _legacy_filament(
+        db_session,
+        {"spoolman_id": 1, "spoolman_extra": {"temperature": "[190,230]"}},
+    )
+    for spoolman_id, value in enumerate(
+        ("[195,235]", "[200,240]", "[205,245]"),
+        start=2,
+    ):
+        db_session.add(
+            Filament(
+                manufacturer_id=first.manufacturer_id,
+                designation=f"Legacy PLA {spoolman_id}",
+                material_type="PLA",
+                diameter_mm=1.75,
+                custom_fields={
+                    "spoolman_id": spoolman_id,
+                    "spoolman_extra": {"temperature": value},
+                },
+            )
+        )
+    await db_session.commit()
+
+    preview = await SpoolmanImportRepairService(db_session).preview("offline")
+    mapping = preview["mappings"][0]
+
+    assert mapping["confidence"] == "high"
+    assert mapping["promotable_occurrences"] == 4
+    assert mapping["conversion_examples"] == [
+        {"source": "[190,230]", "converted": {"min": 190, "max": 230}},
+        {"source": "[195,235]", "converted": {"min": 195, "max": 235}},
+        {"source": "[200,240]", "converted": {"min": 200, "max": 240}},
+    ]
 
 
 async def test_offline_repair_admin_api_requires_preview_and_approval(

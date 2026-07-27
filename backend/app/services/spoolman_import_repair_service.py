@@ -88,14 +88,15 @@ class SpoolmanImportRepairService:
             item.setdefault(
                 "confidence", "authoritative" if mode == "server" else "low"
             )
+            item.setdefault(
+                "confidence_reason",
+                "source_definition" if mode == "server" else "legacy_scalar",
+            )
             if local is None:
                 conflict = await find_definition_value_conflict(self.db, item)
                 if conflict:
                     item["system_conflict"] = conflict
-            samples = item.get(
-                "samples",
-                grouped.get((item["target_type"], item["key"]), [])[:5],
-            )
+            samples = grouped.get((item["target_type"], item["key"]), [])[:5]
             item["samples"] = [self._preview_sample(value) for value in samples[:5]]
             item["occurrences"] = len(
                 grouped.get((item["target_type"], item["key"]), [])
@@ -105,13 +106,34 @@ class SpoolmanImportRepairService:
         mapping_counts: dict[tuple[str, str], dict[str, int]] = defaultdict(
             lambda: defaultdict(int)
         )
+        conversion_examples: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(
+            list
+        )
+        conversion_example_keys: dict[tuple[str, str], set[str]] = defaultdict(set)
         examples: list[dict[str, Any]] = []
         for row in rows:
             for key, raw in row["nested"].items():
                 mapping = mappings_by_key.get((row["target_type"], key))
                 reason = self._classify(row["custom_fields"], key, raw, mapping)
                 counts[reason] += 1
-                mapping_counts[(row["target_type"], key)][reason] += 1
+                identity = (row["target_type"], key)
+                mapping_counts[identity][reason] += 1
+                if (
+                    reason == "promotable"
+                    and mapping is not None
+                    and len(conversion_examples[identity]) < 3
+                ):
+                    converted = self._convert_approved(raw, mapping)
+                    example = {
+                        "source": self._preview_sample(raw),
+                        "converted": self._preview_sample(converted),
+                    }
+                    example_key = json.dumps(
+                        example, sort_keys=True, separators=(",", ":"), default=str
+                    )
+                    if example_key not in conversion_example_keys[identity]:
+                        conversion_example_keys[identity].add(example_key)
+                        conversion_examples[identity].append(example)
                 if reason != "promotable" and len(examples) < 50:
                     examples.append(
                         {
@@ -130,6 +152,9 @@ class SpoolmanImportRepairService:
                 for reason, count in item_counts.items()
                 if reason != "promotable"
             )
+            item["conversion_examples"] = conversion_examples[
+                (item["target_type"], item["key"])
+            ]
             if item["status"] == "ready" and not item["promotable_occurrences"]:
                 item["status"] = "no_promotable"
 

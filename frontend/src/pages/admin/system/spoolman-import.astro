@@ -103,6 +103,9 @@ import Layout from '../../../layouts/Layout.astro'
       RepairMappingValidationError,
       buildImportFieldActions,
       buildRepairMappingPayload,
+      convertRepairExampleValue,
+      formatRepairExampleValue,
+      repairConfidenceTone,
       repairDetailsState,
       repairFieldTypes,
       type ImportStorageAction,
@@ -700,13 +703,128 @@ import Layout from '../../../layouts/Layout.astro'
       return (document.querySelector<HTMLInputElement>('input[name="repair-mode"]:checked')?.value || 'offline')
     }
 
+    function renderRepairConfidence(
+      mapping: RepairMapping,
+      selectedType: RepairFieldType = mapping.field_type,
+    ): string {
+      const manual = selectedType !== mapping.field_type
+      const confidence = manual ? 'manual' : (mapping.confidence || 'unresolved')
+      const tone = repairConfidenceTone(confidence)
+      const styles = {
+        info: 'color:var(--info-text);border-color:var(--info-border);background:var(--info-bg);',
+        success: 'color:var(--success-text);border-color:var(--success-border);background:var(--success-bg);',
+        warning: 'color:var(--accent-3);border-color:var(--accent-3);background:var(--bg-soft);',
+        error: 'color:var(--error-text);border-color:var(--error-border);background:var(--error-bg);',
+        neutral: 'color:var(--text-muted);border-color:var(--border);background:var(--bg-soft);',
+      }
+      const labelKey = {
+        authoritative: 'spoolman.repairConfidenceAuthoritative',
+        high: 'spoolman.repairConfidenceHigh',
+        medium: 'spoolman.repairConfidenceMedium',
+        low: 'spoolman.repairConfidenceLow',
+        unresolved: 'spoolman.repairConfidenceUnresolved',
+        manual: 'spoolman.repairConfidenceManual',
+      }[confidence] || 'spoolman.repairConfidenceUnresolved'
+      const hintKey = {
+        authoritative: 'spoolman.repairConfidenceAuthoritativeHint',
+        high: 'spoolman.repairConfidenceHighHint',
+        medium: 'spoolman.repairConfidenceMediumHint',
+        low: 'spoolman.repairConfidenceLowHint',
+        unresolved: 'spoolman.repairConfidenceUnresolvedHint',
+        manual: 'spoolman.repairConfidenceManualHint',
+      }[confidence] || 'spoolman.repairConfidenceUnresolvedHint'
+      const ready = Number(mapping.promotable_occurrences || 0)
+      const total = Number(mapping.occurrences || 0)
+      const coverage = t('spoolman.repairConfidenceValues')
+        .replace('{ready}', String(ready))
+        .replace('{total}', String(total))
+      return `
+        <span title="${escapeHtml(t(hintKey))}" style="display:inline-flex;align-items:center;padding:3px 9px;border:1px solid;border-radius:999px;font-size:0.75rem;font-weight:650;${styles[tone]}">${escapeHtml(t(labelKey))}</span>
+        ${manual ? '' : `<div style="margin-top:6px;color:var(--text-muted);font-size:0.72rem;line-height:1.3;">${escapeHtml(coverage)}</div>`}
+      `
+    }
+
+    function renderRepairConversionExamples(
+      mapping: RepairMapping,
+      selectedType: RepairFieldType = mapping.field_type,
+      details = '',
+    ): string {
+      const sourceExamples = mapping.conversion_examples || []
+      if (!sourceExamples.length) {
+        const samples = ((mapping.samples as unknown[]) || [])
+          .map(value => typeof value === 'string' ? value : JSON.stringify(value))
+          .join(', ')
+        return samples
+          ? `<div style="margin-top:8px;color:var(--text-muted);font-size:0.78rem;overflow-wrap:anywhere;"><strong>${escapeHtml(t('spoolman.repairSamples'))}:</strong> ${escapeHtml(samples)}</div>`
+          : ''
+      }
+      const manual = selectedType !== mapping.field_type
+      const options = details
+        .split(',')
+        .map(value => value.trim())
+        .filter(Boolean)
+      const examples = manual
+        ? sourceExamples.flatMap(example => {
+            const converted = convertRepairExampleValue(
+              example.source,
+              mapping,
+              selectedType,
+              options,
+            )
+            return converted.ok
+              ? [{ source: example.source, converted: converted.value }]
+              : []
+          })
+        : sourceExamples
+      const checked = t('spoolman.repairChecked')
+      const unchecked = t('spoolman.repairUnchecked')
+      const rows = examples.map(example => {
+        const source = formatRepairExampleValue(
+          example.source,
+          selectedType,
+          false,
+          checked,
+          unchecked,
+        )
+        const converted = formatRepairExampleValue(
+          example.converted,
+          selectedType,
+          true,
+          checked,
+          unchecked,
+        )
+        return `
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:7px;">
+            <code title="${escapeHtml(source)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 6px;border-radius:6px;background:var(--bg-soft);">${escapeHtml(source)}</code>
+            <span aria-hidden="true" style="color:var(--accent);font-weight:700;">→</span>
+            <code title="${escapeHtml(converted)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 6px;border-radius:6px;background:var(--success-bg);color:var(--success-text);">${escapeHtml(converted)}</code>
+          </div>
+        `
+      }).join('')
+      const coverage = (
+        manual
+          ? t('spoolman.repairManualConversionCoverage')
+              .replace('{shown}', String(examples.length))
+              .replace('{sampled}', String(sourceExamples.length))
+          : t('spoolman.repairConversionCoverage')
+              .replace('{shown}', String(examples.length))
+              .replace('{count}', String(mapping.promotable_occurrences || 0))
+      )
+      return `
+        <div class="repair-conversion-preview" data-preview-type="${escapeHtml(selectedType)}" style="margin-top:9px;padding:8px;border:1px solid var(--border);border-radius:9px;background:var(--bg-soft);">
+          <div style="font-size:0.75rem;font-weight:650;margin-bottom:6px;">${escapeHtml(t(manual ? 'spoolman.repairManualConversionPreview' : 'spoolman.repairConversionPreview'))}</div>
+          ${rows ? `<div style="display:grid;gap:5px;font-size:0.76rem;">${rows}</div>` : `<div style="font-size:0.76rem;color:var(--error-text);">${escapeHtml(t('spoolman.repairManualConversionUnavailable'))}</div>`}
+          <div style="margin-top:6px;color:var(--text-muted);font-size:0.7rem;">${escapeHtml(coverage)}</div>
+        </div>
+      `
+    }
+
     function renderRepairPreview(data: any): string {
       const summary = data.summary
       const mappings = data.mappings || []
       const rows = mappings.map((mapping: any, index: number) => {
         const disabled = mapping.status !== 'ready' || mapping.confidence === 'unresolved'
         const options = repairFieldTypes.map(type => `<option value="${type}"${type === mapping.field_type ? ' selected' : ''}>${type}</option>`).join('')
-        const samples = (mapping.samples || []).map((value: any) => typeof value === 'string' ? value : JSON.stringify(value)).join(', ')
         const details = repairDetailsState(mapping, mapping.field_type)
         const systemUnavailable = Boolean(mapping.system_conflict)
         const retainedConflict = mapping.system_conflict
@@ -722,11 +840,11 @@ import Layout from '../../../layouts/Layout.astro'
         return `
           <tr data-repair-index="${index}">
             <td><input type="checkbox" class="repair-approve"${disabled ? ' disabled' : ''} aria-label="${escapeHtml(t('spoolman.repairApprove'))}" /></td>
-            <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" />${samples ? `<div style="margin-top:6px;color:var(--text-muted);font-size:0.78rem;overflow-wrap:anywhere;"><strong>${escapeHtml(t('spoolman.repairSamples'))}:</strong> ${escapeHtml(samples)}</div>` : ''}${retainedConflict}${noPromotable}</td>
+            <td><strong>${escapeHtml(mapping.target_type)}.${escapeHtml(mapping.key)}</strong><br><input class="fm-input repair-label" value="${escapeHtml(mapping.label || mapping.key)}" style="margin-top:5px;min-width:170px;" /><div class="repair-conversion-host">${renderRepairConversionExamples(mapping)}</div>${retainedConflict}${noPromotable}</td>
             <td><select class="fm-select repair-type" data-current-type="${escapeHtml(mapping.field_type)}" style="min-width:160px;"${disabled ? ' disabled' : ''}>${options}</select></td>
             <td><span class="repair-details-label" style="display:block;color:var(--text-muted);font-size:0.75rem;margin-bottom:4px;">${escapeHtml(t(details.kind === 'unit' ? 'spoolman.repairUnit' : details.kind === 'choices' ? 'spoolman.repairChoices' : 'spoolman.repairNotApplicable'))}</span><input class="fm-input repair-details" value="${escapeHtml(details.value)}" placeholder="${escapeHtml(details.kind === 'choices' ? t('spoolman.repairChoicesPlaceholder') : '')}" style="min-width:150px;"${disabled || details.disabled ? ' disabled' : ''}${details.required ? ' required' : ''} /></td>
             <td><select class="fm-select repair-action" style="min-width:180px;"${disabled ? ' disabled' : ''}>${actionOptions}</select></td>
-            <td>${escapeHtml(mapping.confidence || mapping.status)}</td>
+            <td><div class="repair-confidence-host">${renderRepairConfidence(mapping)}</div></td>
           </tr>
         `
       }).join('')
@@ -744,6 +862,30 @@ import Layout from '../../../layouts/Layout.astro'
 
     function repairMetric(label: string, value: number): string {
       return `<div style="padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-soft);"><div style="font-size:0.78rem;color:var(--text-muted);">${escapeHtml(label)}</div><div style="font-size:1.25rem;font-weight:700;">${value}</div></div>`
+    }
+
+    function updateRepairEvidence(
+      row: HTMLTableRowElement,
+      source: RepairMapping,
+    ): void {
+      const selectedType = (
+        row.querySelector<HTMLSelectElement>('.repair-type')?.value ||
+        source.field_type
+      ) as RepairFieldType
+      const details =
+        row.querySelector<HTMLInputElement>('.repair-details')?.value || ''
+      const conversionHost = row.querySelector<HTMLElement>('.repair-conversion-host')
+      const confidenceHost = row.querySelector<HTMLElement>('.repair-confidence-host')
+      if (conversionHost) {
+        conversionHost.innerHTML = renderRepairConversionExamples(
+          source,
+          selectedType,
+          details,
+        )
+      }
+      if (confidenceHost) {
+        confidenceHost.innerHTML = renderRepairConfidence(source, selectedType)
+      }
     }
 
     document.getElementById('btn-repair-preview')?.addEventListener('click', async () => {
@@ -800,6 +942,17 @@ import Layout from '../../../layouts/Layout.astro'
                   ? 'spoolman.repairChoices'
                   : 'spoolman.repairNotApplicable',
             )
+            updateRepairEvidence(row, source)
+          })
+        })
+        result.querySelectorAll<HTMLInputElement>('.repair-details').forEach(input => {
+          input.addEventListener('input', () => {
+            const row = input.closest<HTMLTableRowElement>('tr[data-repair-index]')
+            if (!row || !repairPreview) return
+            const source = repairPreview.mappings[
+              Number(row.dataset.repairIndex)
+            ] as RepairMapping
+            updateRepairEvidence(row, source)
           })
         })
         document.getElementById('repair-actions')!.style.display = data.mappings?.length ? 'block' : 'none'

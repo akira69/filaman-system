@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 
 class SpoolmanFieldError(ValueError):
@@ -219,14 +221,24 @@ def infer_definition(
     target_type: str, key: str, raw_values: Iterable[Any]
 ) -> dict[str, Any]:
     """Suggest a conservative native definition from legacy stored values."""
-    values = [decode_spoolman_value(value) for value in raw_values]
+    stored_values = list(raw_values)
+    values = [decode_spoolman_value(value) for value in stored_values]
     if not values:
         raise SpoolmanFieldError("no values to infer")
     if not re.fullmatch(r"[A-Za-z0-9_]{1,100}", key):
-        return _inferred_result(target_type, key, "text", "unresolved", None, values)
+        return _inferred_result(
+            target_type,
+            key,
+            "text",
+            "unresolved",
+            "invalid_key",
+            None,
+            values,
+        )
 
     source_type: str | None = None
     confidence = "low"
+    confidence_reason = "legacy_scalar"
     options: list[str] | None = None
 
     if all(isinstance(value, bool) for value in values):
@@ -247,24 +259,72 @@ def infer_definition(
             if all(isinstance(item, int) for item in endpoints)
             else "float_range"
         )
-        confidence = "medium"
+        confidence = "high" if len(values) >= 3 else "medium"
+        confidence_reason = "structured_values"
     elif all(
         isinstance(value, list) and all(isinstance(item, str) for item in value)
         for value in values
     ):
-        source_type, confidence = "choice", "medium"
+        source_type = "choice"
+        confidence = "high" if len(values) >= 3 else "medium"
+        confidence_reason = "structured_values"
         options = sorted({item for value in values for item in value})
     elif all(isinstance(value, str) for value in values):
-        if all(_is_datetime(value) for value in values):
+        if all(_ISO_DATE.fullmatch(value) for value in values):
+            source_type, confidence = "date", "medium"
+            confidence_reason = "date_pattern"
+        elif all(_is_datetime(value) for value in values):
             source_type, confidence = "datetime", "medium"
+            confidence_reason = "date_pattern"
+        elif all(_is_url(value) for value in values):
+            source_type = "url"
+            confidence = "high" if len(values) >= 2 else "medium"
+            confidence_reason = "url_pattern"
         else:
-            source_type, confidence = "text", "low"
+            majority = _majority_inference(values)
+            if majority is not None:
+                source_type, options = majority
+                confidence = (
+                    "low"
+                    if source_type in {"boolean", "integer", "float"}
+                    else "medium"
+                )
+                confidence_reason = "majority_match"
+            else:
+                source_type, confidence = "text", "low"
+                confidence_reason = "fallback_text"
 
     if source_type is None:
-        return _inferred_result(target_type, key, "text", "unresolved", None, values)
+        majority = _majority_inference(values)
+        if majority is not None:
+            source_type, options = majority
+            confidence = (
+                "low" if source_type in {"boolean", "integer", "float"} else "medium"
+            )
+            confidence_reason = "majority_match"
+        elif all(isinstance(value, str) for value in stored_values):
+            source_type, confidence = "text", "low"
+            confidence_reason = "mixed_text"
+
+    if source_type is None:
+        return _inferred_result(
+            target_type,
+            key,
+            "text",
+            "unresolved",
+            "mixed_values",
+            None,
+            values,
+        )
 
     result = _inferred_result(
-        target_type, key, source_type, confidence, options, values
+        target_type,
+        key,
+        source_type,
+        confidence,
+        confidence_reason,
+        options,
+        values,
     )
     if source_type == "choice":
         result["field_type"] = "multiselect"
@@ -312,16 +372,79 @@ def _is_datetime(value: str) -> bool:
     return True
 
 
+def _is_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _majority_inference(
+    values: list[Any],
+) -> tuple[str, list[str] | None] | None:
+    """Infer a useful type when at least 80% of three or more values agree."""
+    if len(values) < 3:
+        return None
+    required = max(2, math.ceil(len(values) * 0.8))
+    candidates: list[tuple[str, Any]] = [
+        ("boolean", lambda value: isinstance(value, bool)),
+        (
+            "integer",
+            lambda value: isinstance(value, int) and not isinstance(value, bool),
+        ),
+        (
+            "float",
+            lambda value: (
+                isinstance(value, int | float) and not isinstance(value, bool)
+            ),
+        ),
+        ("integer_range", _is_numeric_range),
+        (
+            "choice",
+            lambda value: (
+                isinstance(value, list) and all(isinstance(item, str) for item in value)
+            ),
+        ),
+        (
+            "date",
+            lambda value: isinstance(value, str) and bool(_ISO_DATE.fullmatch(value)),
+        ),
+        (
+            "datetime",
+            lambda value: isinstance(value, str) and _is_datetime(value),
+        ),
+        ("url", lambda value: isinstance(value, str) and _is_url(value)),
+    ]
+    for source_type, matches in candidates:
+        matching = [value for value in values if matches(value)]
+        if len(matching) < required:
+            continue
+        if source_type == "integer_range":
+            endpoints = [
+                item for value in matching for item in value if item is not None
+            ]
+            if any(not isinstance(item, int) for item in endpoints):
+                source_type = "float_range"
+        options = (
+            sorted({item for value in matching for item in value})
+            if source_type == "choice"
+            else None
+        )
+        return source_type, options
+    return None
+
+
 def _inferred_result(
     target_type: str,
     key: str,
     source_type: str,
     confidence: str,
+    confidence_reason: str,
     options: list[str] | None,
     values: list[Any],
 ) -> dict[str, Any]:
     if source_type == "choice":
         native_type = "multiselect"
+    elif source_type in {"date", "url"}:
+        native_type = source_type
     else:
         native_type = _TYPE_MAP[source_type]
     config = (
@@ -337,6 +460,7 @@ def _inferred_result(
         "config": config,
         "default_value": None,
         "confidence": confidence,
+        "confidence_reason": confidence_reason,
         "samples": values[:5],
         "occurrences": len(values),
     }

@@ -1,6 +1,6 @@
-import pytest
 from types import SimpleNamespace
 
+import pytest
 from app.services.spoolman_extra_field_mapping import (
     SpoolmanFieldError,
     convert_spoolman_value,
@@ -132,13 +132,49 @@ def test_unbounded_definition_does_not_reuse_bounded_native_field():
         (["[190,230]", "[200,240]"], "range", "medium"),
         (['["PLA"]', '["PETG"]'], "multiselect", "medium"),
         (["plain text", "other"], "text", "low"),
+        (["2026-07-20", "2026-07-21"], "date", "medium"),
         (["2026-07-20T10:30:00Z"], "datetime", "medium"),
+        (
+            ["https://example.com/one", "https://example.com/two"],
+            "url",
+            "high",
+        ),
     ],
 )
 def test_infer_definition(values, expected_type, confidence):
     inferred = infer_definition("filament", "profile", values)
     assert inferred["field_type"] == expected_type
     assert inferred["confidence"] == confidence
+
+
+def test_infer_definition_uses_high_confidence_for_repeated_structured_values():
+    inferred = infer_definition(
+        "filament",
+        "temperature",
+        ["[190,230]", "[200,240]", "[205,245]"],
+    )
+
+    assert inferred["field_type"] == "range"
+    assert inferred["confidence"] == "high"
+    assert inferred["confidence_reason"] == "structured_values"
+
+
+def test_infer_definition_uses_dominant_pattern_and_preserves_outliers():
+    inferred = infer_definition(
+        "spool",
+        "inspection_date",
+        [
+            "2026-07-20",
+            "2026-07-21",
+            "2026-07-22",
+            "2026-07-23",
+            "unknown",
+        ],
+    )
+
+    assert inferred["field_type"] == "date"
+    assert inferred["confidence"] == "medium"
+    assert inferred["confidence_reason"] == "majority_match"
 
 
 def test_fingerprint_is_stable_for_dictionary_order():

@@ -17,10 +17,6 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
-
 from app.core.seeds import run_all_seeds
 from app.models import Base
 from app.models.filament import Filament
@@ -36,6 +32,9 @@ from app.services.spoolman_import_service import (
     SpoolmanImportError,
     SpoolmanImportService,
 )
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 SPOOLMAN_TEST_URL = os.getenv("SPOOLMAN_TEST_URL", "").rstrip("/")
 
@@ -353,10 +352,16 @@ async def test_live_server_repair_to_system_fields_is_idempotent(
         for mapping in preview["mappings"]
         if mapping["status"] == "ready"
     ]
+    tag = _ready_mapping(preview, "spool", "tag")
+    dry = _ready_mapping(preview, "spool", "dry")
 
     assert {("spool", "tag"), ("spool", "dry")} <= {
         (item["target_type"], item["key"]) for item in approved
     }
+    assert tag["confidence"] == "authoritative"
+    assert tag["confidence_reason"] == "source_definition"
+    assert 1 <= len(tag["conversion_examples"]) <= 3
+    assert 1 <= len(dry["conversion_examples"]) <= 3
     result = await repair.execute(
         "server",
         preview["preview_fingerprint"],
