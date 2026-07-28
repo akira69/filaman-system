@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy import select
 
-from app.models import Filament, Location, Manufacturer, Spool, SpoolEvent, SpoolStatus
+from app.models import Filament, Location, Manufacturer, Spool, SpoolEvent, SpoolStatus, SystemExtraField
 
 
 async def _create_manufacturer(db_session, name: str = "Test Manufacturer") -> Manufacturer:
@@ -393,6 +393,121 @@ class TestSpoolCRUD:
         assert data["id"] == spool.id
         assert data["filament"]["id"] == filament.id
         assert data["filament"]["manufacturer"]["id"] == manufacturer.id
+        assert "derived" not in data
+        assert "derived" not in data["filament"]
+
+    @pytest.mark.asyncio
+    async def test_get_spool_selects_derived_fields_by_surface(self, auth_client, db_session):
+        client, _ = auth_client
+        manufacturer = await _create_manufacturer(db_session)
+        filament = await _create_filament(db_session, manufacturer.id)
+        filament.custom_fields = {"temperature": 215}
+        status = await _get_status(db_session, "new")
+        spool = await _create_spool(db_session, filament.id, status.id)
+        db_session.add(
+            SystemExtraField(
+                target_type="spool",
+                key="temperature_label",
+                label="Temperature label",
+                field_type="formula",
+                formula={"cat": [{"var": "filament.custom_fields.temperature"}, " C"]},
+                show_in_detail=True,
+                show_in_template=False,
+                include_in_api=False,
+            )
+        )
+        await db_session.commit()
+
+        api_response = await client.get(f"/api/v1/spools/{spool.id}")
+        detail_response = await client.get(
+            f"/api/v1/spools/{spool.id}?derived_for=detail"
+        )
+        template_response = await client.get(
+            f"/api/v1/spools/{spool.id}?derived_for=template"
+        )
+
+        assert "derived" not in api_response.json()
+        assert detail_response.json()["derived"] == {"temperature_label": "215 C"}
+        assert "derived" not in template_response.json()
+
+    @pytest.mark.asyncio
+    async def test_get_spool_includes_spool_and_filament_derived_fields(self, auth_client, db_session):
+        client, _ = auth_client
+
+        manufacturer = await _create_manufacturer(db_session)
+        filament = await _create_filament(db_session, manufacturer.id, designation="Derived PLA")
+        status = await _get_status(db_session, "new")
+        spool = await _create_spool(
+            db_session,
+            filament.id,
+            status.id,
+            remaining_weight_g=420.0,
+        )
+        db_session.add_all([
+            SystemExtraField(
+                target_type="spool",
+                key="remaining_rounded",
+                label="Remaining Rounded",
+                field_type="formula",
+                formula={"round": [{"var": "remaining_weight_g"}, 0]},
+                include_in_api=True,
+                show_in_template=True,
+            ),
+            SystemExtraField(
+                target_type="filament",
+                key="label_name",
+                label="Label Name",
+                field_type="formula",
+                formula={"cat": [{"var": "designation"}, " / ", {"var": "material_type"}]},
+                include_in_api=True,
+                show_in_template=True,
+            ),
+        ])
+        await db_session.commit()
+
+        response = await client.get(f"/api/v1/spools/{spool.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["derived"]["remaining_rounded"] == 420
+        assert data["filament"]["derived"]["label_name"] == "Derived PLA / PLA"
+
+    @pytest.mark.asyncio
+    async def test_get_spool_omits_empty_spool_and_filament_derived_results(
+        self, auth_client, db_session
+    ):
+        client, _ = auth_client
+        manufacturer = await _create_manufacturer(db_session)
+        filament = await _create_filament(db_session, manufacturer.id)
+        status = await _get_status(db_session, "new")
+        spool = await _create_spool(db_session, filament.id, status.id)
+        db_session.add_all(
+            [
+                SystemExtraField(
+                    target_type="spool",
+                    key="missing_spool",
+                    label="Missing spool",
+                    field_type="formula",
+                    formula={"var": "custom_fields.missing"},
+                    include_in_api=True,
+                ),
+                SystemExtraField(
+                    target_type="filament",
+                    key="missing_filament",
+                    label="Missing filament",
+                    field_type="formula",
+                    formula={"var": "custom_fields.missing"},
+                    include_in_api=True,
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        response = await client.get(f"/api/v1/spools/{spool.id}")
+
+        assert response.status_code == 200
+        assert "derived" not in response.json()
+        assert "derived" not in response.json()["filament"]
 
     @pytest.mark.asyncio
     async def test_update_spool(self, auth_client, db_session):

@@ -6,15 +6,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import PrincipalDep, RequirePermission
 from app.api.v1.schemas_system_extra_field import (
+    FormulaPreviewRequest,
+    FormulaPreviewResponse,
     SystemExtraFieldCreate,
     SystemExtraFieldResponse,
     SystemExtraFieldUpdate,
     validate_field_type_config,
+    validate_formula_definition,
 )
 from app.core.cache import response_cache
 from app.core.database import get_db
 from app.models import Filament, Spool
 from app.models.system_extra_field import SystemExtraField
+from app.services.derived_fields import (
+    evaluate_formula_strict,
+    formula_var_paths,
+    validate_formula,
+)
 from app.services.system_extra_field_compatibility import (
     is_existing_value_compatible,
     resolve_custom_field_value,
@@ -251,7 +259,6 @@ async def create_system_extra_field(
         incompatible_count=incompatible_count,
         sample_record_ids=sample_record_ids,
     )
-
     new_field = SystemExtraField(**field.model_dump())
     db.add(new_field)
     await db.commit()
@@ -308,6 +315,20 @@ async def update_system_extra_field(
             sample_record_ids=sample_record_ids,
         )
 
+    effective_formula = update_dict.get("formula", field.formula)
+    if effective_field_type != field.field_type and "formula" in {
+        effective_field_type,
+        field.field_type,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Converting an existing field to or from formula is not supported",
+        )
+    try:
+        validate_formula_definition(effective_field_type, effective_formula)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     for key, value in update_dict.items():
         setattr(field, key, value)
 
@@ -330,6 +351,26 @@ async def delete_system_extra_field(
 ):
     field = await _get_user_managed_field(db, field_id, "delete")
 
+    # Reference protection: block deletion if any formula field references this key
+    if field.formula is None:
+        formula_refs = await db.execute(
+            select(SystemExtraField).where(SystemExtraField.formula.is_not(None))
+        )
+        referencing = [
+            f.key
+            for f in formula_refs.scalars().all()
+            if f.formula and _formula_references_field(field, f)
+        ]
+        if referencing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "formula_reference",
+                    "message": f"Cannot delete field '{field.key}' — referenced by formula fields: {referencing}",
+                    "referencing_fields": referencing,
+                },
+            )
+
     # Store for cache invalidation before deletion
     target_type = field.target_type
     source = field.source
@@ -339,3 +380,37 @@ async def delete_system_extra_field(
 
     # Invalidate cache
     _invalidate_extra_fields_cache(target_type, source)
+
+
+# ---------------------------------------------------------------------------
+# Formula utilities
+# ---------------------------------------------------------------------------
+
+def _formula_references_field(
+    field: SystemExtraField,
+    formula_field: SystemExtraField,
+) -> bool:
+    paths = formula_var_paths(formula_field.formula)
+    if field.target_type == "spool" and formula_field.target_type == "spool":
+        return f"custom_fields.{field.key}" in paths
+    if field.target_type == "filament":
+        if formula_field.target_type == "filament":
+            return f"custom_fields.{field.key}" in paths
+        if formula_field.target_type == "spool":
+            return f"filament.custom_fields.{field.key}" in paths
+    return False
+
+
+@router.post(
+    "/preview",
+    response_model=FormulaPreviewResponse,
+    dependencies=[RequirePermission("admin:system")],
+)
+async def preview_formula(body: FormulaPreviewRequest) -> FormulaPreviewResponse:
+    """Evaluate a JSON Logic formula against a sample context and return the result."""
+    try:
+        validate_formula(body.formula)
+        result = evaluate_formula_strict(body.formula, body.context)
+        return FormulaPreviewResponse(result=result)
+    except Exception as exc:
+        return FormulaPreviewResponse(result=None, error=str(exc))

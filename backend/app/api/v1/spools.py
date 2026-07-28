@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.printers import (
@@ -47,6 +48,7 @@ from app.models import (
     SpoolStatus,
 )
 from app.services.spool_service import SpoolService
+from app.services.derived_fields import compute_derived, load_formula_fields
 
 
 async def _reject_driver_managed_create_location(
@@ -701,7 +703,12 @@ async def list_all_spool_events(
 
 
 @router_spools.get("/{spool_id}", response_model=SpoolResponse)
-async def get_spool(spool_id: int, db: DBSession, principal: PrincipalDep):
+async def get_spool(
+    spool_id: int,
+    db: DBSession,
+    principal: PrincipalDep,
+    derived_for: Literal["api", "detail", "template"] = Query("api"),
+):
     result = await db.execute(
         select(Spool)
         .where(Spool.id == spool_id)
@@ -718,7 +725,22 @@ async def get_spool(spool_id: int, db: DBSession, principal: PrincipalDep):
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "not_found", "message": "Spool not found"},
         )
-    return spool
+    # Compute formula-derived fields for the spool and its nested filament so
+    # label-printing flows can expose both spool.* and filament.* formula tokens.
+    spool_formula_fields = await load_formula_fields(db, "spool", derived_for)
+    filament_formula_fields = await load_formula_fields(db, "filament", derived_for)
+    spool_data = SpoolResponse.model_validate(spool).model_dump()
+    if spool_formula_fields:
+        derived = compute_derived(spool, "spool", spool_formula_fields)
+        if derived:
+            spool_data["derived"] = derived
+    if filament_formula_fields and spool.filament and spool_data.get("filament"):
+        filament_derived = compute_derived(
+            spool.filament, "filament", filament_formula_fields
+        )
+        if filament_derived:
+            spool_data["filament"]["derived"] = filament_derived
+    return spool_data
 
 
 @router_spools.patch("/{spool_id}", response_model=SpoolResponse)

@@ -176,7 +176,12 @@ const { id } = Astro.params
 
   <script>
     import { t, initI18n } from '../../../lib/i18n'
-    import { escapeHtml as escapeExtraFieldHtml, renderFieldDisplay } from '../../../lib/extra-fields'
+    import {
+      escapeHtml as escapeExtraFieldHtml,
+      renderFieldDisplay,
+      renderFieldPlainText,
+      renderUnknownFieldPlainText,
+    } from '../../../lib/extra-fields'
     import {
       buildEntityExtraFieldsForPrint,
       getExtraFieldValue,
@@ -227,7 +232,7 @@ const { id } = Astro.params
       try {
         // Sequential fetching mit Caching für bessere SQLite-Performance
         const [spoolRes, statusesRes, locationsData, sysFieldsRes, filamentSysFieldsRes] = await fetchSequential([
-          () => fetch(`/api/v1/spools/${id}`, { credentials: 'include', signal: getAbortSignal() }),
+          () => fetch(`/api/v1/spools/${id}?derived_for=detail`, { credentials: 'include', signal: getAbortSignal() }),
           () => fetch('/api/v1/spools/statuses', { credentials: 'include', signal: getAbortSignal() }),
           () => cachedFetchAllPages(CACHE_KEYS.LOCATIONS, '/api/v1/locations').then(d => d.items).catch(() => []),
           () => fetch('/api/v1/system-extra-fields?target_type=spool', { credentials: 'include', signal: getAbortSignal() }),
@@ -422,6 +427,30 @@ const { id } = Astro.params
             </div>
           </div>
         ` : ''}
+
+        ${spool.derived && Object.keys(spool.derived).length > 0 ? `
+          <div class="fm-card" style="margin-top: 16px;">
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+              <span>${t('common.derivedFields') || 'Derived Fields'}</span>
+              <span style="font-size: 0.7rem; opacity: 0.7;">ƒ</span>
+            </div>
+            <div>
+              ${Object.entries(spool.derived).map(([key, value]) => {
+                const sysDef = spoolSystemFieldMap ? [...(Object.values(spoolSystemFieldMap) as any[])].find(f => f.key === key && f.formula) : null
+                const label = sysDef?.label || key
+                return `
+                  <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border);">
+                    <span style="display: flex; align-items: center; gap: 6px;">
+                      <span style="color: var(--text-muted); font-style: italic;">${escapeHtml(String(label))}</span>
+                      <span style="font-size: 0.7rem; opacity: 0.6; font-family: monospace;">ƒ</span>
+                    </span>
+                    <span style="font-family: monospace; word-break: break-all;">${escapeHtml(renderUnknownFieldPlainText(value))}</span>
+                  </div>
+                `
+              }).join('')}
+            </div>
+          </div>
+        ` : ''}
       `
       
       const fmtDate = (raw: unknown) => raw ? new Date(String(raw)).toLocaleDateString() : ''
@@ -541,6 +570,32 @@ const { id } = Astro.params
           rawValue: field.rawValue,
           fieldType: field.fieldType,
           source: 'filament',
+        })
+      }
+      for (const [key, def] of Object.entries(spoolSystemFieldMap)) {
+        if (!def.formula || def.show_in_template !== true) continue
+        if (isBuiltInLabelField('spool', key, def.label)) continue
+        const raw = spool.derived?.[key]
+        efForPrint.push({
+          key: `spool.${key}`,
+          label: def.label,
+          value: renderFieldPlainText(def, raw),
+          rawValue: raw,
+          fieldType: def.field_type,
+          source: 'spool-derived',
+        })
+      }
+      for (const [key, def] of Object.entries(filamentSystemFieldMap)) {
+        if (!def.formula || def.show_in_template !== true) continue
+        if (isBuiltInLabelField('filament', key, def.label)) continue
+        const raw = spool.filament?.derived?.[key]
+        efForPrint.push({
+          key: `filament.${key}`,
+          label: def.label,
+          value: renderFieldPlainText(def, raw),
+          rawValue: raw,
+          fieldType: def.field_type,
+          source: 'filament-derived',
         })
       }
       sessionStorage.setItem('filaman-label-extra-fields', JSON.stringify(efForPrint))
