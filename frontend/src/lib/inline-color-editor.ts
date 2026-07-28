@@ -26,8 +26,8 @@ export function bindInlineColorEditor(options: InlineColorEditorOptions) {
   const addButton = requiredElement<HTMLButtonElement>('btn-add-new-color')
   const saveButton = requiredElement<HTMLButtonElement>('btn-save-new-color')
   const cancelButton = requiredElement<HTMLButtonElement>('btn-cancel-new-color')
-  const picker = requiredElement<HTMLInputElement>('new-color-hex')
-  const hexInput = requiredElement<HTMLInputElement>('new-color-hex-code')
+  const picker = requiredElement<HTMLInputElement>('new-color-picker')
+  const hexInput = requiredElement<HTMLInputElement>('new-color-hex')
   const nameInput = requiredElement<HTMLInputElement>('new-color-name')
 
   const colorControls = bindAlphaColorControls({

@@ -1,5 +1,5 @@
 ---
-import ColorOpacityControls from '../../components/ColorOpacityControls.astro'
+import ColorEditorFields from '../../components/ColorEditorFields.astro'
 import Layout from '../../layouts/Layout.astro'
 ---
 
@@ -39,43 +39,11 @@ import Layout from '../../layouts/Layout.astro'
   </div>
   
   <div id="modal-container" class="fm-modal-overlay">
-    <div class="fm-card" style="width: 100%; max-width: 28rem; margin: 0 1rem; padding: 24px;">
+    <div class="fm-card" style="width: 100%; max-width: 40rem; margin: 0 1rem; padding: 24px;">
       <h3 id="modal-title" style="font-size: 1.15rem; font-weight: 600; margin-bottom: 16px;" data-i18n="colors.addColor">Add Color</h3>
       <form id="modal-form" style="display: flex; flex-direction: column; gap: 16px;">
         <input type="hidden" id="color-id" />
-        <div>
-          <label for="color-name" class="fm-label">
-            <span data-i18n="colors.name">Name</span> *
-          </label>
-          <input
-            type="text"
-            id="color-name"
-            required
-            class="fm-input"
-          />
-        </div>
-        <div>
-          <label for="color-hex" class="fm-label" data-i18n="colors.hexCode">
-            Hex Code
-          </label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <input
-              type="color"
-              id="color-picker"
-              style="width: 42px; height: 42px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; background: none;"
-            />
-            <input
-              type="text"
-              id="color-hex"
-              required
-              pattern="^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
-              class="fm-input"
-              placeholder="#000000"
-              style="flex: 1;"
-            />
-          </div>
-          <ColorOpacityControls idPrefix="color" />
-        </div>
+        <ColorEditorFields idPrefix="color" />
         <div id="modal-error" class="fm-alert-error hidden"></div>
         <div style="display: flex; gap: 12px;">
           <button type="submit" id="modal-submit" class="fm-btn fm-btn-primary" data-i18n="common.save">

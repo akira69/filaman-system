@@ -1,5 +1,5 @@
 ---
-import ColorOpacityControls from './ColorOpacityControls.astro'
+import ColorEditorFields from './ColorEditorFields.astro'
 ---
 
 <div id="new-color-toggle" style="margin-top: 8px;">
@@ -14,32 +14,8 @@ import ColorOpacityControls from './ColorOpacityControls.astro'
 </div>
 
 <div id="new-color-form" class="fm-inline-color-form hidden">
-  <div class="fm-inline-color-picker">
-    <label class="fm-label" data-i18n="filaments.colorPickerLabel">Color</label>
-    <input
-      type="color"
-      id="new-color-hex"
-      value="#FF0000"
-      style="width: 44px; height: 36px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); cursor: pointer;"
-    />
-  </div>
-
-  <div class="fm-inline-color-value">
-    <label class="fm-label" data-i18n="colors.hexCode">Hex Code</label>
-    <input type="text" id="new-color-hex-code" value="#FF0000" class="fm-input" />
-    <ColorOpacityControls idPrefix="new-color" />
-  </div>
-
-  <div class="fm-inline-color-name">
-    <label class="fm-label" data-i18n="filaments.colorNameLabel">Name *</label>
-    <input
-      type="text"
-      id="new-color-name"
-      placeholder="e.g. Red"
-      data-i18n-placeholder="filaments.colorNamePlaceholder"
-      class="fm-input"
-    />
-  </div>
+  <h3 class="fm-inline-color-heading" data-i18n="colors.addColor">Add Color</h3>
+  <ColorEditorFields idPrefix="new-color" defaultHex="#FF0000" />
 
   <div class="fm-inline-color-actions">
     <button

@@ -14,69 +14,75 @@ const previewId = `${idPrefix}-alpha-preview`
 
 <label
   for={enabledId}
-  class="fm-label"
-  style="display: flex; align-items: center; gap: 8px; width: fit-content; margin: 8px 0 0; cursor: pointer;"
+  class="fm-label fm-opacity-toggle"
 >
   <input type="checkbox" id={enabledId} style="accent-color: var(--accent);" />
-  <span data-i18n="filaments.colorOpacityEnabled">Use opacity</span>
+  <span data-i18n="filaments.colorOpacityEnabled">Opacity</span>
 </label>
-<div id={optionsId} class="hidden" style="margin-top: 8px;">
-  <div style="display: flex; align-items: end; gap: 10px;">
-    <label style="display: grid; gap: 2px; color: var(--text-muted); font-size: 0.72rem;">
+<div id={optionsId} class="fm-opacity-options hidden">
+  <div class="fm-opacity-control-row">
+    <label class="fm-opacity-preview">
       <span data-i18n="filaments.colorOpacityPreview">Preview</span>
       <span
         id={previewId}
         aria-hidden="true"
-        style="display: block; width: 40px; height: 34px; border: 1px solid var(--border); border-radius: var(--radius-sm);"
       ></span>
     </label>
-    <input
-      type="range"
-      id={sliderId}
-      min="0"
-      max="100"
-      value="100"
-      aria-label="Opacity percentage slider"
-      style="flex: 1; margin-bottom: 9px;"
-    />
-    <div style="display: flex; align-items: end; gap: 8px;">
-      <label for={valueId} style="display: grid; gap: 2px; color: var(--text-muted); font-size: 0.72rem;">
-        <span data-i18n="filaments.colorOpacityPercent">Percent</span>
-        <span style="display: flex; align-items: center; gap: 4px;">
-          <input
-            type="number"
-            id={valueId}
-            min="0"
-            max="100"
-            step="1"
-            value="100"
-            inputmode="numeric"
-            class="fm-input"
-            style="width: 72px; padding: 6px 8px; text-align: right;"
-          />
-          <span>%</span>
-        </span>
+
+    <div class="fm-opacity-slider">
+      <div class="fm-opacity-slider-endpoints" aria-hidden="true">
+        <span>0%</span>
+        <span>100%</span>
+      </div>
+      <label for={sliderId} class="fm-visually-hidden" data-i18n="filaments.colorOpacityPercentLabel">
+        Opacity percentage
       </label>
-      <label for={hexId} style="display: grid; gap: 2px; color: var(--text-muted); font-size: 0.72rem;">
-        <span data-i18n="filaments.colorOpacityHexByte">Hex (AA)</span>
-        <input
-          type="text"
-          id={hexId}
-          value="FF"
-          maxlength="2"
-          pattern="[0-9a-fA-F]{2}"
-          inputmode="text"
-          class="fm-input"
-          style="width: 64px; padding: 6px 8px; text-align: center; text-transform: uppercase; font-family: monospace;"
-        />
+      <input
+        type="range"
+        id={sliderId}
+        min="0"
+        max="100"
+        value="100"
+      />
+      <div class="fm-opacity-slider-endpoints" aria-hidden="true">
+        <span>#00</span>
+        <span>#FF</span>
+      </div>
+    </div>
+
+    <div class="fm-opacity-values">
+      <label for={valueId} class="fm-visually-hidden" data-i18n="filaments.colorOpacityPercentLabel">
+        Opacity percentage
       </label>
+      <input
+        type="number"
+        id={valueId}
+        min="0"
+        max="100"
+        step="1"
+        value="100"
+        inputmode="numeric"
+        class="fm-input fm-opacity-value-input"
+      />
+      <span aria-hidden="true">%</span>
+      <label for={hexId} class="fm-visually-hidden" data-i18n="filaments.colorOpacityHexLabel">
+        Opacity hex value
+      </label>
+      <input
+        type="text"
+        id={hexId}
+        value="FF"
+        maxlength="2"
+        pattern="[0-9a-fA-F]{2}"
+        inputmode="text"
+        class="fm-input fm-opacity-value-input"
+      />
+      <span data-i18n="filaments.colorOpacityHexByte">Hex(AA)</span>
     </div>
   </div>
-  <p
-    style="font-size: 0.8rem; color: var(--text-muted); margin: 6px 0 0;"
-    data-i18n="filaments.colorOpacityHint"
-  >
-    When enabled, stores #RRGGBBAA. AA is the trailing opacity byte (00 transparent, FF opaque).
-    Without opacity, stores #RRGGBB.
+  <p class="fm-opacity-note" data-i18n="filaments.colorOpacityHint">
+    Opacity Enabled: Color Hex will be stored as #RRGGBBAA (#AA defines opacity)
+    <br />
+    Disable opacity to store color hex as #RRGGBB only
   </p>
 </div>
