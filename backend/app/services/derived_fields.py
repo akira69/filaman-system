@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from json_logic import add_operation, jsonLogic
@@ -199,7 +199,7 @@ def _time_only(val: Any) -> Any:
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def _aligned_datetimes(
@@ -209,9 +209,9 @@ def _aligned_datetimes(
     if ds is None or de is None:
         return ds, de
     if ds.tzinfo is not None and de.tzinfo is None:
-        de = de.replace(tzinfo=timezone.utc)
+        de = de.replace(tzinfo=UTC)
     elif ds.tzinfo is None and de.tzinfo is not None:
-        ds = ds.replace(tzinfo=timezone.utc)
+        ds = ds.replace(tzinfo=UTC)
     return ds, de
 
 
@@ -391,7 +391,7 @@ def evaluate_formula(formula: dict[str, Any], context: dict[str, Any]) -> Any:
     """
     try:
         return evaluate_formula_strict(formula, context)
-    except Exception:
+    except Exception:  # noqa: BLE001 - formulas are untrusted and must fail closed
         logger.debug("Formula evaluation failed: formula=%r context_keys=%s", formula, list(context))
         return None
 

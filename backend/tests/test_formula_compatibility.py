@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -10,9 +10,10 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 
-from app.api.v1.system import _export_inventory_data, _import_inventory_data
+from app.api.v1.system import _import_inventory_data
 from app.models import Filament, Manufacturer, Spool, SpoolStatus, SystemExtraField
 from app.services.spoolman_import_service import ImportResult, SpoolmanImportService
+from tests.support.backup import export_backup_data
 
 
 class _SchemaRecord:
@@ -69,7 +70,7 @@ def _load_spoolman_service(monkeypatch):
 
 def test_spoolman_adapter_golden_payload_ignores_native_derived(monkeypatch):
     service_class = _load_spoolman_service(monkeypatch)
-    registered = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    registered = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
     filament = SimpleNamespace(
         id=11,
         created_at=registered,
@@ -178,6 +179,7 @@ async def test_spoolman_import_preserves_structured_extra_without_formula_defini
         location_name_map={},
         status_map={"new": status.id, "active": status.id},
         result=result,
+        field_mappings={},
     )
     await db_session.commit()
 
@@ -215,7 +217,7 @@ async def test_inventory_backup_round_trips_formula_definition(db_session):
     db_session.add(field)
     await db_session.commit()
 
-    exported = await _export_inventory_data(db_session)
+    exported = await export_backup_data(db_session, kind="inventory")
     row = next(
         item
         for item in exported["system_extra_fields"]

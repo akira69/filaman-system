@@ -38,7 +38,7 @@ export function buildDerivedLabelExtraFields(
   values: Record<string, unknown> | null | undefined,
   definitions: Record<string, SystemExtraFieldDef>,
   source: LabelExtraFieldSource,
-): LabelExtraFieldValue[] {
+): Array<LabelExtraFieldValue & { value: string }> {
   const derived = values ?? {}
   return Object.values(definitions)
     .filter(definition => definition.formula && definition.show_in_template === true)

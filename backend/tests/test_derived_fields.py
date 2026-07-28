@@ -7,7 +7,7 @@ compute_derived end-to-end.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -45,7 +45,6 @@ from app.services.derived_fields import (
     validate_formula,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -56,55 +55,55 @@ def _make_field(key: str, formula: dict) -> SimpleNamespace:
 
 
 def _make_filament(**overrides: Any) -> SimpleNamespace:
-    defaults: dict[str, Any] = dict(
-        id=1,
-        designation="PLA Basic",
-        material_type="PLA",
-        material_subgroup=None,
-        diameter_mm=1.75,
-        manufacturer_color_name="Fire Engine Red",
-        finish_type="matte",
-        raw_material_weight_g=750.0,
-        default_spool_weight_g=1000.0,
-        spool_outer_diameter_mm=200.0,
-        spool_width_mm=56.0,
-        spool_material="cardboard",
-        price=24.99,
-        density_g_cm3=1.24,
-        color_mode="solid",
-        shop_url=None,
-        multi_color_style=None,
-        custom_fields={},
-        filament_colors=[],
-        manufacturer=None,
-    )
+    defaults: dict[str, Any] = {
+        "id": 1,
+        "designation": "PLA Basic",
+        "material_type": "PLA",
+        "material_subgroup": None,
+        "diameter_mm": 1.75,
+        "manufacturer_color_name": "Fire Engine Red",
+        "finish_type": "matte",
+        "raw_material_weight_g": 750.0,
+        "default_spool_weight_g": 1000.0,
+        "spool_outer_diameter_mm": 200.0,
+        "spool_width_mm": 56.0,
+        "spool_material": "cardboard",
+        "price": 24.99,
+        "density_g_cm3": 1.24,
+        "color_mode": "solid",
+        "shop_url": None,
+        "multi_color_style": None,
+        "custom_fields": {},
+        "filament_colors": [],
+        "manufacturer": None,
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
 
 def _make_spool(**overrides: Any) -> SimpleNamespace:
-    defaults: dict[str, Any] = dict(
-        id=1,
-        filament_id=1,
-        status_id=1,
-        location_id=None,
-        lot_number="A2024001",
-        rfid_uid=None,
-        external_id=None,
-        purchase_price=24.99,
-        purchase_date=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
-        stocked_in_at=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
-        last_used_at=datetime(2024, 6, 1, 8, 30, 0, tzinfo=timezone.utc),
-        initial_total_weight_g=1000.0,
-        empty_spool_weight_g=250.0,
-        remaining_weight_g=225.0,
-        spool_outer_diameter_mm=200.0,
-        spool_width_mm=56.0,
-        spool_material="cardboard",
-        low_weight_threshold_g=100,
-        custom_fields={},
-        filament=None,
-    )
+    defaults: dict[str, Any] = {
+        "id": 1,
+        "filament_id": 1,
+        "status_id": 1,
+        "location_id": None,
+        "lot_number": "A2024001",
+        "rfid_uid": None,
+        "external_id": None,
+        "purchase_price": 24.99,
+        "purchase_date": datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
+        "stocked_in_at": datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
+        "last_used_at": datetime(2024, 6, 1, 8, 30, 0, tzinfo=UTC),
+        "initial_total_weight_g": 1000.0,
+        "empty_spool_weight_g": 250.0,
+        "remaining_weight_g": 225.0,
+        "spool_outer_diameter_mm": 200.0,
+        "spool_width_mm": 56.0,
+        "spool_material": "cardboard",
+        "low_weight_threshold_g": 100,
+        "custom_fields": {},
+        "filament": None,
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -371,7 +370,7 @@ class TestParseDt:
         assert result.year == 2024 and result.hour == 14
 
     def test_datetime_object_passthrough(self):
-        dt = datetime(2024, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2024, 6, 15, 10, 0, 0, tzinfo=UTC)
         assert _parse_dt(dt) is dt
 
     def test_invalid_string(self):
@@ -719,18 +718,18 @@ class TestBuildFormulaContextSpool:
             assert key in ctx, f"missing key: {key}"
 
     def test_purchase_date_as_iso_string(self):
-        spool = _make_spool(purchase_date=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc))
+        spool = _make_spool(purchase_date=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC))
         ctx = build_formula_context(spool, "spool")
         assert isinstance(ctx["purchase_date"], str)
         assert ctx["purchase_date"].startswith("2024-01-15")
 
     def test_stocked_in_at_as_iso_string(self):
-        spool = _make_spool(stocked_in_at=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc))
+        spool = _make_spool(stocked_in_at=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC))
         ctx = build_formula_context(spool, "spool")
         assert isinstance(ctx["stocked_in_at"], str)
 
     def test_last_used_at_as_iso_string(self):
-        spool = _make_spool(last_used_at=datetime(2024, 6, 1, 8, 30, 0, tzinfo=timezone.utc))
+        spool = _make_spool(last_used_at=datetime(2024, 6, 1, 8, 30, 0, tzinfo=UTC))
         ctx = build_formula_context(spool, "spool")
         assert isinstance(ctx["last_used_at"], str)
 
@@ -788,8 +787,8 @@ class TestBuildFormulaContextSpool:
 
     def test_days_between_using_spool_dates(self):
         spool = _make_spool(
-            purchase_date=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
-            last_used_at=datetime(2024, 6, 1, 0, 0, 0, tzinfo=timezone.utc),
+            purchase_date=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+            last_used_at=datetime(2024, 6, 1, 0, 0, 0, tzinfo=UTC),
         )
         ctx = build_formula_context(spool, "spool")
         formula = {"days_between": [{"var": "purchase_date"}, {"var": "last_used_at"}]}

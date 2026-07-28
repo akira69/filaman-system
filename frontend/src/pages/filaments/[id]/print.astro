@@ -78,14 +78,12 @@ export function getStaticPaths() {
   import {
     dedupeLabelExtraFields,
     isBuiltInLabelField,
-    scopeLabelExtraField,
   } from '../../../lib/label-extra-fields'
   import {
     FILAMENT_LABEL_PRESETS_KEY,
     hydrateLabelPresetStorage,
     SPOOL_LABEL_PRESETS_KEY,
   } from '../../../lib/label-preset-storage'
-  import { buildEntityExtraFieldsForPrint } from '../../../lib/entity-extra-fields'
   import { type SystemExtraFieldDef } from '../../../lib/extra-fields'
   import { consumeScopedLabelFields } from '../../../lib/label-print-session'
 

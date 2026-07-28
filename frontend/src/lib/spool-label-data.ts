@@ -73,7 +73,7 @@ export function buildSpoolStandardModelFields(data: SpoolLabelData) {
   }))
 }
 
-export type SpoolDesignerExtraField = LabelExtraFieldValue
+export type SpoolDesignerExtraField = LabelExtraFieldValue & { value: string }
 
 export type SpoolExtraFieldDefinitionMap = Partial<
   Record<LabelExtraFieldSource, Record<string, SystemExtraFieldDef>>

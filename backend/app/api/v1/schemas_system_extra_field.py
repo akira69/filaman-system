@@ -2,13 +2,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.services.derived_fields import validate_formula
 from app.services.extra_field_validation import (
     CONFIG_KEYS_BY_TYPE,
     VALID_FIELD_TYPES,
     validate_custom_field_path,
     validate_field_type_config,
 )
-from app.services.derived_fields import validate_formula
 
 __all__ = [
     "CONFIG_KEYS_BY_TYPE",

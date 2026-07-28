@@ -74,7 +74,6 @@ export function getStaticPaths() {
   import {
     dedupeLabelExtraFields,
     isBuiltInLabelField,
-    scopeLabelExtraField,
     type LabelExtraFieldValue,
   } from '../../../lib/label-extra-fields'
   import {
@@ -91,7 +90,6 @@ export function getStaticPaths() {
     buildDesignerExtraFieldsFromApiSpool,
     mergeMissingSpoolLabelData,
   } from '../../../lib/spool-label-data'
-  import { buildEntityExtraFieldsForPrint } from '../../../lib/entity-extra-fields'
   import { type SystemExtraFieldDef } from '../../../lib/extra-fields'
   import { consumeScopedLabelFields } from '../../../lib/label-print-session'
 

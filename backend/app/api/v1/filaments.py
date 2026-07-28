@@ -9,9 +9,11 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
-from app.api.v1.printers import pick_bambuddy_driver, _is_primary_worker, _proxy_to_primary
-from app.core.cache import response_cache
-from app.core.db_utils import get_next_available_id
+from app.api.v1.printers import (
+    _is_primary_worker,
+    _proxy_to_primary,
+    pick_bambuddy_driver,
+)
 from app.api.v1.schemas import PaginatedResponse
 from app.api.v1.schemas_filament import (
     BulkFilamentDeleteRequest,
@@ -24,14 +26,16 @@ from app.api.v1.schemas_filament import (
     FilamentCreate,
     FilamentDetailResponse,
     FilamentResponse,
-    ResolveFilamentFromTagRequest,
-    ResolveFilamentFromTagResponse,
     FilamentUpdate,
     ManufacturerCreate,
     ManufacturerResponse,
     ManufacturerUpdate,
+    ResolveFilamentFromTagRequest,
+    ResolveFilamentFromTagResponse,
 )
-from app.core.config import settings, MANUFACTURER_LOGO_DIR
+from app.core.cache import response_cache
+from app.core.config import MANUFACTURER_LOGO_DIR, settings
+from app.core.db_utils import get_next_available_id
 from app.core.event_bus import event_bus
 from app.models import (
     Color,
