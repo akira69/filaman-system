@@ -93,7 +93,7 @@ import Layout from '../../layouts/Layout.astro'
     import { t, initI18n, translatePage } from '../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { fetchAllPages } from '../../lib/api'
-    import { bindAlphaColorControls, normalizeHexCode, toCssColor } from '../../lib/colors'
+    import { bindAlphaColorControls, normalizeHexCode, toColorSwatchBackground } from '../../lib/colors'
     await initI18n()
 
     let colors: any[] = []
@@ -137,7 +137,7 @@ import Layout from '../../layouts/Layout.astro'
         <tr>
           <td style="padding: 12px;">
             <div style="display: flex; align-items: center; gap: 12px;">
-              <span style="display: inline-block; width: 24px; height: 24px; border-radius: 50%; background: ${toCssColor(c.hex_code, c.hex_code)}; border: 1px solid var(--border);"></span>
+              <span style="display: inline-block; width: 24px; height: 24px; border-radius: 50%; background: ${toColorSwatchBackground(c.hex_code)}; border: 1px solid var(--border);"></span>
               <span style="font-weight: 500;">${c.name}</span>
             </div>
           </td>
@@ -242,6 +242,7 @@ import Layout from '../../layouts/Layout.astro'
     const picker = document.getElementById('color-picker') as HTMLInputElement
     const alphaEnabled = document.getElementById('color-alpha-enabled') as HTMLInputElement
     const alphaOptions = document.getElementById('color-alpha-options') as HTMLDivElement
+    const alphaPreview = document.getElementById('color-alpha-preview') as HTMLSpanElement
     const alphaInput = document.getElementById('color-alpha') as HTMLInputElement
     const alphaValue = document.getElementById('color-alpha-value') as HTMLInputElement
     const alphaHex = document.getElementById('color-alpha-hex') as HTMLInputElement
@@ -250,6 +251,7 @@ import Layout from '../../layouts/Layout.astro'
       hexInput,
       alphaEnabled,
       alphaOptions,
+      alphaPreview,
       alphaInput,
       alphaValueInput: alphaValue,
       alphaHexInput: alphaHex,

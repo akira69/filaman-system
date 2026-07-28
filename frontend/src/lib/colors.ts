@@ -89,11 +89,23 @@ export function toCssColor(
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
+export function toColorSwatchBackground(
+  value?: string | null,
+  fallback = 'transparent'
+): string {
+  const color = toCssColor(value, fallback)
+  return [
+    `linear-gradient(${color}, ${color})`,
+    'conic-gradient(#D1D5DB 25%, #FFFFFF 0 50%, #D1D5DB 0 75%, #FFFFFF 0) 0 / 8px 8px',
+  ].join(', ')
+}
+
 export interface AlphaColorControls {
   picker: HTMLInputElement
   hexInput: HTMLInputElement
   alphaEnabled: HTMLInputElement
   alphaOptions: HTMLElement
+  alphaPreview: HTMLElement
   alphaInput: HTMLInputElement
   alphaValueInput: HTMLInputElement
   alphaHexInput: HTMLInputElement
@@ -105,6 +117,7 @@ export function bindAlphaColorControls(controls: AlphaColorControls) {
     hexInput,
     alphaEnabled,
     alphaOptions,
+    alphaPreview,
     alphaInput,
     alphaValueInput,
     alphaHexInput,
@@ -146,6 +159,7 @@ export function bindAlphaColorControls(controls: AlphaColorControls) {
     } else {
       setAlphaPercent(100)
     }
+    alphaPreview.style.background = toColorSwatchBackground(normalized)
     return true
   }
 
@@ -157,6 +171,7 @@ export function bindAlphaColorControls(controls: AlphaColorControls) {
       alphaHexInput.value,
       alphaEnabled.checked
     )
+    alphaPreview.style.background = toColorSwatchBackground(hexInput.value)
   }
 
   function syncFromAlphaSlider(): void {

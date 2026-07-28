@@ -278,6 +278,7 @@
     "colorHexOpacity": "Hex / Opacity",
     "colorOpacity": "Opacity",
     "colorOpacityEnabled": "Use opacity",
+    "colorOpacityPreview": "Preview",
     "colorOpacityPercent": "Percent",
     "colorOpacityHexByte": "Hex (AA)",
     "colorOpacityHint": "When enabled, stores #RRGGBBAA. AA is the trailing opacity byte (00 transparent, FF opaque). Without opacity, stores #RRGGBB.",

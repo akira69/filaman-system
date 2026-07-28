@@ -279,6 +279,7 @@
     "colorHexOpacity": "Hex / Deckkraft",
     "colorOpacity": "Deckkraft",
     "colorOpacityEnabled": "Deckkraft verwenden",
+    "colorOpacityPreview": "Vorschau",
     "colorOpacityPercent": "Prozent",
     "colorOpacityHexByte": "Hex (AA)",
     "colorOpacityHint": "Wenn aktiviert, wird #RRGGBBAA gespeichert. AA ist das abschließende Deckkraft-Byte (00 transparent, FF deckend). Ohne Deckkraft wird #RRGGBB gespeichert.",

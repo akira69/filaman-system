@@ -383,7 +383,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
     import { cachedFetchAllPages, cachedFetch, fetchSequential, invalidateCachePrefix, CACHE_KEYS } from '../../../lib/cache'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
     import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive, fuzzyTokenScore } from '../../../lib/filamentdb-lookup'
-    import { bindAlphaColorControls, normalizeHexCode, toCssColor } from '../../../lib/colors'
+    import { bindAlphaColorControls, normalizeHexCode, toColorSwatchBackground } from '../../../lib/colors'
     await initI18n()
 
     const filamentDbActive = await checkFilamentDbActive()
@@ -461,6 +461,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
     const newColorHexCode = document.getElementById('new-color-hex-code') as HTMLInputElement
     const newColorAlphaEnabled = document.getElementById('new-color-alpha-enabled') as HTMLInputElement
     const newColorAlphaOptions = document.getElementById('new-color-alpha-options') as HTMLDivElement
+    const newColorAlphaPreview = document.getElementById('new-color-alpha-preview') as HTMLSpanElement
     const newColorAlpha = document.getElementById('new-color-alpha') as HTMLInputElement
     const newColorAlphaValue = document.getElementById('new-color-alpha-value') as HTMLInputElement
     const newColorAlphaHex = document.getElementById('new-color-alpha-hex') as HTMLInputElement
@@ -470,6 +471,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
       hexInput: newColorHexCode,
       alphaEnabled: newColorAlphaEnabled,
       alphaOptions: newColorAlphaOptions,
+      alphaPreview: newColorAlphaPreview,
       alphaInput: newColorAlpha,
       alphaValueInput: newColorAlphaValue,
       alphaHexInput: newColorAlphaHex,
@@ -652,7 +654,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
           renderItem: (item: any) => {
             const mat = item.material?.key || ''
             const colors = (item.colors || [])
-              .map((c: any) => `<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${c.hex_code};border:1px solid var(--border);vertical-align:middle;"></span>`)
+              .map((c: any) => `<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${toColorSwatchBackground(c.hex_code)};border:1px solid var(--border);vertical-align:middle;"></span>`)
               .join(' ')
             const weight = item.nominal_weight_g ? ` · ${item.nominal_weight_g}g` : ''
             const hasSpool = !!item.spool_profile
@@ -891,7 +893,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
         const swatch = document.createElement('button')
         swatch.type = 'button'
         swatch.className = `fm-color-swatch ${isSelected ? 'selected' : ''}`
-        swatch.style.backgroundColor = toCssColor(c.hex_code, c.hex_code)
+        swatch.style.background = toColorSwatchBackground(c.hex_code)
         swatch.title = `${c.name} (${c.hex_code})`
         swatch.addEventListener('click', () => toggleColor(c.id))
         colorGrid.appendChild(swatch)
@@ -927,7 +929,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
         const entry = document.createElement('div')
         entry.className = 'fm-color-entry'
         entry.innerHTML = `
-          <span class="fm-color-swatch-lg" style="background-color: ${toCssColor(color.hex_code, color.hex_code)};"></span>
+          <span class="fm-color-swatch-lg" style="background: ${toColorSwatchBackground(color.hex_code)};"></span>
           <span style="font-size: 0.85rem; color: var(--text);">${color.name}</span>
           <span style="font-size: 0.75rem; color: var(--text-muted);">${color.hex_code}</span>
           ${getColorMode() === 'multi' ? `<span style="font-size: 0.75rem; color: var(--text-muted);">#${idx + 1}</span>` : ''}

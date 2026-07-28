@@ -9,6 +9,7 @@ import {
   composeHexWithAlphaByte,
   getAlphaPercent,
   normalizeHexCode,
+  toColorSwatchBackground,
   toCssColor,
   toOpaqueRgbHex,
 } from './colors'
@@ -21,6 +22,7 @@ function createAlphaControls() {
   alphaEnabled.type = 'checkbox'
   const alphaOptions = document.createElement('div')
   alphaOptions.classList.add('hidden')
+  const alphaPreview = document.createElement('span')
   const alphaInput = document.createElement('input')
   alphaInput.type = 'range'
   alphaInput.min = '0'
@@ -35,6 +37,7 @@ function createAlphaControls() {
     hexInput,
     alphaEnabled,
     alphaOptions,
+    alphaPreview,
     alphaInput,
     alphaValueInput,
     alphaHexInput,
@@ -46,6 +49,7 @@ function createAlphaControls() {
     hexInput,
     alphaEnabled,
     alphaOptions,
+    alphaPreview,
     alphaInput,
     alphaValueInput,
     alphaHexInput,
@@ -68,6 +72,10 @@ describe('color helpers', () => {
   it('converts alpha colors for CSS and opaque consumers', () => {
     expect(toOpaqueRgbHex('#BE000022')).toBe('#BE0000')
     expect(toCssColor('#BE000080')).toBe('rgba(190, 0, 0, 0.502)')
+    expect(toColorSwatchBackground('#BE000080')).toContain(
+      'linear-gradient(rgba(190, 0, 0, 0.502), rgba(190, 0, 0, 0.502))'
+    )
+    expect(toColorSwatchBackground('#BE000080')).toContain('conic-gradient(')
   })
 
   it('round-trips opacity controls through trailing alpha bytes', () => {
