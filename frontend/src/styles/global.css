@@ -839,14 +839,39 @@ body {
 
 .fm-inline-color-form {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 8px;
-  align-items: end;
+  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-areas:
+    "picker value"
+    "name name"
+    "actions actions";
+  gap: 12px;
+  align-items: start;
   padding: 12px;
   background: var(--bg-soft);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   margin-top: 8px;
+}
+
+.fm-inline-color-picker {
+  grid-area: picker;
+}
+
+.fm-inline-color-value {
+  grid-area: value;
+  min-width: 0;
+}
+
+.fm-inline-color-name {
+  grid-area: name;
+  min-width: 0;
+}
+
+.fm-inline-color-actions {
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* Scrollbar styling */
