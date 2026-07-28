@@ -1,4 +1,5 @@
 ---
+import ColorOpacityControls from '../../components/ColorOpacityControls.astro'
 import Layout from '../../layouts/Layout.astro'
 ---
 
@@ -73,12 +74,7 @@ import Layout from '../../layouts/Layout.astro'
               style="flex: 1;"
             />
           </div>
-          <div style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
-            <label for="color-alpha" class="fm-label" data-i18n="filaments.colorOpacity" style="margin: 0; min-width: 54px;">Opacity</label>
-            <input type="range" id="color-alpha" min="0" max="100" value="100" style="flex: 1;" />
-            <span id="color-alpha-value" style="min-width: 44px; text-align: right; color: var(--text-muted);">100%</span>
-          </div>
-          <p style="font-size: 0.8rem; color: var(--text-muted); margin: 6px 0 0;" data-i18n="filaments.colorHexSupport">Supports both #RRGGBB and #RRGGBBAA.</p>
+          <ColorOpacityControls idPrefix="color" />
         </div>
         <div id="modal-error" class="fm-alert-error hidden"></div>
         <div style="display: flex; gap: 12px;">
@@ -244,13 +240,19 @@ import Layout from '../../layouts/Layout.astro'
     // Sync picker, opacity slider, and hex input
     const hexInput = document.getElementById('color-hex') as HTMLInputElement
     const picker = document.getElementById('color-picker') as HTMLInputElement
+    const alphaEnabled = document.getElementById('color-alpha-enabled') as HTMLInputElement
+    const alphaOptions = document.getElementById('color-alpha-options') as HTMLDivElement
     const alphaInput = document.getElementById('color-alpha') as HTMLInputElement
-    const alphaValue = document.getElementById('color-alpha-value') as HTMLSpanElement
+    const alphaValue = document.getElementById('color-alpha-value') as HTMLInputElement
+    const alphaHex = document.getElementById('color-alpha-hex') as HTMLInputElement
     const colorControls = bindAlphaColorControls({
       picker,
       hexInput,
+      alphaEnabled,
+      alphaOptions,
       alphaInput,
-      alphaValue,
+      alphaValueInput: alphaValue,
+      alphaHexInput: alphaHex,
     })
     
     document.getElementById('modal-form')?.addEventListener('submit', async (e) => {

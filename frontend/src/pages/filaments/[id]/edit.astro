@@ -1,4 +1,5 @@
 ---
+import ColorOpacityControls from '../../../components/ColorOpacityControls.astro'
 import Layout from '../../../layouts/Layout.astro'
 
 export function getStaticPaths() {
@@ -186,12 +187,9 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
               <input type="color" id="new-color-hex" value="#FF0000" style="width: 44px; height: 36px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); cursor: pointer;" />
             </div>
             <div>
-              <label class="fm-label" data-i18n="filaments.colorHexOpacity">Hex / Opacity</label>
-              <input type="text" id="new-color-hex-code" value="#FF0000" class="fm-input" style="margin-bottom: 6px;" />
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <input type="range" id="new-color-alpha" min="0" max="100" value="100" style="flex: 1;" />
-                <span id="new-color-alpha-value" style="min-width: 44px; text-align: right; color: var(--text-muted);">100%</span>
-              </div>
+              <label class="fm-label" data-i18n="colors.hexCode">Hex Code</label>
+              <input type="text" id="new-color-hex-code" value="#FF0000" class="fm-input" />
+              <ColorOpacityControls idPrefix="new-color" />
             </div>
             <div>
               <label class="fm-label" data-i18n="filaments.colorNameLabel">Name *</label>
@@ -461,14 +459,20 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
     const btnCancelNewColor = document.getElementById('btn-cancel-new-color') as HTMLButtonElement
     const newColorHex = document.getElementById('new-color-hex') as HTMLInputElement
     const newColorHexCode = document.getElementById('new-color-hex-code') as HTMLInputElement
+    const newColorAlphaEnabled = document.getElementById('new-color-alpha-enabled') as HTMLInputElement
+    const newColorAlphaOptions = document.getElementById('new-color-alpha-options') as HTMLDivElement
     const newColorAlpha = document.getElementById('new-color-alpha') as HTMLInputElement
-    const newColorAlphaValue = document.getElementById('new-color-alpha-value') as HTMLSpanElement
+    const newColorAlphaValue = document.getElementById('new-color-alpha-value') as HTMLInputElement
+    const newColorAlphaHex = document.getElementById('new-color-alpha-hex') as HTMLInputElement
     const newColorName = document.getElementById('new-color-name') as HTMLInputElement
     const newColorControls = bindAlphaColorControls({
       picker: newColorHex,
       hexInput: newColorHexCode,
+      alphaEnabled: newColorAlphaEnabled,
+      alphaOptions: newColorAlphaOptions,
       alphaInput: newColorAlpha,
-      alphaValue: newColorAlphaValue,
+      alphaValueInput: newColorAlphaValue,
+      alphaHexInput: newColorAlphaHex,
     })
     
     // Custom Fields
