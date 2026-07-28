@@ -395,6 +395,11 @@ import Layout from '../../../layouts/Layout.astro'
             ${resultCard(t('filaments.title'), r.filaments_created, r.filaments_skipped)}
             ${resultCard(t('spools.title'), r.spools_created, r.spools_skipped)}
           </div>
+          ${r.color_assignments_repaired > 0 ? `
+            <p style="margin: 12px 0 0; color: var(--accent-2);">
+              ${escapeHtml(t('spoolman.colorAssignmentsRepaired').replace('{count}', String(r.color_assignments_repaired)))}
+            </p>
+          ` : ''}
       `
 
       if (hasWarnings) {

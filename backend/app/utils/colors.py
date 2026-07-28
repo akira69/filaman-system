@@ -3,6 +3,13 @@ from __future__ import annotations
 from string import hexdigits
 from typing import Any
 
+_KNOWN_SPOOLMANDB_ARGB_VALUES = {
+    "00FFFFFF": "FFFFFF00",
+    "3C8AD77F": "8AD77F3C",
+    "3CD8100C": "D8100C3C",
+    "3CF8A813": "F8A8133C",
+}
+
 
 def normalize_hex_color(value: Any) -> str:
     """Normalize a color value to CSS-compatible `#RRGGBB` or `#RRGGBBAA`.
@@ -36,9 +43,8 @@ def normalize_spoolmandb_hex_color(value: Any) -> str:
     normalized = normalize_hex_color(value)
     raw = normalized[1:]
 
-    if len(raw) == 8 and _looks_like_legacy_argb(raw):
-        raw = raw[2:] + raw[:2]
-        return f"#{raw}"
+    if raw in _KNOWN_SPOOLMANDB_ARGB_VALUES:
+        return f"#{_KNOWN_SPOOLMANDB_ARGB_VALUES[raw]}"
 
     return normalized
 
@@ -55,15 +61,17 @@ def visible_rgb_hex(value: Any) -> str:
     return f"#{raw}"
 
 
-def _looks_like_legacy_argb(raw: str) -> bool:
-    """Detect SpoolmanDB values that appear to be `AARRGGBB`.
+def visible_rgb_hex_or_legacy(value: Any) -> str:
+    """Return visible RGB while retaining the shipped legacy fallback."""
+    try:
+        return visible_rgb_hex(value)
+    except ValueError:
+        return f"#{str(value).replace('#', '')[:6].upper()}"
 
-    Current SpoolmanDB schema allows RGB plus optional alpha. A few historical
-    entries use a leading alpha byte (`00FFFFFF`, `3C8AD77F`). Keep this narrow
-    to avoid rewriting valid CSS-style values such as `00D4D488`.
-    """
-    alpha = raw[:2]
-    suffix = raw[-2:]
-    if alpha == "00" and suffix == "FF":
-        return True
-    return alpha == "3C"
+
+def normalize_hex_color_if_valid(value: Any) -> str:
+    """Canonicalize valid hex while preserving legacy API-compatible values."""
+    try:
+        return normalize_hex_color(value)
+    except ValueError:
+        return str(value)

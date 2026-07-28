@@ -836,7 +836,14 @@ class SpoolmanService:
         )
 
     async def _find_or_create_color(self, hex_code: str) -> Color:
-        normalized = normalize_hex_color(hex_code)
+        try:
+            normalized = normalize_hex_color(hex_code)
+        except ValueError:
+            # The existing compatibility endpoint accepted any string-shaped
+            # color value, so only canonicalize values that are valid hex.
+            normalized = hex_code.strip().upper()
+            if not normalized.startswith("#"):
+                normalized = f"#{normalized}"
 
         result = await self.db.execute(
             select(Color).where(Color.hex_code == normalized)

@@ -12,7 +12,7 @@ export function normalizeHexCode(value?: string | null): string {
   }
 
   if (!/^[0-9a-fA-F]+$/.test(raw) || (raw.length !== 6 && raw.length !== 8)) {
-    return String(value).trim()
+    return ''
   }
 
   return `#${raw.toUpperCase()}`
@@ -63,4 +63,44 @@ export function toCssColor(value?: string | null, fallback = 'transparent'): str
   const alpha = Number((parseInt(raw.slice(6, 8), 16) / 255).toFixed(3))
 
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+export interface AlphaColorControls {
+  picker: HTMLInputElement
+  hexInput: HTMLInputElement
+  alphaInput: HTMLInputElement
+  alphaValue: HTMLElement
+}
+
+export function bindAlphaColorControls(controls: AlphaColorControls) {
+  const { picker, hexInput, alphaInput, alphaValue } = controls
+
+  function syncFromHex(value = hexInput.value): boolean {
+    const normalized = normalizeHexCode(value)
+    if (!normalized) return false
+
+    hexInput.value = normalized
+    picker.value = toOpaqueRgbHex(normalized)
+    const alpha = getAlphaPercent(normalized)
+    alphaInput.value = String(alpha)
+    alphaValue.textContent = `${alpha}%`
+    return true
+  }
+
+  function syncFromPicker(): void {
+    const alpha = Number(alphaInput.value)
+    alphaValue.textContent = `${alpha}%`
+    hexInput.value = composeHexWithAlpha(picker.value, alpha)
+  }
+
+  function reset(value = '#FF0000'): void {
+    hexInput.value = value
+    syncFromHex(value)
+  }
+
+  picker.addEventListener('input', syncFromPicker)
+  alphaInput.addEventListener('input', syncFromPicker)
+  hexInput.addEventListener('input', () => syncFromHex())
+
+  return { reset, syncFromHex, syncFromPicker }
 }

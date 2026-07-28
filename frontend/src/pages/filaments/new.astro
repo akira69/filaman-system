@@ -169,7 +169,7 @@ import Layout from '../../layouts/Layout.astro'
             <input type="color" id="new-color-hex" value="#FF0000" style="width: 44px; height: 36px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); cursor: pointer;" />
           </div>
           <div>
-            <label class="fm-label">Hex / Opacity</label>
+            <label class="fm-label" data-i18n="filaments.colorHexOpacity">Hex / Opacity</label>
             <input type="text" id="new-color-hex-code" value="#FF0000" class="fm-input" style="margin-bottom: 6px;" />
             <div style="display: flex; align-items: center; gap: 10px;">
               <input type="range" id="new-color-alpha" min="0" max="100" value="100" style="flex: 1;" />
@@ -365,7 +365,7 @@ import Layout from '../../layouts/Layout.astro'
       getExtraFieldValue,
     } from '../../lib/entity-extra-fields'
     import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive } from '../../lib/filamentdb-lookup'
-    import { composeHexWithAlpha, getAlphaPercent, normalizeHexCode, toCssColor, toOpaqueRgbHex } from '../../lib/colors'
+    import { bindAlphaColorControls, normalizeHexCode, toCssColor } from '../../lib/colors'
     await initI18n()
 
     const filamentDbActive = await checkFilamentDbActive()
@@ -413,6 +413,12 @@ import Layout from '../../layouts/Layout.astro'
     const newColorAlpha = document.getElementById('new-color-alpha') as HTMLInputElement
     const newColorAlphaValue = document.getElementById('new-color-alpha-value') as HTMLSpanElement
     const newColorName = document.getElementById('new-color-name') as HTMLInputElement
+    const newColorControls = bindAlphaColorControls({
+      picker: newColorHex,
+      hexInput: newColorHexCode,
+      alphaInput: newColorAlpha,
+      alphaValue: newColorAlphaValue,
+    })
 
     const customFieldsContainer = document.getElementById('custom-fields-container') as HTMLDivElement
     const btnAddField = document.getElementById('btn-add-field') as HTMLButtonElement
@@ -911,31 +917,11 @@ import Layout from '../../layouts/Layout.astro'
       })
     }
 
-    function syncInlineNewColorFromHex(value: string) {
-      const normalized = normalizeHexCode(value)
-      if (!normalized) return
-      newColorHexCode.value = normalized
-      newColorHex.value = toOpaqueRgbHex(normalized)
-      const alpha = getAlphaPercent(normalized)
-      newColorAlpha.value = String(alpha)
-      newColorAlphaValue.textContent = `${alpha}%`
-    }
-
-    function updateInlineNewColorFromPicker() {
-      const alpha = Number(newColorAlpha.value)
-      newColorAlphaValue.textContent = `${alpha}%`
-      newColorHexCode.value = composeHexWithAlpha(newColorHex.value, alpha)
-    }
-
-    newColorHex.addEventListener('input', updateInlineNewColorFromPicker)
-    newColorAlpha.addEventListener('input', updateInlineNewColorFromPicker)
-    newColorHexCode.addEventListener('input', () => syncInlineNewColorFromHex(newColorHexCode.value))
-
     // ── New color form ──
     btnAddNewColor.addEventListener('click', () => {
       newColorForm.classList.remove('hidden')
       btnAddNewColor.parentElement!.classList.add('hidden')
-      syncInlineNewColorFromHex(newColorHexCode.value)
+      newColorControls.syncFromHex()
       newColorName.focus()
     })
 
@@ -943,10 +929,7 @@ import Layout from '../../layouts/Layout.astro'
       newColorForm.classList.add('hidden')
       btnAddNewColor.parentElement!.classList.remove('hidden')
       newColorName.value = ''
-      newColorHex.value = '#FF0000'
-      newColorHexCode.value = '#FF0000'
-      newColorAlpha.value = '100'
-      newColorAlphaValue.textContent = '100%'
+      newColorControls.reset()
     })
 
     btnSaveNewColor.addEventListener('click', async () => {

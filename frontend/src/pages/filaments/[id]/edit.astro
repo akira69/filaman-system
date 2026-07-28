@@ -385,7 +385,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
     import { cachedFetchAllPages, cachedFetch, fetchSequential, invalidateCachePrefix, CACHE_KEYS } from '../../../lib/cache'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
     import { createFilamentDbLookup, type LookupInstance, checkFilamentDbActive, fuzzyTokenScore } from '../../../lib/filamentdb-lookup'
-    import { composeHexWithAlpha, getAlphaPercent, normalizeHexCode, toCssColor, toOpaqueRgbHex } from '../../../lib/colors'
+    import { bindAlphaColorControls, normalizeHexCode, toCssColor } from '../../../lib/colors'
     await initI18n()
 
     const filamentDbActive = await checkFilamentDbActive()
@@ -464,6 +464,12 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
     const newColorAlpha = document.getElementById('new-color-alpha') as HTMLInputElement
     const newColorAlphaValue = document.getElementById('new-color-alpha-value') as HTMLSpanElement
     const newColorName = document.getElementById('new-color-name') as HTMLInputElement
+    const newColorControls = bindAlphaColorControls({
+      picker: newColorHex,
+      hexInput: newColorHexCode,
+      alphaInput: newColorAlpha,
+      alphaValue: newColorAlphaValue,
+    })
     
     // Custom Fields
     const customFieldsContainer = document.getElementById('custom-fields-container') as HTMLDivElement
@@ -937,31 +943,11 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
       })
     }
 
-    function syncInlineNewColorFromHex(value: string) {
-      const normalized = normalizeHexCode(value)
-      if (!normalized) return
-      newColorHexCode.value = normalized
-      newColorHex.value = toOpaqueRgbHex(normalized)
-      const alpha = getAlphaPercent(normalized)
-      newColorAlpha.value = String(alpha)
-      newColorAlphaValue.textContent = `${alpha}%`
-    }
-
-    function updateInlineNewColorFromPicker() {
-      const alpha = Number(newColorAlpha.value)
-      newColorAlphaValue.textContent = `${alpha}%`
-      newColorHexCode.value = composeHexWithAlpha(newColorHex.value, alpha)
-    }
-
-    newColorHex.addEventListener('input', updateInlineNewColorFromPicker)
-    newColorAlpha.addEventListener('input', updateInlineNewColorFromPicker)
-    newColorHexCode.addEventListener('input', () => syncInlineNewColorFromHex(newColorHexCode.value))
-
     // ── New color form ──
     btnAddNewColor.addEventListener('click', () => {
       newColorForm.classList.remove('hidden')
       btnAddNewColor.parentElement!.classList.add('hidden')
-      syncInlineNewColorFromHex(newColorHexCode.value)
+      newColorControls.syncFromHex()
       newColorName.focus()
     })
 
@@ -969,10 +955,7 @@ const backHref = id === 'detail' ? '/filaments' : `/filaments/${id}`
       newColorForm.classList.add('hidden')
       btnAddNewColor.parentElement!.classList.remove('hidden')
       newColorName.value = ''
-      newColorHex.value = '#FF0000'
-      newColorHexCode.value = '#FF0000'
-      newColorAlpha.value = '100'
-      newColorAlphaValue.textContent = '100%'
+      newColorControls.reset()
     })
 
     btnSaveNewColor.addEventListener('click', async () => {
