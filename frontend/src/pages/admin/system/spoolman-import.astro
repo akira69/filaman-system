@@ -211,7 +211,10 @@ import Layout from '../../../layouts/Layout.astro'
             'X-CSRF-Token': getCsrfToken(),
           },
           credentials: 'include',
-          body: JSON.stringify({ url: connectedUrl }),
+          body: JSON.stringify({
+            url: connectedUrl,
+            include_transparency_repairs: true,
+          }),
           signal: getAbortSignal(),
         })
 
@@ -382,7 +385,7 @@ import Layout from '../../../layouts/Layout.astro'
       locations_skipped: number
       colors_created: number
       colors_skipped: number
-      color_assignments_repaired: number
+      color_assignments_repaired?: number
       filaments_created: number
       filaments_skipped: number
       spools_created: number
@@ -549,11 +552,6 @@ import Layout from '../../../layouts/Layout.astro'
             ${resultCard(t('filaments.title'), r.filaments_created, r.filaments_skipped)}
             ${resultCard(t('spools.title'), r.spools_created, r.spools_skipped)}
           </div>
-          ${r.color_assignments_repaired > 0 ? `
-            <p style="margin: 12px 0 0; color: var(--accent-2);">
-              ${escapeHtml(t('spoolman.colorAssignmentsRepaired').replace('{count}', String(r.color_assignments_repaired)))}
-            </p>
-          ` : ''}
       `
 
       if (hasWarnings) {

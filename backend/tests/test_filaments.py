@@ -1,7 +1,6 @@
 import pytest
-from sqlalchemy import select
-
 from app.models import Color, Filament, FilamentColor, Manufacturer, Spool, SpoolStatus
+from sqlalchemy import select
 
 
 async def _create_manufacturer(db_session, name: str = "Test Manufacturer", **kwargs) -> Manufacturer:
@@ -278,7 +277,7 @@ class TestColorCRUD:
         assert data["hex_code"] == "#00FFFFFF"
 
     @pytest.mark.asyncio
-    async def test_create_color_rejects_non_hex_value(self, auth_client):
+    async def test_create_color_preserves_legacy_non_hex_value(self, auth_client):
         client, csrf_token = auth_client
 
         response = await client.post(
@@ -287,7 +286,8 @@ class TestColorCRUD:
             headers={"X-CSRF-Token": csrf_token},
         )
 
-        assert response.status_code == 422
+        assert response.status_code == 201
+        assert response.json()["hex_code"] == "legacy"
 
     @pytest.mark.asyncio
     async def test_update_color_rejects_explicit_null(

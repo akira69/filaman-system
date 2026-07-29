@@ -1,8 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
-
+from app.api.v1 import system as system_api
 from app.models.filament import Color, Filament, FilamentColor, Manufacturer
 from app.services.spoolman_import_service import (
     ImportPreview,
@@ -10,6 +9,7 @@ from app.services.spoolman_import_service import (
     SpoolmanImportError,
     SpoolmanImportService,
 )
+from sqlalchemy import select
 
 
 class TestSpoolmanImportColorSupport:
@@ -418,6 +418,58 @@ class TestSpoolmanImportColorSupport:
 
 class TestSpoolmanImportApiContract:
     @pytest.mark.asyncio
+    async def test_shared_mutation_guard_rejects_overlapping_import(
+        self,
+        auth_client,
+    ):
+        client, csrf_token = auth_client
+        await system_api._spoolman_mutation_lock.acquire()
+        try:
+            response = await client.post(
+                "/api/v1/admin/system/spoolman-import/execute",
+                json={"url": "http://spoolman.test"},
+                headers={"X-CSRF-Token": csrf_token},
+            )
+        finally:
+            system_api._spoolman_mutation_lock.release()
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "spoolman_import_in_progress"
+
+    @pytest.mark.asyncio
+    async def test_preview_preserves_legacy_response_shape(
+        self,
+        auth_client,
+        monkeypatch,
+    ):
+        client, csrf_token = auth_client
+
+        async def preview(_service, _url):
+            return ImportPreview(
+                vendors=[{"id": 1, "name": "Vendor"}],
+                filaments=[{"id": 2, "color_hex": "D8100C"}],
+                colors=[{"name": "#D8100C", "hex_code": "#D8100C"}],
+            )
+
+        monkeypatch.setattr(SpoolmanImportService, "preview", preview)
+
+        response = await client.post(
+            "/api/v1/admin/system/spoolman-import/preview",
+            json={"url": "http://spoolman.test"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 200
+        assert set(response.json()) == {
+            "summary",
+            "vendors",
+            "filaments",
+            "spools",
+            "locations",
+            "colors",
+        }
+
+    @pytest.mark.asyncio
     async def test_preview_returns_repair_count_and_plan_digest(
         self,
         auth_client,
@@ -444,7 +496,10 @@ class TestSpoolmanImportApiContract:
 
         response = await client.post(
             "/api/v1/admin/system/spoolman-import/preview",
-            json={"url": "http://spoolman.test"},
+            json={
+                "url": "http://spoolman.test",
+                "include_transparency_repairs": True,
+            },
             headers={"X-CSRF-Token": csrf_token},
         )
 
@@ -459,6 +514,67 @@ class TestSpoolmanImportApiContract:
             "locations": 0,
             "colors": 1,
         }
+
+    @pytest.mark.asyncio
+    async def test_execute_preserves_legacy_response_shape(
+        self,
+        auth_client,
+        monkeypatch,
+    ):
+        client, csrf_token = auth_client
+
+        async def execute(_service, _url):
+            return ImportResult(color_assignments_repaired=2)
+
+        monkeypatch.setattr(SpoolmanImportService, "execute", execute)
+
+        response = await client.post(
+            "/api/v1/admin/system/spoolman-import/execute",
+            json={"url": "http://spoolman.test"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 200
+        assert set(response.json()) == {
+            "manufacturers_created",
+            "manufacturers_skipped",
+            "locations_created",
+            "locations_skipped",
+            "colors_created",
+            "colors_skipped",
+            "filaments_created",
+            "filaments_skipped",
+            "spools_created",
+            "spools_skipped",
+            "errors",
+            "warnings",
+        }
+
+    @pytest.mark.asyncio
+    async def test_repair_response_includes_repair_count(
+        self,
+        auth_client,
+        monkeypatch,
+    ):
+        client, csrf_token = auth_client
+
+        async def repair_transparency(_service, _url, _digest):
+            return ImportResult(color_assignments_repaired=2)
+
+        monkeypatch.setattr(
+            SpoolmanImportService,
+            "repair_transparency",
+            repair_transparency,
+        )
+
+        response = await client.post(
+            "/api/v1/admin/system/spoolman-import/repair-transparency",
+            json={"url": "http://spoolman.test", "plan_digest": "a" * 64},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["color_assignments_repaired"] == 2
 
     @pytest.mark.asyncio
     async def test_repair_requires_plan_digest(self, auth_client):

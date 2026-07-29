@@ -67,3 +67,11 @@ def visible_rgb_hex_or_legacy(value: Any) -> str:
         return visible_rgb_hex(value)
     except ValueError:
         return f"#{str(value).replace('#', '')[:6].upper()}"
+
+
+def normalize_hex_color_if_valid(value: Any) -> str:
+    """Normalize valid colors while preserving shipped legacy string inputs."""
+    try:
+        return normalize_hex_color(value)
+    except ValueError:
+        return str(value)
