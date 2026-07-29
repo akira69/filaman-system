@@ -14,7 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.models.base import Base, TimestampMixin, TZDateTime
-from app.utils.colors import normalize_hex_color_if_valid
+from app.utils.colors import normalize_hex_color
 
 
 class Manufacturer(Base, TimestampMixin):
@@ -55,7 +55,7 @@ class Color(Base, TimestampMixin):
 
     @validates("hex_code")
     def _validate_hex_code(self, key: str, value: str) -> str:
-        return normalize_hex_color_if_valid(value)
+        return normalize_hex_color(value)
 
 
 class Filament(Base, TimestampMixin):

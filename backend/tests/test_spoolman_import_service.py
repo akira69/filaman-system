@@ -7,6 +7,7 @@ from app.models.filament import Color, Filament, FilamentColor, Manufacturer
 from app.services.spoolman_import_service import (
     ImportPreview,
     ImportResult,
+    SpoolmanImportError,
     SpoolmanImportService,
 )
 
@@ -31,6 +32,20 @@ class TestSpoolmanImportColorSupport:
             {"name": "#BE000022", "hex_code": "#BE000022"},
             {"name": "#AABBCC", "hex_code": "#AABBCC"},
         ]
+
+    def test_repeated_primary_is_deduplicated_and_source_positions_are_preserved(
+        self,
+    ):
+        service = SpoolmanImportService(None)
+
+        positions = service._filament_color_positions(
+            {
+                "color_hex": "D8100C",
+                "multi_color_hexes": ["D8100C", "invalid", "11223380"],
+            }
+        )
+
+        assert positions == [(1, "#D8100C"), (3, "#11223380")]
 
     def test_extract_colors_skips_invalid_values(self):
         service = SpoolmanImportService(None)
@@ -85,7 +100,7 @@ class TestSpoolmanImportColorSupport:
                 {
                     "id": 207,
                     "color_hex": "3CD8100C",
-                    "multi_color_hexes": "112233",
+                    "multi_color_hexes": "3CD8100C,112233",
                 }
             ]
         )
@@ -113,7 +128,7 @@ class TestSpoolmanImportColorSupport:
                 {
                     "id": 207,
                     "color_hex": "3CD8100C",
-                    "multi_color_hexes": "112233",
+                    "multi_color_hexes": "3CD8100C,112233",
                 }
             ],
             {},
@@ -233,7 +248,13 @@ class TestSpoolmanImportColorSupport:
             )
         )
 
-        result = await service.repair_transparency("http://spoolman.test")
+        candidates = await service.analyze_transparency_repairs(
+            [{"id": 207, "color_hex": "3CD8100C"}]
+        )
+        result = await service.repair_transparency(
+            "http://spoolman.test",
+            service.transparency_repair_plan_digest(candidates),
+        )
         repaired_color = (
             await db_session.execute(
                 select(Color).where(Color.hex_code == "#D8100C3C")
@@ -252,3 +273,201 @@ class TestSpoolmanImportColorSupport:
         assert result.locations_created == 0
         assert result.filaments_created == 0
         assert result.spools_created == 0
+
+    @pytest.mark.asyncio
+    async def test_repair_skips_different_rgb_and_missing_positions(
+        self, db_session
+    ):
+        manufacturer = Manufacturer(name="Strict repair vendor")
+        opaque_color = Color(name="Local RGB", hex_code="#112233")
+        db_session.add_all([manufacturer, opaque_color])
+        await db_session.flush()
+        filament = Filament(
+            manufacturer_id=manufacturer.id,
+            designation="Strict repair filament",
+            material_type="PLA",
+            diameter_mm=1.75,
+            custom_fields={"spoolman_id": 300},
+        )
+        db_session.add(filament)
+        await db_session.flush()
+        db_session.add(
+            FilamentColor(
+                filament_id=filament.id,
+                color_id=opaque_color.id,
+                position=1,
+            )
+        )
+        await db_session.flush()
+
+        service = SpoolmanImportService(db_session)
+        candidates = await service.analyze_transparency_repairs(
+            [
+                {
+                    "id": 300,
+                    "multi_color_hexes": ["AABBCC80", "44556680"],
+                }
+            ]
+        )
+
+        assert candidates == []
+
+    @pytest.mark.asyncio
+    async def test_repair_skips_assignment_that_changed_after_analysis(
+        self, db_session
+    ):
+        manufacturer = Manufacturer(name="Repair race vendor")
+        original = Color(name="Original", hex_code="#D8100C")
+        changed = Color(name="Changed", hex_code="#112233")
+        target = Color(name="Target alpha", hex_code="#D8100C3C")
+        db_session.add_all([manufacturer, original, changed, target])
+        await db_session.flush()
+        filament = Filament(
+            manufacturer_id=manufacturer.id,
+            designation="Repair race filament",
+            material_type="PLA",
+            diameter_mm=1.75,
+            custom_fields={"spoolman_id": 350},
+        )
+        db_session.add(filament)
+        await db_session.flush()
+        assignment = FilamentColor(
+            filament_id=filament.id,
+            color_id=original.id,
+            position=1,
+        )
+        db_session.add(assignment)
+        await db_session.flush()
+
+        service = SpoolmanImportService(db_session)
+        candidates = await service.analyze_transparency_repairs(
+            [{"id": 350, "color_hex": "3CD8100C"}]
+        )
+        assert len(candidates) == 1
+
+        assignment.color_id = changed.id
+        await db_session.flush()
+        result = ImportResult()
+        await service._apply_transparency_repairs(
+            candidates,
+            {target.hex_code.lower(): target.id},
+            result,
+        )
+
+        assert assignment.color_id == changed.id
+        assert result.color_assignments_repaired == 0
+        assert len(result.warnings) == 1
+
+    @pytest.mark.asyncio
+    async def test_repair_rejects_preview_plan_drift(self, db_session):
+        manufacturer = Manufacturer(name="Plan binding vendor")
+        color_a = Color(name="Opaque A", hex_code="#D8100C")
+        color_b = Color(name="Opaque B", hex_code="#8AD77F")
+        db_session.add_all([manufacturer, color_a, color_b])
+        await db_session.flush()
+        filament_a = Filament(
+            manufacturer_id=manufacturer.id,
+            designation="Preview target",
+            material_type="PLA",
+            diameter_mm=1.75,
+            custom_fields={"spoolman_id": 401},
+        )
+        filament_b = Filament(
+            manufacturer_id=manufacturer.id,
+            designation="Execution target",
+            material_type="PLA",
+            diameter_mm=1.75,
+            custom_fields={"spoolman_id": 402},
+        )
+        db_session.add_all([filament_a, filament_b])
+        await db_session.flush()
+        assignment_a = FilamentColor(
+            filament_id=filament_a.id,
+            color_id=color_a.id,
+            position=1,
+        )
+        assignment_b = FilamentColor(
+            filament_id=filament_b.id,
+            color_id=color_b.id,
+            position=1,
+        )
+        db_session.add_all([assignment_a, assignment_b])
+        await db_session.flush()
+
+        service = SpoolmanImportService(db_session)
+        service.preview = AsyncMock(
+            side_effect=[
+                ImportPreview(filaments=[{"id": 401, "color_hex": "3CD8100C"}]),
+                ImportPreview(filaments=[{"id": 402, "color_hex": "3C8AD77F"}]),
+            ]
+        )
+        _, count, digest = await service.preview_with_transparency_repairs(
+            "http://spoolman.test"
+        )
+        assert count == 1
+
+        with pytest.raises(SpoolmanImportError, match="changed after preview"):
+            await service.repair_transparency(
+                "http://spoolman.test",
+                digest,
+            )
+
+        assert assignment_a.color_id == color_a.id
+        assert assignment_b.color_id == color_b.id
+
+
+class TestSpoolmanImportApiContract:
+    @pytest.mark.asyncio
+    async def test_preview_returns_repair_count_and_plan_digest(
+        self,
+        auth_client,
+        monkeypatch,
+    ):
+        client, csrf_token = auth_client
+
+        async def preview_with_repairs(_service, _url):
+            return (
+                ImportPreview(
+                    vendors=[{"id": 1, "name": "Vendor"}],
+                    filaments=[{"id": 2, "color_hex": "D8100C"}],
+                    colors=[{"name": "#D8100C", "hex_code": "#D8100C"}],
+                ),
+                1,
+                "a" * 64,
+            )
+
+        monkeypatch.setattr(
+            SpoolmanImportService,
+            "preview_with_transparency_repairs",
+            preview_with_repairs,
+        )
+
+        response = await client.post(
+            "/api/v1/admin/system/spoolman-import/preview",
+            json={"url": "http://spoolman.test"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["transparency_repair_candidates"] == 1
+        assert data["transparency_repair_plan_digest"] == "a" * 64
+        assert data["summary"] == {
+            "vendors": 1,
+            "filaments": 1,
+            "spools": 0,
+            "locations": 0,
+            "colors": 1,
+        }
+
+    @pytest.mark.asyncio
+    async def test_repair_requires_plan_digest(self, auth_client):
+        client, csrf_token = auth_client
+
+        response = await client.post(
+            "/api/v1/admin/system/spoolman-import/repair-transparency",
+            json={"url": "http://spoolman.test"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 422

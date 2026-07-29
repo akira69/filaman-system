@@ -1,5 +1,6 @@
 """Admin-Endpoints fuer System, Plugin-Management, Spoolman-Import und Killswitch."""
 
+import asyncio
 import importlib
 import logging
 import os
@@ -13,7 +14,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import DateTime, delete, select, text
 from sqlalchemy.inspection import inspect as sa_inspect
 
@@ -72,6 +73,7 @@ from app.services.filamentdb_import_service import (
 from app.core.shared_health import shared_health_store
 
 logger = logging.getLogger(__name__)
+_spoolman_mutation_lock = asyncio.Lock()
 
 router = APIRouter(prefix="/admin/system", tags=["admin-system"])
 
@@ -859,6 +861,10 @@ class SpoolmanUrlRequest(BaseModel):
     url: str
 
 
+class SpoolmanTransparencyRepairRequest(SpoolmanUrlRequest):
+    plan_digest: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+
 class SpoolmanConnectionResponse(BaseModel):
     status: str
     url: str
@@ -922,7 +928,7 @@ async def spoolman_preview(
     """Vorschau der zu importierenden Daten."""
     service = SpoolmanImportService(db)
     try:
-        preview, candidate_count = (
+        preview, candidate_count, plan_digest = (
             await service.preview_with_transparency_repairs(body.url)
         )
         return JSONResponse(
@@ -934,6 +940,7 @@ async def spoolman_preview(
                 "locations": preview.locations,
                 "colors": preview.colors,
                 "transparency_repair_candidates": candidate_count,
+                "transparency_repair_plan_digest": plan_digest,
             }
         )
     except SpoolmanImportError as e:
@@ -969,6 +976,15 @@ async def spoolman_execute(
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Spoolman-Import ausfuehren."""
+    if _spoolman_mutation_lock.locked():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "spoolman_import_in_progress",
+                "message": "Another Spoolman import operation is already running",
+            },
+        )
+    await _spoolman_mutation_lock.acquire()
     service = SpoolmanImportService(db)
     try:
         result = await service.execute(body.url)
@@ -995,6 +1011,8 @@ async def spoolman_execute(
                 }
             },
         )
+    finally:
+        _spoolman_mutation_lock.release()
 
 
 @router.post(
@@ -1002,19 +1020,37 @@ async def spoolman_execute(
     response_model=SpoolmanImportResultResponse,
 )
 async def spoolman_repair_transparency(
-    body: SpoolmanUrlRequest,
+    body: SpoolmanTransparencyRepairRequest,
     db: DBSession,
     principal=RequirePermission("admin:plugins_manage"),
 ):
     """Repair linked transparency assignments without running a full import."""
+    if _spoolman_mutation_lock.locked():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "spoolman_import_in_progress",
+                "message": "Another Spoolman import operation is already running",
+            },
+        )
+    await _spoolman_mutation_lock.acquire()
     service = SpoolmanImportService(db)
     try:
-        return await service.repair_transparency(body.url)
+        return await service.repair_transparency(
+            body.url,
+            body.plan_digest,
+        )
     except SpoolmanImportError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=(
+                status.HTTP_409_CONFLICT
+                if e.code == "repair_plan_changed"
+                else status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
             detail={"code": e.code, "message": str(e)},
         )
+    finally:
+        _spoolman_mutation_lock.release()
 
 
 # ------------------------------------------------------------------ #
