@@ -3,13 +3,25 @@ import logging
 import httpx
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Header, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession
+from app.utils.colors import visible_rgb_hex_or_legacy
 
 logger = logging.getLogger(__name__)
+
+
+def _is_primary_worker() -> bool:
+    """Resolve primary worker state lazily to avoid import cycles."""
+    try:
+        from app import main as app_main
+        return bool(getattr(app_main, "_is_primary", False))
+    except Exception:
+        return False
+
+
 from app.api.v1.schemas_device import HeartbeatRequest, LocateRequest, LocateResponse, WeighRequest, WeighResponse, WriteTagRequest, WriteTagResponse, RfidResultRequest, RfidResultResponse, WriteStatusResponse, TagDataRequest, TagScanStatusResponse
 from app.core.security import Principal, generate_token_secret, hash_token
 from app.models import AppSettings, Device, Location, Spool, SpoolStatus
@@ -50,7 +62,7 @@ async def _build_extended_data(db: DBSession, spool: Spool, protocol: str) -> di
         )
         raw_hex = fc_result.scalar_one_or_none()
         if raw_hex:
-            color_hex = raw_hex.replace("#", "")[:6].upper()
+            color_hex = visible_rgb_hex_or_legacy(raw_hex).replace("#", "")
 
     # Hersteller
     brand = "Generic"
@@ -366,13 +378,16 @@ async def device_rfid_result(
         return RfidResultResponse(status="error", message="No tag_uuid provided")
 
     # Duplicate check and cleanup - clear rfid_uid from ALL spools (incl. archived)
-    # to prevent UNIQUE constraint violation on spools.rfid_uid
+    # to prevent UNIQUE constraint violation on spools.rfid_uid.
+    # Case-insensitive: the weigh lookup matches UIDs via lower(), so a UID stored
+    # with different casing would otherwise survive cleanup and later cause
+    # MultipleResultsFound on weigh.
     removed_info = []
     
     # Check spools - all spools regardless of status
     spool_query = (
         select(Spool)
-        .where(Spool.rfid_uid == data.tag_uuid)
+        .where(func.lower(Spool.rfid_uid) == data.tag_uuid.lower())
     )
     if data.spool_id:
         spool_query = spool_query.where(Spool.id != data.spool_id)
@@ -471,14 +486,30 @@ async def device_rfid_result(
 @router.post("/scale/weight", response_model=WeighResponse)
 async def weigh_spool(
     data: WeighRequest,
+    request: Request,
     db: DBSession,
     device: Device = Depends(get_current_device),
 ):
+    # Drivers only live on the primary Gunicorn worker. Proxy the whole request
+    # there so auto-assign can reach them; the primary handles measurement too.
+    if device.auto_assign_enabled and not _is_primary_worker():
+        try:
+            from app.api.v1.printers import _proxy_to_primary
+            payload = await _proxy_to_primary(
+                request,
+                method="POST",
+                path="/api/v1/devices/scale/weight",
+                json_body=data.model_dump(),
+            )
+            return WeighResponse.model_validate(payload)
+        except Exception as e:
+            logger.warning(f"Auto-assign primary-proxy failed, running locally: {e}")
+
     service = SpoolService(db)
-    
+
     # Find Spool: UUID has priority over ID (backward compatible)
     spool = None
-    
+
     if data.tag_uuid:
         # Normalize UUID to lowercase for case-insensitive comparison
         normalized_uuid = data.tag_uuid.lower()
@@ -513,7 +544,7 @@ async def weigh_spool(
         )
         hex_code = fc_result.scalar_one_or_none()
         if hex_code:
-            base_color = hex_code.replace("#", "")[:6]
+            base_color = visible_rgb_hex_or_legacy(hex_code).replace("#", "")
     # Record Measurement
     principal = Principal(auth_type="device", device_id=device.id, scopes=device.scopes)
     
@@ -525,7 +556,8 @@ async def weigh_spool(
         source="device",
         note=f"Recorded by device {device.name}",
     )
-    # Auto-assign: if device has auto_assign_enabled, notify all running drivers
+    # Auto-assign: if device has auto_assign_enabled, notify all running drivers.
+    # Drivers only live on the primary Gunicorn worker; proxy if we're not it.
     logger.debug(f"Auto-assign check: device={device.name} (id={device.id}), auto_assign_enabled={device.auto_assign_enabled}")
     if device.auto_assign_enabled:
         try:

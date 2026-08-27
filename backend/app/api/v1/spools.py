@@ -1,11 +1,17 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
+from app.api.v1.printers import (
+    pick_bambuddy_driver,
+    _is_primary_worker,
+    _proxy_to_primary,
+)
 from app.core.cache import response_cache
 from app.core.db_utils import get_next_available_id, get_next_available_ids
 from app.api.v1.schemas import PaginatedResponse
@@ -23,6 +29,7 @@ from app.api.v1.schemas_spool import (
     MoveLocationRequest,
     SpoolBulkCreate,
     SpoolCreate,
+    SpoolEventColor,
     SpoolEventResponse,
     SpoolResponse,
     SpoolStatusResponse,
@@ -40,6 +47,37 @@ from app.models import (
     SpoolStatus,
 )
 from app.services.spool_service import SpoolService
+
+
+async def _reject_driver_managed_create_location(
+    db: AsyncSession, spool_data: dict
+) -> None:
+    """Refuse to claim an AMS/slot location while creating or duplicating.
+
+    Driver-managed locations (see `Location.is_driver_managed`) may only be
+    claimed by the driver itself, after the spool was physically placed. The
+    update endpoints are deliberately not guarded — that is the path drivers
+    use to assign and release slots.
+    """
+    loc_id = spool_data.get("location_id")
+    if not loc_id:
+        return
+    result = await db.execute(select(Location).where(Location.id == loc_id))
+    location = result.scalar_one_or_none()
+    if location is not None and location.is_driver_managed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "driver_managed_location",
+                "message": (
+                    f"Location {location.name!r} is managed by a printer driver "
+                    "and is assigned when the driver detects a spool in that "
+                    "slot. Create the spool without a location instead."
+                ),
+                "location_id": location.id,
+            },
+        )
+
 
 router_locations = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -158,8 +196,23 @@ async def delete_location(
             detail={"code": "not_found", "message": "Location not found"},
         )
 
+    # Only active spools block deletion — archived spools are not counted in the
+    # location's spool_count either (see list_locations), so a location shown as
+    # empty must also be deletable.
+    archived_status_id = (
+        select(SpoolStatus.id).where(SpoolStatus.key == "archived").scalar_subquery()
+    )
     result = await db.execute(
-        select(Spool).where(Spool.location_id == location_id).limit(1)
+        select(Spool)
+        .where(Spool.location_id == location_id)
+        .where(
+            or_(
+                Spool.status_id != archived_status_id,
+                # No "archived" status seeded — treat every spool as blocking
+                archived_status_id.is_(None),
+            )
+        )
+        .limit(1)
     )
     if result.scalar_one_or_none():
         raise HTTPException(
@@ -169,6 +222,11 @@ async def delete_location(
                 "message": "Location has spools, cannot delete",
             },
         )
+
+    # Detach archived spools so the FK does not block the delete
+    await db.execute(
+        update(Spool).where(Spool.location_id == location_id).values(location_id=None)
+    )
 
     await db.delete(location)
     await db.commit()
@@ -353,6 +411,8 @@ async def create_spool(
 
     spool_data = data.model_dump()
 
+    await _reject_driver_managed_create_location(db, spool_data)
+
     # Cascade fields from Filament if not provided
     if spool_data.get("empty_spool_weight_g") is None:
         spool_data["empty_spool_weight_g"] = (
@@ -444,6 +504,8 @@ async def create_spools_bulk(
         )
 
     spool_data = data.model_dump(exclude={"quantity"})
+
+    await _reject_driver_managed_create_location(db, spool_data)
 
     # Cascade fields from Filament if not provided
     if spool_data.get("empty_spool_weight_g") is None:
@@ -542,6 +604,10 @@ async def update_spools_bulk(
             spool.low_weight_threshold_g = data.low_weight_threshold_g
         if data.empty_spool_weight_g is not None:
             spool.empty_spool_weight_g = data.empty_spool_weight_g
+        if data.clear_spool_core_weight:
+            spool.spool_core_weight_g = None
+        elif data.spool_core_weight_g is not None:
+            spool.spool_core_weight_g = data.spool_core_weight_g
         if data.purchase_price is not None:
             spool.purchase_price = data.purchase_price
         count += 1
@@ -592,11 +658,41 @@ async def list_all_spool_events(
 ):
     result = await db.execute(
         select(SpoolEvent)
+        .options(
+            selectinload(SpoolEvent.spool)
+            .selectinload(Spool.filament)
+            .options(
+                selectinload(Filament.manufacturer),
+                selectinload(Filament.filament_colors).selectinload(
+                    FilamentColor.color
+                ),
+            )
+        )
         .order_by(SpoolEvent.event_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    items = list(result.scalars().all())
+    events = list(result.scalars().all())
+
+    items: list[SpoolEventResponse] = []
+    for ev in events:
+        resp = SpoolEventResponse.model_validate(ev)
+        filament = ev.spool.filament if ev.spool else None
+        if filament is not None:
+            resp.manufacturer_name = (
+                filament.manufacturer.name if filament.manufacturer else None
+            )
+            resp.manufacturer_color_name = filament.manufacturer_color_name
+            resp.material_type = filament.material_type
+            resp.colors = [
+                SpoolEventColor(
+                    hex_code=fc.color.hex_code,
+                    name=fc.display_name_override or fc.color.name,
+                )
+                for fc in sorted(filament.filament_colors, key=lambda c: c.position)
+                if fc.color is not None
+            ]
+        items.append(resp)
 
     count_result = await db.execute(select(func.count()).select_from(SpoolEvent))
     total = count_result.scalar() or 0
@@ -999,3 +1095,219 @@ async def device_measurement(
     )
     await event_bus.publish({"event": "spools_changed"})
     return event
+
+
+class DefaultSlicerProfileBody(BaseModel):
+    base_name: str = Field(..., min_length=1)
+
+
+class ModelSlicerProfileBody(BaseModel):
+    base_name: str | None = None
+    clear_override: bool = False
+
+
+@router_spools.post("/{spool_id}/slicer-profile/default")
+@router_spools.put("/{spool_id}/slicer-profile/default")
+async def set_spool_default_slicer_profile(
+    spool_id: int,
+    body: DefaultSlicerProfileBody,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Set default Bambu cloud slicer profile for a spool (all connected models)."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/spools/{spool_id}/slicer-profile/default",
+            json_body=body.model_dump(),
+        )
+    spool = await db.get(Spool, spool_id)
+    if not spool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Spool not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "set_default_spool_profile", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support default slicer profiles",
+            },
+        )
+    result = await method(int(spool_id), base_name=body.base_name.strip())
+    return result
+
+
+@router_spools.post("/{spool_id}/slicer-profile/models/{model}")
+@router_spools.put("/{spool_id}/slicer-profile/models/{model}")
+async def set_spool_model_slicer_profile(
+    spool_id: int,
+    model: str,
+    body: ModelSlicerProfileBody,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Set or clear a per-model slicer profile override on a spool."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/spools/{spool_id}/slicer-profile/models/{model}",
+            json_body=body.model_dump(),
+        )
+    spool = await db.get(Spool, spool_id)
+    if not spool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Spool not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "set_spool_profile_for_model", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support per-model slicer profiles",
+            },
+        )
+    if body.clear_override:
+        result = await method(int(spool_id), model.strip().upper(), clear_override=True)
+    else:
+        if not body.base_name or not body.base_name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "invalid_params",
+                    "message": "base_name is required",
+                },
+            )
+        result = await method(
+            int(spool_id),
+            model.strip().upper(),
+            base_name=body.base_name.strip(),
+            link_others=False,
+        )
+    return result
+
+
+class BackfillToFilamentBody(BaseModel):
+    apply_to_sibling_spools: bool = False
+
+
+async def _sibling_spool_counts(db: DBSession, filament_id: int) -> dict[str, int]:
+    result = await db.execute(
+        select(Spool.id)
+        .join(SpoolStatus)
+        .where(
+            Spool.filament_id == int(filament_id),
+            SpoolStatus.key != "archived",
+        )
+    )
+    spool_ids = [row[0] for row in result.all()]
+    total = len(spool_ids)
+    return {
+        "total_count": total,
+        "other_count": max(0, total - 1),
+        "spool_ids": spool_ids,
+    }
+
+
+@router_spools.get("/{spool_id}/slicer-profile/backfill-preview")
+async def preview_backfill_spool_profiles(
+    spool_id: int,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Preview copying this spool's slicer profiles to its parent filament."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="GET",
+            path=f"/api/v1/spools/{spool_id}/slicer-profile/backfill-preview",
+        )
+    spool = await db.get(Spool, spool_id)
+    if not spool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Spool not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "preview_backfill_spool_profiles_to_filament", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support profile backfill preview",
+            },
+        )
+    preview = await method(int(spool_id))
+    if preview.get("filament_id"):
+        filament_result = await db.execute(
+            select(Filament, Manufacturer.name)
+            .outerjoin(Manufacturer, Filament.manufacturer_id == Manufacturer.id)
+            .where(Filament.id == preview["filament_id"])
+        )
+        row = filament_result.one_or_none()
+        if row:
+            filament, mfr_name = row
+            preview["filament_designation"] = filament.designation
+            preview["filament_manufacturer"] = mfr_name
+        siblings = await _sibling_spool_counts(db, int(preview["filament_id"]))
+        preview["sibling_spools"] = siblings
+    return preview
+
+
+@router_spools.post("/{spool_id}/slicer-profile/backfill-to-filament")
+async def backfill_spool_profiles_to_filament(
+    spool_id: int,
+    body: BackfillToFilamentBody,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Copy this spool's slicer profiles to its parent filament."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/spools/{spool_id}/slicer-profile/backfill-to-filament",
+            json_body=body.model_dump(),
+        )
+    spool = await db.get(Spool, spool_id)
+    if not spool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Spool not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "backfill_spool_profiles_to_filament", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support profile backfill",
+            },
+        )
+    try:
+        result = await method(
+            int(spool_id),
+            apply_to_sibling_spools=body.apply_to_sibling_spools,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_state", "message": str(e)},
+        )
+    await event_bus.publish({"event": "filaments_changed"})
+    await event_bus.publish({"event": "spools_changed"})
+    return result

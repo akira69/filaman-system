@@ -2,6 +2,11 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+from .schemas_entity_extra_field import (
+    EntityExtraFieldDefinitions,
+    optional_entity_definitions_field,
+)
 from .schemas_filament import FilamentDetailResponse
 
 
@@ -51,12 +56,16 @@ class SpoolCreate(BaseModel):
     stocked_in_at: datetime | None = None
     initial_total_weight_g: float | None = None
     empty_spool_weight_g: float | None = None
+    spool_core_weight_g: float | None = None
     remaining_weight_g: float | None = None
     spool_outer_diameter_mm: float | None = None
     spool_width_mm: float | None = None
     spool_material: str | None = None
     low_weight_threshold_g: int = 100
     custom_fields: dict[str, Any] | None = None
+    custom_field_definitions: EntityExtraFieldDefinitions | None = (
+        optional_entity_definitions_field()
+    )
 
 
 class SpoolBulkCreate(SpoolCreate):
@@ -73,11 +82,15 @@ class SpoolUpdate(BaseModel):
     purchase_price: float | None = None
     initial_total_weight_g: float | None = None
     empty_spool_weight_g: float | None = None
+    spool_core_weight_g: float | None = None
     spool_outer_diameter_mm: float | None = None
     spool_width_mm: float | None = None
     spool_material: str | None = None
     low_weight_threshold_g: int | None = None
     custom_fields: dict[str, Any] | None = None
+    custom_field_definitions: EntityExtraFieldDefinitions | None = (
+        optional_entity_definitions_field()
+    )
 
 
 class SpoolResponse(BaseModel):
@@ -94,6 +107,7 @@ class SpoolResponse(BaseModel):
     last_used_at: datetime | None
     initial_total_weight_g: float | None
     empty_spool_weight_g: float | None
+    spool_core_weight_g: float | None
     remaining_weight_g: float | None
     spool_outer_diameter_mm: float | None
     spool_width_mm: float | None
@@ -101,6 +115,9 @@ class SpoolResponse(BaseModel):
     low_weight_threshold_g: int
     created_at: datetime
     custom_fields: dict[str, Any] | None
+    custom_field_definitions: EntityExtraFieldDefinitions | None = (
+        optional_entity_definitions_field(omit_none=True)
+    )
     filament: FilamentDetailResponse | None = None
 
     class Config:
@@ -147,6 +164,8 @@ class BulkSpoolUpdateRequest(BaseModel):
     status_id: int | None = None
     low_weight_threshold_g: int | None = None
     empty_spool_weight_g: float | None = None
+    spool_core_weight_g: float | None = None
+    clear_spool_core_weight: bool = False
     purchase_price: float | None = None
 
 
@@ -158,6 +177,11 @@ class MoveLocationRequest(BaseModel):
     location_id: int | None
     event_at: datetime | None = None
     note: str | None = None
+
+
+class SpoolEventColor(BaseModel):
+    hex_code: str
+    name: str | None = None
 
 
 class SpoolEventResponse(BaseModel):
@@ -176,6 +200,12 @@ class SpoolEventResponse(BaseModel):
     to_location_id: int | None
     note: str | None
     meta: dict[str, Any] | None
+    # Enriched filament context (populated by the all-events listing); may be
+    # null when the spool or its filament has since been deleted.
+    manufacturer_name: str | None = None
+    manufacturer_color_name: str | None = None
+    material_type: str | None = None
+    colors: list[SpoolEventColor] | None = None
 
     class Config:
         from_attributes = True

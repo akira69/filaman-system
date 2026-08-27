@@ -1,0 +1,735 @@
+---
+import Layout from '../../../layouts/Layout.astro'
+import LabelDesignerEditor from '../../../components/LabelDesignerEditor.astro'
+import LabelSheetOutputSettings from '../../../components/LabelSheetOutputSettings.astro'
+import PrintActionFooter from '../../../components/PrintActionFooter.astro'
+import PrintSidebar from '../../../components/PrintSidebar.astro'
+import PreviewZoomBar from '../../../components/PreviewZoomBar.astro'
+import SingleLabelPrintStyles from '../../../components/SingleLabelPrintStyles.astro'
+import StandardLabelSettingsPanel from '../../../components/StandardLabelSettingsPanel.astro'
+
+export function getStaticPaths() {
+  return [
+    {params: {id: 'detail'}},
+  ];
+}
+---
+
+<Layout title="FilaMan - Print Filament Label">
+  <SingleLabelPrintStyles />
+
+  <div class="print-page">
+    <PrintSidebar backLabel="Back to Filament" backLabelId="label-back">
+      <StandardLabelSettingsPanel idLabelI18n="filaments.showFilamentId" idFallback="Filament ID" />
+
+      <LabelDesignerEditor />
+      <LabelSheetOutputSettings />
+
+      <PrintActionFooter slot="footer" printButtonId="btn-print" resetLabel="Defaults" />
+    </PrintSidebar>
+
+    <main class="preview-container">
+      <PreviewZoomBar min="50" resetClass="preview-zoom-reset" />
+      <div class="preview-scroll-area">
+      <div id="label-preview" class="label-preview"></div>
+      </div>
+    </main>
+  </div>
+</Layout>
+
+<script>
+  import { initLabelDesignerEditor } from '../../../lib/label-designer-editor'
+  import {
+    buildSpoolDataFromFlatLabel,
+    getDesignerLabelDimensions,
+    loadDesignerSettingsFromStorage,
+    renderDesignerLabel,
+  } from '../../../lib/label-designer'
+  import { captureLabelElement } from '../../../lib/label-export'
+  import { applyLabelSheetPreviewZoom, bindLabelSheetControls, saveLabelSheetPagesAsPdf, syncLabelSheetPngExportState, syncLabelSheetPreview } from '../../../lib/label-sheet'
+  import {
+    buildStandardLabelDataFromFlat,
+    getStandardLabelDimensions,
+    renderStandardLabel,
+    type StandardExtraField,
+    type StandardLabelSettings,
+  } from '../../../lib/label-standard'
+  import {
+    buildFilamentLabelDataFromApi,
+    buildFilamentLabelDataFromParams,
+    buildReducedStandardFilamentExtraFieldsFromLabelData,
+    mergeMissingFilamentLabelData,
+    type FilamentExtraField,
+  } from '../../../lib/filament-label-data'
+  import {
+    LABEL_EXPORT_PIXEL_RATIO,
+    bindPrintDesignerTabs,
+    bindSingleLabelExport,
+    buildLabelExportBaseName,
+    clampInputValue,
+    installPrintFunction,
+    parseJsonOrNull,
+    readPrintDesignerTab,
+    readStorageValue,
+    removeStorageValue,
+    safeSetLocalStorage,
+    type PrintDesignerTab,
+    writeStorageValue,
+  } from '../../../lib/label-print-page'
+  import { isBuiltInLabelField, normalizeLabelFieldName } from '../../../lib/label-extra-fields'
+  import {
+    FILAMENT_LABEL_PRESETS_KEY,
+    hydrateLabelPresetStorage,
+    SPOOL_LABEL_PRESETS_KEY,
+  } from '../../../lib/label-preset-storage'
+  import { buildEntityExtraFieldsForPrint } from '../../../lib/entity-extra-fields'
+  import { type SystemExtraFieldDef } from '../../../lib/extra-fields'
+
+  function applyPrintSidebarCollapse() {
+    const page = document.getElementById('fm-page')
+    if (!page) return
+    if (window.innerWidth < 1100) {
+      document.documentElement.classList.add('sidebar-collapsed')
+      page.classList.add('collapsed')
+      if (window.innerWidth > 768) {
+        writeStorageValue('sidebar-collapsed', 'true')
+      }
+    }
+  }
+  applyPrintSidebarCollapse()
+  window.addEventListener('resize', applyPrintSidebarCollapse, { passive: true })
+
+  installPrintFunction()
+
+  type TranslationWindow = Window & { __t?: (key: string) => string }
+  type SavedLabelSettings = {
+    _v?: unknown
+    width?: unknown
+    height?: unknown
+    fontSize?: unknown
+    qrSize?: unknown
+    showLogo?: unknown
+    showQR?: unknown
+    showID?: unknown
+    showMfr?: unknown
+    showMat?: unknown
+    showColor?: unknown
+    showColorSwatch?: unknown
+    showColorHex?: unknown
+    extraFields?: unknown
+  }
+
+  const translate = (key: string, fallback = '') => (window as TranslationWindow).__t?.(key) || fallback
+
+  // Filament ID from URL: /filaments/{id}/print
+  const id = window.location.pathname.split('/').filter(Boolean).slice(-2, -1)[0]
+
+  const params = new URLSearchParams(window.location.search)
+  const labelData = buildFilamentLabelDataFromParams(id, params)
+
+  let extraFields: FilamentExtraField[] = []
+  try {
+    const stored = sessionStorage.getItem('filaman-filament-label-extra-fields')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed)) {
+        const seenExtraFields = new Set<string>()
+        extraFields = parsed.filter((item) => (
+          item &&
+          typeof item.key === 'string' &&
+          typeof item.label === 'string' &&
+          typeof item.value === 'string'
+        )).filter((item) => {
+          const source = item.source === 'spool' ? 'spool' : 'filament'
+          const identity = `${source}:${normalizeLabelFieldName(item.label || item.key)}`
+          if (seenExtraFields.has(identity)) return false
+          seenExtraFields.add(identity)
+          return true
+        })
+      }
+    }
+  } catch { /* ignore */ }
+
+  const LABEL_SETTINGS_KEY = 'filaman-filament-label-settings'
+  const LABEL_SETTINGS_VERSION = 2
+  const ACTIVE_TAB_KEY = 'filaman-filament-label-active-tab'
+  const DESIGNER_PRESETS_KEY = FILAMENT_LABEL_PRESETS_KEY
+  const DESIGNER_SETTINGS_KEY = 'filaman-filament-label-designer-v1'
+
+  // SpoolData for the template parser — filament fields map directly
+  function buildSpoolData() {
+    return buildSpoolDataFromFlatLabel({
+      id: labelData.id,
+      filament_id: labelData.id,
+      designation: labelData.designation,
+      manufacturer: labelData.manufacturer,
+      manufacturer_id: labelData.manufacturer_id || labelData.mfr_id,
+      type: labelData.type,
+      subtype: labelData.subtype,
+      color: labelData.color,
+      colors: labelData.colors,
+      hex_code: labelData.hex_code,
+      color_hexes: labelData.color_hexes,
+      color_mode: labelData.color_mode,
+      multi_color_style: labelData.multi_color_style,
+      extruder_temp: labelData.extruder_temp,
+      bed_temp: labelData.bed_temp,
+      raw_material_weight_g: labelData.raw_material_weight_g,
+      weight: labelData.weight,
+      diameter: labelData.diameter,
+      finish: labelData.finish,
+      density: labelData.density,
+      price: labelData.price,
+      manufacturer_color_name: labelData.manufacturer_color_name,
+      default_spool_weight_g: labelData.default_spool_weight_g,
+      spool_outer_diameter_mm: labelData.spool_outer_diameter_mm,
+      spool_width_mm: labelData.spool_width_mm,
+      spool_material: labelData.spool_material,
+      shop_url: labelData.shop_url,
+      extraFields,
+    })
+  }
+
+  const widthInput = document.getElementById('input-width') as HTMLInputElement
+  const heightInput = document.getElementById('input-height') as HTMLInputElement
+  const fontSizeInput = document.getElementById('input-font-size') as HTMLInputElement
+  const qrSizeInput = document.getElementById('input-qr-size') as HTMLInputElement
+  const checkLogo = document.getElementById('check-logo') as HTMLInputElement
+  const checkQR = document.getElementById('check-qr') as HTMLInputElement
+  const checkID = document.getElementById('check-id') as HTMLInputElement
+  const checkMfr = document.getElementById('check-mfr') as HTMLInputElement
+  const checkMat = document.getElementById('check-mat') as HTMLInputElement
+  const checkColor = document.getElementById('check-color') as HTMLInputElement
+  const checkColorSwatch = document.getElementById('check-color-swatch') as HTMLInputElement
+  const checkColorHex = document.getElementById('check-color-hex') as HTMLInputElement
+  const exportPngBtn = document.getElementById('btn-export-png') as HTMLButtonElement
+  const exportPdfBtn = document.getElementById('btn-export-pdf') as HTMLButtonElement
+  const labelPreview = document.getElementById('label-preview') as HTMLElement
+  const previewRoot = document.querySelector<HTMLElement>('.preview-scroll-area')!
+  await hydrateLabelPresetStorage()
+  const sheetControls = bindLabelSheetControls(syncOutputPreview)
+
+  // --- Tab switching ---
+  const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
+  const tabPanelPrint = document.getElementById('tab-panel-print') as HTMLElement | null
+  const tabPanelDesigner = document.getElementById('tab-panel-designer') as HTMLElement | null
+  const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null
+  let activePreviewTab: PrintDesignerTab = readPrintDesignerTab(ACTIVE_TAB_KEY)
+  let previewRenderVersion = 0
+
+  function beginPreviewRender(tab: 'print' | 'designer') {
+    activePreviewTab = tab
+    const token = ++previewRenderVersion
+    return () => activePreviewTab !== tab || token !== previewRenderVersion
+  }
+
+  function renderActiveTab(tab: PrintDesignerTab) {
+    if (!tabPanelPrint || !tabPanelDesigner || !labelPreview) return
+    if (tab === 'designer') {
+      const isStale = beginPreviewRender('designer')
+      labelPreview.innerHTML = ''
+      labelPreview.style.border = ''
+      labelPreview.style.padding = ''
+      updateDesignerPreview(isStale)
+    } else {
+      const isStale = beginPreviewRender('print')
+      labelPreview.innerHTML = ''
+      labelPreview.style.border = 'none'
+      labelPreview.style.padding = ''
+      updatePreview(isStale)
+    }
+  }
+
+  function getActiveLabelDimensions() {
+    if (activePreviewTab === 'designer') {
+      return getDesignerLabelDimensions(loadDesignerSettingsFromStorage({
+        presetsKey: DESIGNER_PRESETS_KEY,
+        settingsKey: DESIGNER_SETTINGS_KEY,
+      }))
+    }
+    return getStandardLabelDimensions(getStandardSettings())
+  }
+
+  function syncOutputPreview() {
+    syncLabelSheetPreview({
+      controls: sheetControls,
+      previewRoot,
+      sourceElements: [labelPreview],
+      labelDimensions: getActiveLabelDimensions(),
+    })
+    if (sheetControls.getOutputMode() === 'sheet') applyLabelSheetPreviewZoom(previewRoot, _previewZoom)
+    syncLabelSheetPngExportState(sheetControls, exportPngBtn, (key, fallback) => (window as Window & { __t?: (key: string) => string }).__t?.(key) || fallback)
+  }
+
+  const tabControls = bindPrintDesignerTabs({
+    buttons: tabBtns,
+    printPanel: tabPanelPrint!,
+    designerPanel: tabPanelDesigner!,
+    resetButton: resetBtn,
+    sidebar: document.querySelector<HTMLElement>('.print-sidebar'),
+    storageKey: ACTIVE_TAB_KEY,
+    initialTab: activePreviewTab,
+    onChange: tab => {
+      activePreviewTab = tab
+      renderActiveTab(tab)
+    },
+  })
+
+  const savedTab = readStorageValue(ACTIVE_TAB_KEY)
+
+  // ─── Label Designer ────────────────────────────────────────────────────────
+
+  function getDesignerExtraFields() {
+    return extraFields.filter(ef => !isBuiltInLabelField(ef.source ?? 'filament', ef.key, ef.label))
+  }
+
+  const designerEditor = await initLabelDesignerEditor({
+    extraFields: getDesignerExtraFields(),
+    entityType: 'filament',
+    getFilamentColorHex: () => labelData.hex_code,
+    getFilamentColorHexes: () => labelData.color_hexes,
+    getFilamentMultiColorStyle: () => labelData.multi_color_style,
+    safeSetLocalStorage,
+    translate,
+    onChange: () => updateDesignerPreview(),
+    presetsKey: DESIGNER_PRESETS_KEY,
+    settingsKey: DESIGNER_SETTINGS_KEY,
+    entityLabel: 'Filament',
+    crossPresetsKey: SPOOL_LABEL_PRESETS_KEY,
+    ownPresetsLabel: translate('filaments.dsPresetsOwnGroup', 'Filament presets'),
+    crossPresetsLabel: translate('filaments.dsPresetsCrossGroupSpool', 'Spool presets'),
+  })
+
+  // ─── Preview zoom ─────────────────────────────────────────────────────────
+
+  const ZOOM_KEY = 'filaman-filament-label-zoom-v1'
+  const setZoomTitle = (id: string, key: string, fallback: string) => {
+    const button = document.getElementById(id)
+    if (!button) return
+    const label = translate(key, fallback)
+    button.title = label
+    button.setAttribute('aria-label', label)
+  }
+  setZoomTitle('preview-zoom-out', 'labelPrint.zoomOut', 'Zoom out')
+  setZoomTitle('preview-zoom-in', 'labelPrint.zoomIn', 'Zoom in')
+  setZoomTitle('preview-zoom-reset', 'labelPrint.zoomReset', 'Reset zoom')
+  let _previewZoom = 100
+  function applyZoom(z: number) {
+    _previewZoom = Math.min(300, Math.max(50, Math.round(z / 5) * 5))
+    const lp = document.getElementById('label-preview') as HTMLElement
+    if (lp) { lp.style.transform = `scale(${_previewZoom / 100})`; lp.style.transformOrigin = 'center center' }
+    applyLabelSheetPreviewZoom(previewRoot, _previewZoom)
+    ;(document.getElementById('preview-zoom-slider') as HTMLInputElement).value = String(_previewZoom)
+    const label = document.getElementById('preview-zoom-label')
+    if (label) label.textContent = _previewZoom + '%'
+    writeStorageValue(ZOOM_KEY, String(_previewZoom))
+  }
+  document.getElementById('preview-zoom-slider')?.addEventListener('input', (e) => {
+    applyZoom(Number((e.target as HTMLInputElement).value))
+  })
+  document.getElementById('preview-zoom-in')?.addEventListener('click', () => applyZoom(_previewZoom + 10))
+  document.getElementById('preview-zoom-out')?.addEventListener('click', () => applyZoom(_previewZoom - 10))
+  document.getElementById('preview-zoom-reset')?.addEventListener('click', () => applyZoom(100))
+  ;(() => { const z = Number(readStorageValue(ZOOM_KEY)); if (z >= 50 && z <= 300) applyZoom(z) })()
+
+  // Label logo state
+  let labelLogoUrl: string | null = null
+  let labelLogoLoaded = false
+
+  async function loadLabelLogo() {
+    if (!labelData.mfr_id) return
+    try {
+      const resp = await fetch(`/api/v1/manufacturers/${labelData.mfr_id}/label-logo`, {
+        credentials: 'include',
+      })
+      if (resp.ok) {
+        const blob = await resp.blob()
+        labelLogoUrl = URL.createObjectURL(blob)
+        labelLogoLoaded = true
+      }
+    } catch {
+      // Label logo not available — fall back to manufacturer name text
+    }
+  }
+
+  // Build extra field checkboxes dynamically
+  const extraFieldsTitle = document.getElementById('title-extra-fields')!
+  const extraFieldsCheckboxes = document.getElementById('extra-fields-checkboxes')!
+  const extraFieldChecks: {key: string, label: string, value: string, checkbox: HTMLInputElement}[] = []
+
+  let savedExtraFieldSettings: Record<string, boolean> = {}
+  const parsedClassicSettings = parseJsonOrNull<SavedLabelSettings>(readStorageValue(LABEL_SETTINGS_KEY))
+  if (parsedClassicSettings?.extraFields && typeof parsedClassicSettings.extraFields === 'object') {
+    savedExtraFieldSettings = parsedClassicSettings.extraFields as Record<string, boolean>
+  }
+
+  if (extraFields.length > 0) {
+    extraFieldsTitle.style.display = ''
+    extraFieldsCheckboxes.style.display = ''
+
+    const scopeAttr = (() => {
+      const existing = document.querySelector('.fm-checkbox-group')
+      if (!existing) return null
+      return Array.from(existing.attributes).find(a => a.name.startsWith('data-astro-cid-'))
+    })()
+
+    for (const ef of extraFields) {
+      const lbl = document.createElement('label')
+      lbl.className = 'fm-checkbox-group'
+      const cb = document.createElement('input')
+      cb.type = 'checkbox'
+      cb.id = `check-ef-${ef.key}`
+      cb.checked = savedExtraFieldSettings[ef.key] || false
+      const span = document.createElement('span')
+      span.textContent = ef.label
+      if (scopeAttr) {
+        lbl.setAttribute(scopeAttr.name, '')
+        cb.setAttribute(scopeAttr.name, '')
+        span.setAttribute(scopeAttr.name, '')
+      }
+      lbl.appendChild(cb)
+      lbl.appendChild(span)
+      extraFieldsCheckboxes.appendChild(lbl)
+      extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
+      cb.addEventListener('change', () => updatePreview())
+    }
+  }
+
+  function saveSettings() {
+    const settings: SavedLabelSettings = {
+      _v: LABEL_SETTINGS_VERSION,
+      width: widthInput.value,
+      height: heightInput.value,
+      fontSize: fontSizeInput.value,
+      qrSize: qrSizeInput.value,
+      showLogo: checkLogo.checked,
+      showQR: checkQR.checked,
+      showID: checkID.checked,
+      showMfr: checkMfr.checked,
+      showMat: checkMat.checked,
+      showColor: checkColor.checked,
+      showColorSwatch: checkColorSwatch.checked,
+      showColorHex: checkColorHex.checked,
+      extraFields: extraFieldChecks.reduce((acc, ef) => {
+        acc[ef.key] = ef.checkbox.checked
+        return acc
+      }, {} as Record<string, boolean>)
+    }
+    safeSetLocalStorage(LABEL_SETTINGS_KEY, JSON.stringify(settings))
+  }
+
+  function loadSettings() {
+    const s = parseJsonOrNull<SavedLabelSettings>(readStorageValue(LABEL_SETTINGS_KEY))
+    if (!s || typeof s !== 'object' || Number(s._v ?? 0) < LABEL_SETTINGS_VERSION) {
+      removeStorageValue(LABEL_SETTINGS_KEY)
+      return
+    }
+    if (s.width !== undefined) widthInput.value = String(s.width)
+    if (s.height !== undefined) heightInput.value = String(s.height)
+    if (s.fontSize !== undefined) fontSizeInput.value = String(s.fontSize)
+    if (s.qrSize !== undefined) qrSizeInput.value = String(s.qrSize)
+    clampInputValue(widthInput, 20, 200, 60, 0)
+    clampInputValue(heightInput, 10, 120, 40, 0)
+    clampInputValue(fontSizeInput, 50, 200, 100, 0)
+    clampInputValue(qrSizeInput, 8, 40, 18, 1)
+    if (s.showLogo !== undefined) checkLogo.checked = !!s.showLogo
+    if (s.showQR !== undefined) checkQR.checked = !!s.showQR
+    if (s.showID !== undefined) checkID.checked = !!s.showID
+    if (s.showMfr !== undefined) checkMfr.checked = !!s.showMfr
+    if (s.showMat !== undefined) checkMat.checked = !!s.showMat
+    if (s.showColor !== undefined) checkColor.checked = !!s.showColor
+    if (s.showColorSwatch !== undefined) checkColorSwatch.checked = !!s.showColorSwatch
+    if (s.showColorHex !== undefined) checkColorHex.checked = !!s.showColorHex
+  }
+
+  loadSettings()
+
+  // i18n labels
+  document.getElementById('tab-btn-print')!.textContent = translate('labelPrint.standardLabel', 'Standard Label')
+  document.getElementById('tab-btn-designer')!.textContent = translate('spools.labelDesigner', 'Label Designer')
+  document.getElementById('title-settings')!.textContent = translate('labelPrint.settingsTitle', 'Label Settings')
+  document.getElementById('label-width-text')!.textContent = translate('spools.labelWidth', 'Width (mm)')
+  document.getElementById('label-height-text')!.textContent = translate('spools.labelHeight', 'Height (mm)')
+  document.getElementById('label-font-size-text')!.textContent = translate('spools.fontSize', 'Font Size (%)')
+  document.getElementById('label-qr-size-text')!.textContent = translate('spools.qrSize', 'QR Size (mm)')
+  document.getElementById('label-show-logo')!.textContent = translate('spools.showLogo', 'Logo')
+  document.getElementById('label-show-qr')!.textContent = translate('spools.showQRCode', 'QR Code')
+  document.getElementById('label-show-id')!.textContent = translate('filaments.showFilamentId', 'Filament ID')
+  document.getElementById('label-show-mfr')!.textContent = translate('spools.showManufacturer', 'Manufacturer')
+  document.getElementById('label-show-mat')!.textContent = translate('spools.showMaterial', 'Material')
+  document.getElementById('label-show-color')!.textContent = translate('spools.showColor', 'Color')
+  document.getElementById('label-show-color-swatch')!.textContent = translate('spools.showColorSwatch', 'Color Swatch')
+  document.getElementById('label-show-color-hex')!.textContent = translate('labelPrint.checkColorHex', 'Color Hex')
+  if (extraFields.length > 0) {
+    document.getElementById('title-extra-fields')!.textContent = translate('filaments.extraFieldsLabel', 'Filament Extra Fields')
+  }
+  const backBtn = document.getElementById('btn-back') as HTMLAnchorElement
+  backBtn.href = `/filaments/${id}`
+  document.getElementById('label-back')!.textContent = translate('filaments.backToFilament', 'Back to Filament')
+  exportPngBtn.textContent = translate('labelPrint.btnExportPng', 'Export PNG')
+  exportPdfBtn.textContent = translate('labelPrint.btnExportPdf', 'Export PDF')
+  document.getElementById('btn-print')!.textContent = translate('common.print', 'Print')
+  document.getElementById('btn-reset')!.textContent = translate('spools.resetDefaults', 'Defaults')
+
+  function getSelectedStandardExtraFields(): StandardExtraField[] {
+    return extraFieldChecks
+      .filter(ef => ef.checkbox.checked)
+      .map(ef => ({ label: ef.label, value: ef.value }))
+  }
+
+  function getStandardSettings(): StandardLabelSettings {
+    return {
+      widthMm: clampInputValue(widthInput, 20, 200, 60, 0),
+      heightMm: clampInputValue(heightInput, 10, 120, 40, 0),
+      fontScale: clampInputValue(fontSizeInput, 50, 200, 100, 0) / 100,
+      qrSizeMm: clampInputValue(qrSizeInput, 8, 40, 18, 1),
+      showLogo: checkLogo.checked,
+      showQR: checkQR.checked,
+      showID: checkID.checked,
+      showManufacturer: checkMfr.checked,
+      showMaterial: checkMat.checked,
+      showColor: checkColor.checked,
+      showColorSwatch: checkColorSwatch.checked,
+      showColorHex: checkColorHex.checked,
+    }
+  }
+
+  function buildStandardData() {
+    return buildStandardLabelDataFromFlat({
+      id: labelData.id,
+      designation: labelData.designation,
+      manufacturer: labelData.manufacturer,
+      material: labelData.type,
+      colorName: labelData.color,
+      hexCode: labelData.hex_code,
+      colorHexes: labelData.color_hexes,
+      multiColorStyle: labelData.multi_color_style,
+      extraFields: getSelectedStandardExtraFields(),
+      qrUrl: `${window.location.origin}/filaments/${labelData.id}`,
+    })
+  }
+
+  async function updatePreview(isStale = () => false) {
+    if (activePreviewTab !== 'print') return
+    if (isStale() || activePreviewTab !== 'print') return
+
+    labelPreview.style.border = 'none'
+    labelPreview.style.padding = ''
+    await renderStandardLabel({
+      element: labelPreview,
+      data: buildStandardData(),
+      settings: getStandardSettings(),
+      logoUrl: labelLogoLoaded ? labelLogoUrl : null,
+      isStale: () => isStale() || activePreviewTab !== 'print',
+    })
+    if (isStale() || activePreviewTab !== 'print') return
+    saveSettings()
+    syncOutputPreview()
+  }
+
+  ;[widthInput, heightInput, fontSizeInput, qrSizeInput, checkLogo, checkQR, checkID, checkMfr, checkMat, checkColor, checkColorSwatch, checkColorHex].forEach(el => {
+    el.addEventListener('change', () => updatePreview())
+    if ((el as HTMLInputElement).type === 'range' || (el as HTMLInputElement).type === 'number') {
+      el.addEventListener('input', () => updatePreview())
+    }
+  })
+
+  // ─── Designer preview ─────────────────────────────────────────────────────
+
+  async function updateDesignerPreview(isStale = () => false) {
+    if (activePreviewTab !== 'designer') return
+    if (isStale() || activePreviewTab !== 'designer') return
+
+    await renderDesignerLabel({
+      element: labelPreview,
+      previewBorder: false,
+      settings: loadDesignerSettingsFromStorage({
+        presetsKey: DESIGNER_PRESETS_KEY,
+        settingsKey: DESIGNER_SETTINGS_KEY,
+      }),
+      data: buildSpoolData(),
+      logoUrl: labelLogoLoaded ? labelLogoUrl : null,
+      isStale: () => isStale() || activePreviewTab !== 'designer',
+      entityPath: 'filaments',
+    })
+    if (isStale() || activePreviewTab !== 'designer') return
+    syncOutputPreview()
+  }
+
+  // ─── Export ───────────────────────────────────────────────────────────────
+
+  function buildExportBaseName() {
+    const mode = activePreviewTab === 'designer' ? 'designer' : 'classic'
+    return buildLabelExportBaseName([
+      'filament-label',
+      labelData.manufacturer,
+      labelData.designation,
+      labelData.id ? `filament-${labelData.id}` : '',
+      mode,
+    ], `filament-label-${mode}`)
+  }
+
+  bindSingleLabelExport({
+    exportPngBtn,
+    exportPdfBtn,
+    labelElement: labelPreview,
+    pixelRatio: LABEL_EXPORT_PIXEL_RATIO,
+    getTranslation: translate,
+    buildBaseName: buildExportBaseName,
+    getDimensions: () => activePreviewTab === 'designer'
+      ? getDesignerLabelDimensions(loadDesignerSettingsFromStorage({
+        presetsKey: DESIGNER_PRESETS_KEY,
+        settingsKey: DESIGNER_SETTINGS_KEY,
+      }))
+      : getStandardLabelDimensions(getStandardSettings()),
+    refreshPreview: async () => {
+      if (activePreviewTab === 'designer') await updateDesignerPreview()
+      else await updatePreview()
+    },
+    exportPdf: async (defaultExport) => {
+      if (sheetControls.getOutputMode() !== 'sheet') {
+        await defaultExport()
+        return
+      }
+      if (activePreviewTab === 'designer') await updateDesignerPreview()
+      else await updatePreview()
+      const dimensions = getActiveLabelDimensions()
+      await saveLabelSheetPagesAsPdf(
+        [{
+          dataUrl: await captureLabelElement(labelPreview, { pixelRatio: LABEL_EXPORT_PIXEL_RATIO, resetTransform: true }),
+          widthMm: dimensions.widthMm,
+          heightMm: dimensions.heightMm,
+        }],
+        `${buildExportBaseName()}-sheet.pdf`,
+        sheetControls.getSettings(),
+      )
+    },
+  })
+
+  document.getElementById('btn-reset')?.addEventListener('click', () => {
+    removeStorageValue(LABEL_SETTINGS_KEY);
+    widthInput.value = '60';
+    heightInput.value = '40';
+    fontSizeInput.value = '100';
+    qrSizeInput.value = '18';
+    checkLogo.checked = true;
+    checkQR.checked = true;
+    checkID.checked = true;
+    checkMfr.checked = true;
+    checkMat.checked = true;
+    checkColor.checked = true;
+    checkColorSwatch.checked = true;
+    checkColorHex.checked = true;
+    for (const ef of extraFieldChecks) {
+      ef.checkbox.checked = false
+    }
+    updatePreview()
+  })
+
+  // Restore active tab now that all designer state is fully initialized
+  if (savedTab === 'designer') tabControls.activate('designer')
+
+  // Initialize: load logo then render whichever tab is active
+  loadLabelLogo().then(() => {
+    tabControls.activate(readPrintDesignerTab(ACTIVE_TAB_KEY))
+  })
+
+  // Fallback for direct navigation. The standard Print Settings tab remains
+  // intentionally reduced; the API fetch is primarily to complete Label Designer
+  // token data and custom-field chips when sessionStorage is unavailable.
+  if (extraFields.length === 0) {
+    ;(async () => {
+      try {
+        const [defs, filRes] = await Promise.all([
+          fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' }).then(r => r.ok ? r.json() : []),
+          fetch(`/api/v1/filaments/${id}`, { credentials: 'include' }),
+        ])
+        const systemDefinitions = Object.fromEntries(
+          (Array.isArray(defs) ? defs : (defs.items || []))
+            .map((definition: SystemExtraFieldDef) => [
+              definition.key,
+              { ...definition, field_type: definition.field_type || 'text' },
+            ]),
+        ) as Record<string, SystemExtraFieldDef>
+
+        let customPrintFields: ReturnType<typeof buildEntityExtraFieldsForPrint> = []
+        if (filRes.ok) {
+          const fd = await filRes.json()
+          mergeMissingFilamentLabelData(labelData, buildFilamentLabelDataFromApi(fd, id))
+          customPrintFields = buildEntityExtraFieldsForPrint(
+            fd.custom_fields,
+            fd.custom_field_definitions,
+            systemDefinitions,
+            true,
+          ).filter(field => !isBuiltInLabelField('filament', field.key, field.label))
+        }
+
+        const standardFilamentFields = buildReducedStandardFilamentExtraFieldsFromLabelData(labelData)
+
+        if (standardFilamentFields.length === 0 && customPrintFields.length === 0) return
+
+        const scopeAttr = (() => {
+          const existing = document.querySelector('.fm-checkbox-group')
+          if (!existing) return null
+          return Array.from(existing.attributes).find(a => a.name.startsWith('data-astro-cid-'))
+        })()
+
+        function makeEfCheckbox(ef: {
+          key: string
+          label: string
+          value: string
+          rawValue?: unknown
+          fieldType?: string
+          source?: string
+        }) {
+          extraFields.push({ ...ef, source: ef.source ?? 'filament' })
+          const lbl = document.createElement('label')
+          lbl.className = 'fm-checkbox-group'
+          const cb = document.createElement('input')
+          cb.type = 'checkbox'
+          cb.id = `check-ef-${ef.key}`
+          cb.checked = savedExtraFieldSettings[ef.key] || false
+          const span = document.createElement('span')
+          span.textContent = ef.label
+          if (scopeAttr) {
+            lbl.setAttribute(scopeAttr.name, '')
+            cb.setAttribute(scopeAttr.name, '')
+            span.setAttribute(scopeAttr.name, '')
+          }
+          lbl.appendChild(cb)
+          lbl.appendChild(span)
+          extraFieldsCheckboxes.appendChild(lbl)
+          extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
+          cb.addEventListener('change', () => updatePreview())
+        }
+
+        for (const sfd of standardFilamentFields) {
+          makeEfCheckbox(sfd)
+        }
+
+        for (const field of customPrintFields) {
+          makeEfCheckbox({
+            key: `filament.${field.key}`,
+            label: field.label,
+            value: field.value,
+            rawValue: field.rawValue,
+            fieldType: field.fieldType,
+            source: 'filament',
+          })
+        }
+
+        extraFieldsTitle.style.display = ''
+        extraFieldsCheckboxes.style.display = ''
+        document.getElementById('title-extra-fields')!.textContent = translate('filaments.extraFieldsLabel', 'Filament Extra Fields')
+
+        designerEditor.refreshExtraFields(getDesignerExtraFields())
+
+        // Re-load logo if mfr_id was populated from API
+        if (!labelLogoLoaded && labelData.mfr_id) {
+          await loadLabelLogo()
+        }
+        updatePreview()
+      } catch { /* ignore */ }
+    })()
+  }
+</script>

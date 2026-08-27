@@ -1,7 +1,6 @@
 import pytest
-from sqlalchemy import select
-
 from app.models import Color, Filament, FilamentColor, Manufacturer, Spool, SpoolStatus
+from sqlalchemy import select
 
 
 async def _create_manufacturer(db_session, name: str = "Test Manufacturer", **kwargs) -> Manufacturer:
@@ -263,6 +262,51 @@ class TestColorCRUD:
         assert data["hex_code"] == "#00FF00"
 
     @pytest.mark.asyncio
+    async def test_create_color_normalizes_alpha_hex(self, auth_client):
+        client, csrf_token = auth_client
+
+        response = await client.post(
+            "/api/v1/colors",
+            json={"name": "Clear", "hex_code": "00ffffff"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "Clear"
+        assert data["hex_code"] == "#00FFFFFF"
+
+    @pytest.mark.asyncio
+    async def test_create_color_preserves_legacy_non_hex_value(self, auth_client):
+        client, csrf_token = auth_client
+
+        response = await client.post(
+            "/api/v1/colors",
+            json={"name": "Legacy", "hex_code": "legacy"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["hex_code"] == "legacy"
+
+    @pytest.mark.asyncio
+    async def test_update_color_rejects_explicit_null(
+        self, auth_client, db_session
+    ):
+        client, csrf_token = auth_client
+        color = await _create_color(db_session, name="Strict", hex_code="#123456")
+
+        response = await client.patch(
+            f"/api/v1/colors/{color.id}",
+            json={"hex_code": None},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 422
+        await db_session.refresh(color)
+        assert color.hex_code == "#123456"
+
+    @pytest.mark.asyncio
     async def test_get_color(self, auth_client, db_session):
         client, _ = auth_client
 
@@ -433,6 +477,98 @@ class TestFilamentCRUD:
         assert data["designation"] == "PLA Basic"
         assert data["material_type"] == "PLA"
         assert data["diameter_mm"] == 1.75
+        assert "custom_field_definitions" not in data
+
+    @pytest.mark.asyncio
+    async def test_create_and_clear_filament_specific_field_definition(
+        self, auth_client, db_session
+    ):
+        client, csrf_token = auth_client
+        manufacturer = await _create_manufacturer(db_session)
+        definition = {
+            "drying_temperature": {
+                "label": "Drying temperature",
+                "field_type": "number",
+                "config": {"unit": "°C", "decimal_places": 0},
+            }
+        }
+
+        response = await client.post(
+            "/api/v1/filaments",
+            json={
+                "manufacturer_id": manufacturer.id,
+                "designation": "Typed PLA",
+                "material_type": "PLA",
+                "diameter_mm": 1.75,
+                "custom_fields": {"drying_temperature": 55},
+                "custom_field_definitions": definition,
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["custom_fields"]["drying_temperature"] == 55
+        assert data["custom_field_definitions"] == definition
+
+        legacy_patch_response = await client.patch(
+            f"/api/v1/filaments/{data['id']}",
+            json={"custom_fields": {"drying_temperature": 60}},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert legacy_patch_response.status_code == 200
+        assert legacy_patch_response.json()["custom_fields"]["drying_temperature"] == 60
+        assert legacy_patch_response.json()["custom_field_definitions"] == definition
+
+        clear_response = await client.patch(
+            f"/api/v1/filaments/{data['id']}",
+            json={"custom_field_definitions": None},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert clear_response.status_code == 200
+        assert "custom_field_definitions" not in clear_response.json()
+
+    @pytest.mark.asyncio
+    async def test_rejects_invalid_filament_specific_field_config(
+        self, auth_client, db_session
+    ):
+        client, csrf_token = auth_client
+        manufacturer = await _create_manufacturer(db_session)
+
+        response = await client.post(
+            "/api/v1/filaments",
+            json={
+                "manufacturer_id": manufacturer.id,
+                "designation": "Invalid Typed PLA",
+                "material_type": "PLA",
+                "diameter_mm": 1.75,
+                "custom_field_definitions": {
+                    "temperature": {
+                        "field_type": "number",
+                        "config": {"decimal_places": 11},
+                    }
+                },
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 422
+
+        reserved_key_response = await client.post(
+            "/api/v1/filaments",
+            json={
+                "manufacturer_id": manufacturer.id,
+                "designation": "Unsafe Typed PLA",
+                "material_type": "PLA",
+                "diameter_mm": 1.75,
+                "custom_field_definitions": {
+                    "__proto__.polluted": {"field_type": "text"}
+                },
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert reserved_key_response.status_code == 422
 
     @pytest.mark.asyncio
     async def test_create_filament_cascades_from_manufacturer(self, auth_client, db_session):

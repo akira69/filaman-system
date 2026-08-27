@@ -4,27 +4,33 @@ import json
 import logging
 import shutil
 import sys
-from pathlib import Path
+from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.cache import response_cache
 from app.core.database import async_session_maker
-from app.core.shared_health import shared_health_store
-from app.models import Printer
-from app.models.plugin import InstalledPlugin
-from app.models.filament import Filament, FilamentColor
-from app.models.spool import Spool
-from app.models.printer import PrinterSlot, PrinterSlotAssignment
-from app.models.system_extra_field import SystemExtraField
-from app.models.printer_params import FilamentPrinterParam, SpoolPrinterParam
-from app.plugins.base import BaseDriver
 from app.core.event_bus import event_bus
+from app.models import Printer
+from app.models.filament import Filament, FilamentColor
+from app.models.plugin import InstalledPlugin
+from app.models.printer import PrinterSlot, PrinterSlotAssignment
+from app.models.printer_params import FilamentPrinterParam, SpoolPrinterParam
+from app.models.spool import Spool
+from app.models.system_extra_field import SystemExtraField
+from app.plugins.base import BaseDriver
 from app.services.plugin_service import PLUGINS_DIR as USER_PLUGINS_DIR
+from app.services.spoolman_extra_field_mapping import (
+    SpoolmanFieldError,
+    convert_spoolman_value,
+)
+from app.utils.colors import visible_rgb_hex_or_legacy
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +120,64 @@ class PluginManager:
                 pass
         return hash(slot_index) % 10000
 
+    @staticmethod
+    def _parse_spool_id(raw: Any) -> int | None:
+        """Coerce a driver-supplied spool id to a positive int, else None."""
+        if raw is None or isinstance(raw, bool):
+            return None
+        try:
+            parsed = int(raw)
+        except Exception:
+            return None
+        return parsed if parsed > 0 else None
+
+    async def _apply_spool_to_assignment(
+        self,
+        db: AsyncSession,
+        assignment: PrinterSlotAssignment,
+        spool_id: int | None,
+        meta: dict,
+    ) -> dict:
+        """Point an assignment at a spool and mirror its material/color into meta."""
+        assignment.spool_id = spool_id
+        assignment.present = spool_id is not None
+        assignment.updated_at = datetime.now(timezone.utc)
+
+        meta = dict(meta or {})
+        meta["active_spool_id"] = spool_id
+
+        if spool_id is None:
+            meta.pop("tray_type", None)
+            meta.pop("tray_color", None)
+            return meta
+
+        spool_res = await db.execute(
+            select(Spool)
+            .options(
+                selectinload(Spool.filament).selectinload(Filament.manufacturer),
+                selectinload(Spool.filament)
+                .selectinload(Filament.filament_colors)
+                .selectinload(FilamentColor.color),
+            )
+            .where(Spool.id == spool_id)
+        )
+        spool = spool_res.scalar_one_or_none()
+        if spool is None:
+            return meta
+
+        assignment.spool = spool
+        filament = spool.filament
+        if filament is not None:
+            if filament.material_type:
+                meta["tray_type"] = filament.material_type
+            if filament.filament_colors:
+                first_color = filament.filament_colors[0].color
+                if first_color and first_color.hex_code:
+                    meta["tray_color"] = visible_rgb_hex_or_legacy(
+                        first_color.hex_code
+                    ).replace("#", "")
+        return meta
+
     async def _handle_slots_update(
         self,
         printer_id: int,
@@ -136,10 +200,12 @@ class PluginManager:
                     active_spool_id = None
 
             async with async_session_maker() as db:
+                # Set when the driver reports spool ownership per slot; suppresses
+                # the printer-wide fallback below.
+                per_slot_spools = False
+
                 # Upsert slots if any
                 if slots_data:
-                    active_slot: PrinterSlot | None = None
-
                     for slot_data in slots_data:
                         slot_index = slot_data.get("slot_index", "")
                         slot_no = self._slot_index_to_no(slot_index)
@@ -193,16 +259,10 @@ class PluginManager:
                         # Upsert PrinterSlotAssignment
                         # For new slots, always create assignment (no lazy-load risk)
                         # For existing slots, assignment is eager-loaded via selectinload
-                        if is_new:
-                            assignment = PrinterSlotAssignment(
-                                slot_id=printer_slot.id,
-                                present=present,
-                                meta=meta,
-                            )
-                            db.add(assignment)
-                        elif printer_slot.assignment:
-                            printer_slot.assignment.present = present
-                            printer_slot.assignment.meta = meta
+                        if not is_new and printer_slot.assignment:
+                            assignment = printer_slot.assignment
+                            assignment.present = present
+                            assignment.meta = meta
                         else:
                             assignment = PrinterSlotAssignment(
                                 slot_id=printer_slot.id,
@@ -211,11 +271,17 @@ class PluginManager:
                             )
                             db.add(assignment)
 
-                        slot_kind = str(slot_data.get("slot_kind") or "").lower()
-                        if slot_kind == "toolhead" and active_slot is None:
-                            active_slot = printer_slot
-                        elif slot_index == "0-0" and active_slot is None:
-                            active_slot = printer_slot
+                        # Drivers that track a spool per slot (e.g. multi-toolhead
+                        # Moonraker) report it here; that beats the printer-wide
+                        # active spool, which cannot say *which* slot it belongs to.
+                        if "spool_id" in slot_data:
+                            per_slot_spools = True
+                            assignment.meta = await self._apply_spool_to_assignment(
+                                db,
+                                assignment,
+                                self._parse_spool_id(slot_data["spool_id"]),
+                                meta,
+                            )
                     await db.commit()
                     logger.info(
                         f"Updated {len(slots_data)} slots for printer {printer_id}"
@@ -226,7 +292,7 @@ class PluginManager:
                     )
 
                 active_spool_synced = False
-                if active_spool_id_raw is not None:
+                if active_spool_id_raw is not None and not per_slot_spools:
                     slot_result = await db.execute(
                         select(PrinterSlot)
                         .options(selectinload(PrinterSlot.assignment))
@@ -236,13 +302,24 @@ class PluginManager:
                     printer_slots = slot_result.scalars().all()
 
                     active_slot: PrinterSlot | None = None
-                    for slot in printer_slots:
-                        slot_index = (slot.custom_fields or {}).get("slot_index")
-                        if slot_index == "0-0":
-                            active_slot = slot
-                            break
-                    if active_slot is None and printer_slots:
-                        active_slot = printer_slots[0]
+                    if len(printer_slots) > 1:
+                        # A printer-wide active spool means "loaded in the toolhead"
+                        # and cannot name a slot, so on AMS/MMU printers stamping it
+                        # into 0-0 would overwrite that slot's real assignment.
+                        # Callers passing an empty slot list (driver_health refresh,
+                        # driver startup) reach here on every poll.
+                        logger.debug(
+                            f"Skipping active-spool fallback for printer {printer_id}: "
+                            f"{len(printer_slots)} slots, active spool names none of them"
+                        )
+                    else:
+                        for slot in printer_slots:
+                            slot_index = (slot.custom_fields or {}).get("slot_index")
+                            if slot_index == "0-0":
+                                active_slot = slot
+                                break
+                        if active_slot is None and printer_slots:
+                            active_slot = printer_slots[0]
 
                     if active_slot is not None:
                         assignment = active_slot.assignment
@@ -255,46 +332,9 @@ class PluginManager:
                             db.add(assignment)
                             await db.flush()
 
-                        assignment.spool_id = active_spool_id
-                        assignment.present = active_spool_id is not None
-                        assignment.updated_at = datetime.now(timezone.utc)
-                        active_meta = dict(assignment.meta or {})
-                        active_meta["active_spool_id"] = active_spool_id
-
-                        if active_spool_id is not None:
-                            spool_res = await db.execute(
-                                select(Spool)
-                                .options(
-                                    selectinload(Spool.filament).selectinload(
-                                        Filament.manufacturer
-                                    ),
-                                    selectinload(Spool.filament)
-                                    .selectinload(Filament.filament_colors)
-                                    .selectinload(FilamentColor.color),
-                                )
-                                .where(Spool.id == active_spool_id)
-                            )
-                            active_spool = spool_res.scalar_one_or_none()
-
-                            if active_spool is not None:
-                                assignment.spool = active_spool
-
-                                filament = active_spool.filament
-                                if filament is not None:
-                                    if filament.material_type:
-                                        active_meta["tray_type"] = filament.material_type
-
-                                    if filament.filament_colors:
-                                        first_color = filament.filament_colors[0].color
-                                        if first_color and first_color.hex_code:
-                                            active_meta["tray_color"] = (
-                                                first_color.hex_code.replace("#", "")[:6]
-                                            )
-                        else:
-                            active_meta.pop("tray_type", None)
-                            active_meta.pop("tray_color", None)
-
-                        assignment.meta = active_meta
+                        assignment.meta = await self._apply_spool_to_assignment(
+                            db, assignment, active_spool_id, assignment.meta or {}
+                        )
                         active_spool_synced = True
 
                 if active_spool_synced:
@@ -505,7 +545,7 @@ class PluginManager:
 
             result = await db.execute(
                 select(Printer).where(
-                    Printer.is_active == True,
+                    Printer.is_active.is_(True),
                     Printer.deleted_at.is_(None),
                 )
             )
@@ -529,7 +569,7 @@ class PluginManager:
         async with async_session_maker() as db:
             result = await db.execute(
                 select(Printer).where(
-                    Printer.is_active == True,
+                    Printer.is_active.is_(True),
                     Printer.deleted_at.is_(None),
                 )
             )
@@ -648,6 +688,7 @@ class PluginManager:
                     "label": fdef["label"],
                     "field_type": fdef.get("field_type", "text"),
                     "options": options,
+                    "config": fdef.get("config"),
                 }
             )
 
@@ -688,6 +729,16 @@ class PluginManager:
                         if field.field_type != fdef["field_type"]:
                             field.field_type = fdef["field_type"]
                             changed = True
+                        db_config_json = json.dumps(
+                            field.config or {}, ensure_ascii=False, sort_keys=True
+                        )
+                        new_config_json = json.dumps(
+                            fdef["config"] or {}, ensure_ascii=False, sort_keys=True
+                        )
+                        if db_config_json != new_config_json:
+                            field.config = fdef["config"]
+                            flag_modified(field, "config")
+                            changed = True
                         if changed:
                             logger.info(
                                 f"Updated {target_type}/{fdef['key']} field definition"
@@ -700,6 +751,7 @@ class PluginManager:
                                 label=fdef["label"],
                                 field_type=fdef["field_type"],
                                 options=fdef["options"],
+                                config=fdef["config"],
                                 source=driver_key,
                             )
                         )
@@ -757,7 +809,7 @@ class PluginManager:
         this driver, then removes the migrated keys from custom_fields.
 
         Uses legacy_renames from plugin.json to rename old field keys.
-        Idempotent — skips entities that already have printer_params for any printer."""
+        Idempotent — upserts every entity/printer/parameter combination independently."""
         # Load legacy_renames from plugin.json
         plugin_json = self._load_plugin_json(driver_key)
         if not plugin_json:
@@ -772,7 +824,14 @@ class PluginManager:
         if driver_key == "bambulab":
             RENAME_KEYS["bambu_idx"] = "bambu_tray_idx"  # spoolman-specific rename
 
-        KEEP_IN_CUSTOM_FIELDS: set[str] = set()  # Nothing kept
+        KEEP_IN_CUSTOM_FIELDS: set[str] = {
+            # Bambuddy profile metadata — not printer calibration params.
+            "bambu_profile_base_name",
+            "bambu_profiles_by_model",
+            "bambu_slicer_filament",
+            "bambu_slicer_filament_name",
+            "bambu_color_name",
+        }
 
         async with async_session_maker() as db:
             # Find all active printers for this driver
@@ -810,39 +869,28 @@ class PluginManager:
             migrated_filaments = 0
 
             for filament in filaments:
-                bambu_params = self._extract_bambu_params(
-                    filament.custom_fields, KEEP_IN_CUSTOM_FIELDS, RENAME_KEYS
+                bambu_params, preserve_invalid_nozzle_range = (
+                    self._extract_bambu_migration(
+                        filament.custom_fields, KEEP_IN_CUSTOM_FIELDS, RENAME_KEYS
+                    )
                 )
                 if not bambu_params:
                     continue
 
-                # Skip if printer_params already exist for this filament + any Bambu printer
-                existing = await db.execute(
-                    select(FilamentPrinterParam.id)
-                    .where(
-                        FilamentPrinterParam.filament_id == filament.id,
-                        FilamentPrinterParam.printer_id.in_(printer_ids),
-                    )
-                    .limit(1)
+                await self._upsert_bambu_params(
+                    db,
+                    FilamentPrinterParam,
+                    FilamentPrinterParam.filament_id,
+                    filament.id,
+                    "filament_id",
+                    printer_ids,
+                    bambu_params,
                 )
-                if existing.scalar_one_or_none() is not None:
-                    # Already migrated — still clean up custom_fields if needed
-                    self._clean_bambu_keys_from_cf(filament, KEEP_IN_CUSTOM_FIELDS)
-                    continue
-
-                # Create printer_params for each printer of this driver
-                for pid in printer_ids:
-                    for param_key, param_value in bambu_params.items():
-                        db.add(
-                            FilamentPrinterParam(
-                                filament_id=filament.id,
-                                printer_id=pid,
-                                param_key=param_key,
-                                param_value=param_value,
-                            )
-                        )
-
-                self._clean_bambu_keys_from_cf(filament, KEEP_IN_CUSTOM_FIELDS)
+                self._clean_bambu_keys_from_cf(
+                    filament,
+                    KEEP_IN_CUSTOM_FIELDS,
+                    preserve_nozzle_temperature=preserve_invalid_nozzle_range,
+                )
                 migrated_filaments += 1
 
             # --- Spools ---
@@ -853,36 +901,28 @@ class PluginManager:
             migrated_spools = 0
 
             for spool in spools:
-                bambu_params = self._extract_bambu_params(
-                    spool.custom_fields, KEEP_IN_CUSTOM_FIELDS, RENAME_KEYS
+                bambu_params, preserve_invalid_nozzle_range = (
+                    self._extract_bambu_migration(
+                        spool.custom_fields, KEEP_IN_CUSTOM_FIELDS, RENAME_KEYS
+                    )
                 )
                 if not bambu_params:
                     continue
 
-                existing = await db.execute(
-                    select(SpoolPrinterParam.id)
-                    .where(
-                        SpoolPrinterParam.spool_id == spool.id,
-                        SpoolPrinterParam.printer_id.in_(printer_ids),
-                    )
-                    .limit(1)
+                await self._upsert_bambu_params(
+                    db,
+                    SpoolPrinterParam,
+                    SpoolPrinterParam.spool_id,
+                    spool.id,
+                    "spool_id",
+                    printer_ids,
+                    bambu_params,
                 )
-                if existing.scalar_one_or_none() is not None:
-                    self._clean_bambu_keys_from_cf(spool, KEEP_IN_CUSTOM_FIELDS)
-                    continue
-
-                for pid in printer_ids:
-                    for param_key, param_value in bambu_params.items():
-                        db.add(
-                            SpoolPrinterParam(
-                                spool_id=spool.id,
-                                printer_id=pid,
-                                param_key=param_key,
-                                param_value=param_value,
-                            )
-                        )
-
-                self._clean_bambu_keys_from_cf(spool, KEEP_IN_CUSTOM_FIELDS)
+                self._clean_bambu_keys_from_cf(
+                    spool,
+                    KEEP_IN_CUSTOM_FIELDS,
+                    preserve_nozzle_temperature=preserve_invalid_nozzle_range,
+                )
                 migrated_spools += 1
 
             await db.commit()
@@ -894,6 +934,49 @@ class PluginManager:
                 )
 
     @staticmethod
+    async def _upsert_bambu_params(
+        db: AsyncSession,
+        param_model: type[FilamentPrinterParam] | type[SpoolPrinterParam],
+        entity_column: Any,
+        entity_id: int,
+        entity_id_field: str,
+        printer_ids: list[int],
+        params: dict[str, str],
+    ) -> None:
+        """Persist every desired entity/printer/parameter value before cleanup."""
+        existing_result = await db.execute(
+            select(param_model).where(
+                entity_column == entity_id,
+                param_model.printer_id.in_(printer_ids),
+                param_model.param_key.in_(list(params)),
+            )
+        )
+        existing_params = {
+            (row.printer_id, row.param_key): row
+            for row in existing_result.scalars().all()
+        }
+
+        for printer_id in printer_ids:
+            for param_key, param_value in params.items():
+                existing = existing_params.get((printer_id, param_key))
+                if existing is not None:
+                    existing.param_value = param_value
+                    continue
+                db.add(
+                    param_model(
+                        **{
+                            entity_id_field: entity_id,
+                            "printer_id": printer_id,
+                            "param_key": param_key,
+                            "param_value": param_value,
+                        }
+                    )
+                )
+
+        # Do not remove source values until every desired row has passed DB validation.
+        await db.flush()
+
+    @staticmethod
     def _extract_bambu_params(
         custom_fields: dict[str, Any] | None,
         keep_keys: set[str],
@@ -902,6 +985,18 @@ class PluginManager:
         """Extract bambu_* calibration params from custom_fields.
 
         Keys in rename_keys are mapped to new names (e.g. bambu_idx -> bambu_tray_idx)."""
+        params, _ = PluginManager._extract_bambu_migration(
+            custom_fields, keep_keys, rename_keys
+        )
+        return params
+
+    @staticmethod
+    def _extract_bambu_migration(
+        custom_fields: dict[str, Any] | None,
+        keep_keys: set[str],
+        rename_keys: dict[str, str] | None = None,
+    ) -> tuple[dict[str, str], bool]:
+        """Extract params and report whether an invalid native range must be kept."""
         cf = custom_fields or {}
         spoolman_extra = cf.get("spoolman_extra", {})
         if not isinstance(spoolman_extra, dict):
@@ -932,8 +1027,20 @@ class PluginManager:
                 params["bambu_bed_temp"] = str(bed_temp)
 
         # Migrate nozzle temperatures (priority: bambu_* > spoolman_extra.nozzle_temperature > settings_extruder_temp > old bambu_nozzle_temp)
-        nozzle_range = spoolman_extra.get("nozzle_temperature")
-        if isinstance(nozzle_range, (list, tuple)) and len(nozzle_range) >= 2:
+        nozzle_range = cf.get(
+            "nozzle_temperature", spoolman_extra.get("nozzle_temperature")
+        )
+        preserve_invalid_nozzle_range = False
+        if isinstance(nozzle_range, dict):
+            try:
+                validated_range = convert_spoolman_value(nozzle_range, "float_range")
+            except SpoolmanFieldError:
+                nozzle_min = nozzle_max = None
+                preserve_invalid_nozzle_range = True
+            else:
+                nozzle_min = validated_range["min"]
+                nozzle_max = validated_range["max"]
+        elif isinstance(nozzle_range, (list, tuple)) and len(nozzle_range) >= 2:
             nozzle_min, nozzle_max = nozzle_range[0], nozzle_range[1]
         elif isinstance(nozzle_range, (list, tuple)) and len(nozzle_range) == 1:
             nozzle_min = nozzle_max = nozzle_range[0]
@@ -959,25 +1066,34 @@ class PluginManager:
             elif cf.get("settings_extruder_temp"):
                 params["bambu_nozzle_temp_max"] = str(cf["settings_extruder_temp"])
 
-        return params
+        return params, preserve_invalid_nozzle_range
 
     @staticmethod
     def _clean_bambu_keys_from_cf(
         entity: Filament | Spool,
         keep_keys: set[str],
+        *,
+        preserve_nozzle_temperature: bool = False,
     ) -> None:
         """Remove migrated bambu_* keys from entity custom_fields."""
         cf = entity.custom_fields or {}
 
         # Remove top-level bambu_* keys (except keep_keys)
         # Keys to remove after migration (bambu_* except keep_keys + settings_* temps)
-        SETTINGS_MIGRATE_KEYS = {"settings_bed_temp", "settings_extruder_temp"}
+        SETTINGS_MIGRATE_KEYS = {
+            "nozzle_temperature",
+            "settings_bed_temp",
+            "settings_extruder_temp",
+        }
         new_cf = {
             k: v
             for k, v in cf.items()
             if not (
                 (k.startswith("bambu_") and k not in keep_keys)
-                or k in SETTINGS_MIGRATE_KEYS
+                or (
+                    k in SETTINGS_MIGRATE_KEYS
+                    and not (preserve_nozzle_temperature and k == "nozzle_temperature")
+                )
             )
         }
 
@@ -988,7 +1104,8 @@ class PluginManager:
             cleaned = {
                 k: v
                 for k, v in spoolman_extra.items()
-                if not k.startswith("bambu_") and k not in SPOOLMAN_MIGRATE_KEYS
+                if not k.startswith("bambu_")
+                and (k not in SPOOLMAN_MIGRATE_KEYS or preserve_nozzle_temperature)
             }
             if cleaned:
                 new_cf["spoolman_extra"] = cleaned
@@ -1160,8 +1277,11 @@ class PluginManager:
             if value is not None and value != "":
                 enriched[key] = value
 
-        # 6. Inject the FilaMan spool ID so plugin drivers can use it
+        # 6. Inject the FilaMan spool and filament IDs so plugin drivers can
+        # resolve spool- AND filament-level config (e.g. per-model slicer
+        # profiles stored in Filament.custom_fields) at assign time.
         enriched["id"] = spool_id
+        enriched["filament_id"] = filament_id
 
         return enriched
 

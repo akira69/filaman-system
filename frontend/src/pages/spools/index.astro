@@ -146,7 +146,8 @@ import Layout from '../../layouts/Layout.astro'
     <button class="fm-btn fm-btn-outline" id="bulk-btn-clear-location" data-i18n="spools.bulkClearLocation">Remove Location</button>
     <button class="fm-btn fm-btn-outline" id="bulk-btn-status" data-i18n="spools.bulkSetStatus">Set Status</button>
     <button class="fm-btn fm-btn-outline" id="bulk-btn-threshold" data-i18n="spools.bulkSetThreshold">Set Threshold</button>
-    <button class="fm-btn fm-btn-outline" id="bulk-btn-empty-weight" data-i18n="spools.bulkSetEmptyWeight">Set Empty Weight</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-empty-weight" data-i18n="spools.bulkSetEmptyWeight">Set Empty Spool Weight</button>
+    <button class="fm-btn fm-btn-outline" id="bulk-btn-core-weight" data-i18n="spools.bulkSetCoreWeight">Set Core Weight</button>
     <button class="fm-btn fm-btn-outline" id="bulk-btn-price" data-i18n="spools.bulkSetPrice">Set Price</button>
     <button class="fm-btn fm-btn-outline" id="bulk-btn-labels" data-i18n="spools.bulkLabel">Print Labels</button>
     <button class="fm-btn fm-btn-danger" id="bulk-btn-delete" data-i18n="spools.bulkDelete">Delete</button>
@@ -213,6 +214,8 @@ import Layout from '../../layouts/Layout.astro'
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
     import { fetchSequential } from '../../lib/cache'
+    import { assignableLocations } from '../../lib/driver-managed-locations'
+    import { toColorSwatchBackground } from '../../lib/colors'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
     import { initColumnReorder } from '../../lib/column-reorder'
     import { initColumnResize } from '../../lib/column-resize'
@@ -230,9 +233,9 @@ import Layout from '../../layouts/Layout.astro'
     })()
     let statuses: any[] = []
     let locations: any[] = []
-    let manufacturers: any[] = []
+    const manufacturers: any[] = []
     let allSpools: any[] = []
-    let filteredSpools: any[] = []
+    const filteredSpools: any[] = []
     let totalSpools = 0
     let activeDevices: any[] = []
     let sortKey: string | null = null
@@ -586,7 +589,7 @@ import Layout from '../../layouts/Layout.astro'
       return fil.colors.map((fc: any) => {
         const c = fc.color
         if (!c) return ''
-        return `<span title="${fc.display_name_override || c.name}" style="display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: ${c.hex_code}; border: 1px solid var(--border); vertical-align: middle; margin-right: 2px;"></span>`
+        return `<span title="${fc.display_name_override || c.name}" style="display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: ${toColorSwatchBackground(c.hex_code)}; border: 1px solid var(--border); vertical-align: middle; margin-right: 2px;"></span>`
       }).join('')
     }
 
@@ -1126,7 +1129,8 @@ import Layout from '../../layouts/Layout.astro'
     // Set Location
     document.getElementById('bulk-btn-location')?.addEventListener('click', async () => {
       if (selectedSpoolIds.size === 0) return
-      const options = locations.map((l: any) => `<option value="${l.id}">${l.name}</option>`).join('')
+      // Driver-managed AMS slots are claimed by the driver, never in bulk.
+      const options = assignableLocations(locations).map((l: any) => `<option value="${l.id}">${l.name}</option>`).join('')
       const value = await openBulkPrompt(
         t('spools.bulkSetLocation'),
         `<select class="fm-select" style="width: 100%;">${options}</select>`
@@ -1181,6 +1185,61 @@ import Layout from '../../layouts/Layout.astro'
       )
       if (value === null) return
       await bulkPatch({ empty_spool_weight_g: Number(value) })
+    })
+
+    // Set Core Weight
+    document.getElementById('bulk-btn-core-weight')?.addEventListener('click', () => {
+      if (selectedSpoolIds.size === 0) return
+
+      const modal = document.getElementById('bulk-prompt-modal')!
+      const titleEl = document.getElementById('bulk-prompt-title')!
+      const contentEl = document.getElementById('bulk-prompt-content')!
+      const okBtn = document.getElementById('bulk-prompt-ok')!
+      const cancelBtn = document.getElementById('bulk-prompt-cancel')!
+
+      titleEl.textContent = t('spools.bulkSetCoreWeight')
+      contentEl.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <input type="checkbox" id="bulk-uses-core" checked style="width: 16px; height: 16px; cursor: pointer; flex-shrink: 0;" />
+          <label for="bulk-uses-core" style="font-size: 0.875rem; cursor: pointer; margin: 0;" data-i18n="spools.usesSpoolCore">Uses spool core / adapter</label>
+        </div>
+        <div id="bulk-core-weight-field">
+          <input type="number" id="bulk-core-weight-value" class="fm-input" style="width: 100%;" min="0" step="1" placeholder="${t('spools.spoolCoreWeightPlaceholder')}" />
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin: 6px 0 0;" data-i18n="spools.spoolCoreWeightHint">Leave blank to use the global default. Enter a value to set a specific weight for all selected spools.</p>
+        </div>
+      `
+      modal.classList.add('open')
+      translatePage()
+
+      const checkbox = document.getElementById('bulk-uses-core') as HTMLInputElement
+      const fieldDiv = document.getElementById('bulk-core-weight-field')!
+      checkbox.addEventListener('change', () => {
+        fieldDiv.style.display = checkbox.checked ? 'block' : 'none'
+      })
+
+      function cleanup() {
+        modal.classList.remove('open')
+        okBtn.removeEventListener('click', onOk)
+        cancelBtn.removeEventListener('click', onCancel)
+        modal.removeEventListener('click', onOverlay)
+      }
+      async function onOk() {
+        const useCore = (document.getElementById('bulk-uses-core') as HTMLInputElement).checked
+        const rawVal = (document.getElementById('bulk-core-weight-value') as HTMLInputElement | null)?.value.trim() ?? ''
+        cleanup()
+        if (!useCore) {
+          await bulkPatch({ spool_core_weight_g: 0 })            // explicitly disabled
+        } else if (rawVal === '') {
+          await bulkPatch({ clear_spool_core_weight: true })      // use global default
+        } else {
+          await bulkPatch({ spool_core_weight_g: parseFloat(rawVal) }) // spool-specific
+        }
+      }
+      function onCancel() { cleanup() }
+      function onOverlay(e: Event) { if (e.target === modal) cleanup() }
+      okBtn.addEventListener('click', onOk)
+      cancelBtn.addEventListener('click', onCancel)
+      modal.addEventListener('click', onOverlay)
     })
 
     // Set Price

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import JSON, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, TZDateTime
@@ -62,6 +62,7 @@ class Spool(Base, TimestampMixin):
 
     initial_total_weight_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     empty_spool_weight_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spool_core_weight_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     remaining_weight_g: Mapped[float | None] = mapped_column(
         Float, nullable=True, index=True
     )
@@ -75,6 +76,9 @@ class Spool(Base, TimestampMixin):
     )
 
     custom_fields: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
+    custom_field_definitions: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True
+    )
 
     filament: Mapped["Filament"] = relationship(back_populates="spools")
     status: Mapped["SpoolStatus"] = relationship(back_populates="spools")
@@ -149,9 +153,9 @@ class SpoolEvent(Base):
     )
 
 
-from app.models.filament import Filament
-from app.models.user import User
 from app.models.device import Device
+from app.models.filament import Filament
 from app.models.location import Location
 from app.models.printer import PrinterSlotAssignment, PrinterSlotEvent
 from app.models.printer_params import SpoolPrinterParam
+from app.models.user import User

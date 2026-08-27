@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import DBSession, PrincipalDep, RequirePermission
+from app.core.security import Principal
+from app.api.deps import DBSession, PrincipalDep, RequirePermission, ensure_any_permission
 from app.api.v1.schemas import PaginatedResponse
 from app.models import (
     Location,
@@ -29,6 +30,10 @@ router = APIRouter(prefix="/printers", tags=["printers"])
 _PRIMARY_PROXY_HEADER = "x-filaman-primary-hop"
 _PRIMARY_PROXY_MAX_HOPS = 12
 _PRIMARY_PROXY_RETRIES = 8
+
+# Changing one of these restarts the printer's driver, and drivers live on the
+# primary worker only.  A request touching them has to be handled there.
+_DRIVER_LIFECYCLE_FIELDS = frozenset({"driver_key", "driver_config", "is_active"})
 
 
 def _is_primary_worker() -> bool:
@@ -116,6 +121,19 @@ async def _proxy_to_primary(
                     detail={
                         "code": "proxy_failed",
                         "message": response.text,
+                    },
+                )
+
+            if payload is None:
+                # response.json() above swallows decode errors, so a successful
+                # status code can still leave payload unset (empty/non-JSON body).
+                # Surface that as a structured error instead of letting callers
+                # crash on model_validate(None).
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail={
+                        "code": "primary_proxy_invalid_response",
+                        "message": "Primary worker returned an invalid response",
                     },
                 )
 
@@ -222,6 +240,7 @@ async def list_printers(
 @router.post("", response_model=PrinterResponse, status_code=status.HTTP_201_CREATED)
 async def create_printer(
     data: PrinterCreate,
+    request: Request,
     db: DBSession,
     principal=RequirePermission("printers:create"),
 ):
@@ -240,13 +259,17 @@ async def create_printer(
     await db.commit()
     await db.refresh(printer)
 
-    # Auto-start driver if printer is active (default)
+    # Auto-start driver if printer is active (default).  Only the primary worker
+    # holds drivers, so anywhere else the start has to be handed over.
     if printer.is_active and printer.driver_key:
-        started = await plugin_manager.start_printer(printer)
-        if not started:
-            logger.warning(
-                f"Driver {printer.driver_key} could not be started for new printer {printer.id}"
-            )
+        if not _is_primary_worker():
+            await _driver_lifecycle_via_primary(request, printer.id, "start")
+        else:
+            started = await plugin_manager.start_printer(printer)
+            if not started:
+                logger.warning(
+                    f"Driver {printer.driver_key} could not be started for new printer {printer.id}"
+                )
 
     return printer
 
@@ -365,9 +388,24 @@ async def get_printer(
 async def update_printer(
     printer_id: int,
     data: PrinterUpdate,
+    request: Request,
     db: DBSession,
     principal=RequirePermission("printers:update"),
 ):
+    updates = data.model_dump(exclude_unset=True)
+
+    # The driver restart below is the point of such a change, so the whole
+    # request goes to the worker that can actually perform it, before anything
+    # is written.  That keeps exactly one worker applying the update.
+    if (_DRIVER_LIFECYCLE_FIELDS & updates.keys()) and not _is_primary_worker():
+        payload = await _proxy_to_primary(
+            request,
+            method="PATCH",
+            path=f"/api/v1/printers/{printer_id}",
+            json_body=data.model_dump(exclude_unset=True, mode="json"),
+        )
+        return PrinterResponse.model_validate(payload)
+
     result = await db.execute(
         select(Printer).where(Printer.id == printer_id, Printer.deleted_at.is_(None))
     )
@@ -379,7 +417,6 @@ async def update_printer(
             detail={"code": "not_found", "message": "Printer not found"},
         )
 
-    updates = data.model_dump(exclude_unset=True)
     driver_changed = "driver_key" in updates or "driver_config" in updates
     active_changed = (
         "is_active" in updates and updates["is_active"] != printer.is_active
@@ -409,6 +446,7 @@ async def update_printer(
 @router.delete("/{printer_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_printer(
     printer_id: int,
+    request: Request,
     db: DBSession,
     principal=RequirePermission("printers:delete"),
     delete_params: bool = Query(
@@ -430,8 +468,12 @@ async def delete_printer(
             detail={"code": "not_found", "message": "Printer not found"},
         )
 
-    # Stop driver before soft-delete
-    await plugin_manager.stop_printer(printer_id)
+    # Stop driver before soft-delete.  Only the primary worker holds drivers, so
+    # anywhere else the stop has to be handed over.
+    if not _is_primary_worker():
+        await _driver_lifecycle_via_primary(request, printer_id, "stop")
+    else:
+        await plugin_manager.stop_printer(printer_id)
 
     # Optionally hard-delete calibration data
     if delete_params:
@@ -553,14 +595,122 @@ class DriverActionResponse(BaseModel):
     data: dict | None = None
 
 
+_READ_ONLY_DRIVER_ACTIONS = frozenset(
+    {"list_connected_models", "get_profile_coverage"}
+)
+_SPOOL_PROFILE_DRIVER_ACTIONS = frozenset(
+    {"set_spool_profile_for_model", "set_default_spool_profile"}
+)
+_FILAMENT_PROFILE_DRIVER_ACTIONS = frozenset(
+    {"set_filament_profile_for_model", "set_default_filament_profile"}
+)
+
+
+async def _ensure_driver_action_permission(
+    db: DBSession, principal: Principal, action: str
+) -> None:
+    if action in _READ_ONLY_DRIVER_ACTIONS:
+        await ensure_any_permission(
+            db, principal, "printers:read", "printers:update"
+        )
+    elif action in _SPOOL_PROFILE_DRIVER_ACTIONS:
+        await ensure_slicer_profile_write_permission(db, principal, entity="spool")
+    elif action in _FILAMENT_PROFILE_DRIVER_ACTIONS:
+        await ensure_slicer_profile_write_permission(db, principal, entity="filament")
+    else:
+        await ensure_any_permission(db, principal, "printers:update")
+
+
+async def ensure_slicer_profile_write_permission(
+    db: DBSession, principal: Principal, *, entity: str = "spool"
+) -> None:
+    """Profile picker is visible to read-only users; allow matching write access."""
+    if entity == "filament":
+        await ensure_any_permission(
+            db,
+            principal,
+            "filaments:update",
+            "printers:update",
+            "filaments:read",
+        )
+    else:
+        await ensure_any_permission(
+            db,
+            principal,
+            "spools:update",
+            "printers:update",
+            "spools:read",
+        )
+
+
+async def pick_bambuddy_driver(db: DBSession) -> tuple[int, Any]:
+    """Return (printer_id, driver) for the first running Bambuddy driver."""
+    result = await db.execute(
+        select(Printer).where(
+            Printer.driver_key == "bambuddy",
+            Printer.deleted_at.is_(None),
+        )
+    )
+    for printer in result.scalars().all():
+        driver = plugin_manager.drivers.get(printer.id)
+        if driver is not None:
+            return printer.id, driver
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail={
+            "code": "driver_not_running",
+            "message": "No Bambuddy driver is running",
+        },
+    )
+
+
+async def _driver_lifecycle_via_primary(
+    request: Request, printer_id: int, action: str
+) -> None:
+    """Ask the primary worker to start or stop a driver, best effort.
+
+    Drivers live on the primary worker, so a request served anywhere else cannot
+    reach them.  The caller has already committed its own database work, and
+    failing to reach the primary must not undo that, so this only logs.
+    """
+    try:
+        await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/printers/{printer_id}/driver/{action}",
+        )
+    except Exception as exc:
+        logger.warning(
+            f"Could not {action} the driver for printer {printer_id} on the "
+            f"primary worker: {exc}"
+        )
+
+
+async def _invoke_driver_method(driver: Any, method_name: str, **kwargs: Any) -> Any:
+    method = getattr(driver, method_name, None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": f"Driver does not support '{method_name}'",
+            },
+        )
+    result = method(**kwargs)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
+
+
 @router.post("/{printer_id}/driver/action", response_model=DriverActionResponse)
 async def driver_action(
     printer_id: int,
     data: DriverActionRequest,
     request: Request,
     db: DBSession,
-    principal=RequirePermission("printers:update"),
+    principal: PrincipalDep,
 ):
+    await _ensure_driver_action_permission(db, principal, data.action)
     if not _is_primary_worker():
         payload = await _proxy_to_primary(
             request,
@@ -625,21 +775,109 @@ async def driver_action(
             params["spool_id"] = normalized_spool_id
 
     try:
+        result: Any = None
         if callable(method):
             import asyncio
 
             if asyncio.iscoroutinefunction(method):
-                await method(**params)
+                result = await method(**params)
             else:
-                method(**params)
+                result = method(**params)
         return DriverActionResponse(
-            success=True, message=f"Action '{data.action}' executed"
+            success=True,
+            message=f"Action '{data.action}' executed",
+            data=result if isinstance(result, dict) else None,
         )
     except TypeError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "invalid_params", "message": str(e)},
         )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "action_failed", "message": str(e)},
+        )
+
+
+@router.get("/{printer_id}/driver/connected-models")
+async def driver_connected_models(
+    printer_id: int,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """List distinct Bambu printer models connected via this driver URL."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="GET",
+            path=f"/api/v1/printers/{printer_id}/driver/connected-models",
+        )
+
+    driver = plugin_manager.drivers.get(printer_id)
+    if not driver:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "driver_not_running",
+                "message": "Driver is not running for this printer",
+            },
+        )
+
+    try:
+        return await _invoke_driver_method(driver, "list_connected_models")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "action_failed", "message": str(e)},
+        )
+
+
+@router.get("/{printer_id}/driver/profile-coverage")
+async def driver_profile_coverage(
+    printer_id: int,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+    spool_id: int | None = Query(None),
+    filament_id: int | None = Query(None),
+):
+    """Read-only per-model profile resolution for the slicer profile picker."""
+    if not _is_primary_worker():
+        qs_parts = []
+        if spool_id is not None:
+            qs_parts.append(f"spool_id={spool_id}")
+        if filament_id is not None:
+            qs_parts.append(f"filament_id={filament_id}")
+        qs = ("?" + "&".join(qs_parts)) if qs_parts else ""
+        return await _proxy_to_primary(
+            request,
+            method="GET",
+            path=f"/api/v1/printers/{printer_id}/driver/profile-coverage{qs}",
+        )
+
+    driver = plugin_manager.drivers.get(printer_id)
+    if not driver:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "driver_not_running",
+                "message": "Driver is not running for this printer",
+            },
+        )
+
+    try:
+        return await _invoke_driver_method(
+            driver,
+            "get_profile_coverage",
+            spool_id=spool_id,
+            filament_id=filament_id,
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -701,6 +939,79 @@ async def driver_health(
     return {"running": False, "connected": False}
 
 
+@router.get("/{printer_id}/driver/cloud-presets")
+async def driver_cloud_presets(
+    printer_id: int,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+    refresh: int | None = Query(None),
+    model: str | None = Query(None),
+    group: str | None = Query(None),
+):
+    """Returns the driver's cloud slicer-profile catalog for the FilaMan picker.
+
+    Read-only. Proxies to the primary worker (where the driver runs).
+    Optional ``model`` filters presets; ``group=base`` dedupes by logical base name.
+    Response shape: {"presets": [{code, name, displayName, isCustom}], "count": N}.
+    """
+    if not _is_primary_worker():
+        qs_parts = []
+        if refresh:
+            qs_parts.append("refresh=1")
+        if model:
+            qs_parts.append(f"model={model}")
+        if group:
+            qs_parts.append(f"group={group}")
+        qs = ("?" + "&".join(qs_parts)) if qs_parts else ""
+        payload = await _proxy_to_primary(
+            request,
+            method="GET",
+            path=f"/api/v1/printers/{printer_id}/driver/cloud-presets{qs}",
+        )
+        if isinstance(payload, dict):
+            return payload
+        return {"presets": [], "count": 0}
+
+    driver = plugin_manager.drivers.get(printer_id)
+    if not driver:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "driver_not_running",
+                "message": "Driver is not running for this printer",
+            },
+        )
+
+    method = getattr(driver, "list_cloud_presets", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not provide a cloud preset catalog",
+            },
+        )
+
+    try:
+        kwargs: dict[str, Any] = {"force": bool(refresh)}
+        if model is not None:
+            kwargs["model"] = model
+        if group is not None:
+            kwargs["group"] = group
+        result = method(**kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        if isinstance(result, dict):
+            return result
+        return {"presets": result or [], "count": len(result or [])}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "action_failed", "message": str(e)},
+        )
+
+
 @router.post("/reconnect-all")
 async def reconnect_all_printers(
     request: Request,
@@ -724,10 +1035,20 @@ async def reconnect_all_printers(
 @router.get("/{printer_id}/driver/debug")
 async def driver_debug_log(
     printer_id: int,
+    request: Request,
     since: str | None = Query(None),
     db: DBSession = None,
     principal: PrincipalDep = None,
 ):
+    # The debug log lives inside the driver instance, so only the primary worker
+    # can answer.  Query parameters travel with the forwarded request.
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="GET",
+            path=f"/api/v1/printers/{printer_id}/driver/debug",
+        )
+
     driver = plugin_manager.drivers.get(printer_id)
     if not driver:
         raise HTTPException(
