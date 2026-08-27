@@ -3,16 +3,109 @@ import logging
 import httpx
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Header, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession
+from app.utils.colors import visible_rgb_hex_or_legacy
 
 logger = logging.getLogger(__name__)
-from app.api.v1.schemas_device import HeartbeatRequest, LocateRequest, LocateResponse, WeighRequest, WeighResponse, WriteTagRequest, WriteTagResponse, RfidResultRequest, RfidResultResponse, WriteStatusResponse
+
+
+def _is_primary_worker() -> bool:
+    """Resolve primary worker state lazily to avoid import cycles."""
+    try:
+        from app import main as app_main
+        return bool(getattr(app_main, "_is_primary", False))
+    except Exception:
+        return False
+
+
+from app.api.v1.schemas_device import HeartbeatRequest, LocateRequest, LocateResponse, WeighRequest, WeighResponse, WriteTagRequest, WriteTagResponse, RfidResultRequest, RfidResultResponse, WriteStatusResponse, TagDataRequest, TagScanStatusResponse
 from app.core.security import Principal, generate_token_secret, hash_token
-from app.models import Device, Location, Spool, SpoolStatus
+from app.models import AppSettings, Device, Location, Spool, SpoolStatus
+from app.models.filament import Color, FilamentColor, Manufacturer
 from app.services.spool_service import SpoolService
+
+_MATERIAL_TEMP_DEFAULTS: dict[str, tuple[int, int]] = {
+    "PLA": (180, 230),
+    "PETG": (220, 250),
+    "ABS": (230, 270),
+    "ASA": (240, 270),
+    "TPU": (220, 250),
+    "TPE": (220, 250),
+    "NYLON": (240, 280),
+    "PA": (240, 280),
+    "PC": (260, 300),
+    "HIPS": (220, 250),
+    "PVA": (170, 200),
+    "PLA+": (180, 230),
+}
+_DEFAULT_TEMP = (190, 230)
+
+
+async def _build_extended_data(db: DBSession, spool: Spool, protocol: str) -> dict:
+    """Baut das Extended-Data-Dict für RFID-Tags aus den Spulen-/Filamentdaten."""
+    filament = spool.filament
+    material_type = filament.material_type if filament else "PLA"
+
+    # Farbe (erste Farbe des Filaments)
+    color_hex = "FFFFFF"
+    if filament:
+        fc_result = await db.execute(
+            select(Color.hex_code)
+            .join(FilamentColor, FilamentColor.color_id == Color.id)
+            .where(FilamentColor.filament_id == filament.id)
+            .order_by(FilamentColor.position)
+            .limit(1)
+        )
+        raw_hex = fc_result.scalar_one_or_none()
+        if raw_hex:
+            color_hex = visible_rgb_hex_or_legacy(raw_hex).replace("#", "")
+
+    # Hersteller
+    brand = "Generic"
+    if filament and filament.manufacturer_id:
+        mfr_result = await db.execute(
+            select(Manufacturer.name).where(Manufacturer.id == filament.manufacturer_id)
+        )
+        mfr_name = mfr_result.scalar_one_or_none()
+        if mfr_name:
+            brand = mfr_name
+
+    # Temperaturen: aus SpoolPrinterParam / FilamentPrinterParam (bambu_nozzle_temp_min/max)
+    min_temp, max_temp = _MATERIAL_TEMP_DEFAULTS.get(material_type.upper(), _DEFAULT_TEMP)
+    if filament:
+        from app.models.printer_params import FilamentPrinterParam
+        param_result = await db.execute(
+            select(FilamentPrinterParam.param_key, FilamentPrinterParam.param_value)
+            .where(
+                FilamentPrinterParam.filament_id == filament.id,
+                FilamentPrinterParam.param_key.in_(["bambu_nozzle_temp_min", "bambu_nozzle_temp_max"]),
+            )
+        )
+        params = {row.param_key: row.param_value for row in param_result.all()}
+        if "bambu_nozzle_temp_min" in params and params["bambu_nozzle_temp_min"]:
+            try:
+                min_temp = int(params["bambu_nozzle_temp_min"])
+            except ValueError:
+                pass
+        if "bambu_nozzle_temp_max" in params and params["bambu_nozzle_temp_max"]:
+            try:
+                max_temp = int(params["bambu_nozzle_temp_max"])
+            except ValueError:
+                pass
+
+    return {
+        "protocol": protocol,
+        "version": "1.0",
+        "type": material_type,
+        "color_hex": color_hex,
+        "brand": brand,
+        "min_temp": str(min_temp),
+        "max_temp": str(max_temp),
+    }
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -159,6 +252,22 @@ async def write_rfid_tag(
             detail={"code": "bad_request", "message": "Either spool_id or location_id must be provided"},
         )
 
+    # Extended Data: nur wenn Spool und Setting aktiv
+    if data.spool_id:
+        settings_result = await db.execute(select(AppSettings).where(AppSettings.id == 1))
+        app_settings = settings_result.scalar_one_or_none()
+        if app_settings and app_settings.rfid_extended_data_enabled:
+            spool_result = await db.execute(
+                select(Spool)
+                .options(selectinload(Spool.filament))
+                .where(Spool.id == data.spool_id)
+            )
+            spool_obj = spool_result.scalar_one_or_none()
+            if spool_obj:
+                payload.update(await _build_extended_data(
+                    db, spool_obj, app_settings.rfid_protocol
+                ))
+
     # Log the attempt
     logger.info(f"Triggering RFID write on device {device_id} at {device_url}")
     logger.debug(f"Payload: {payload}")
@@ -269,13 +378,16 @@ async def device_rfid_result(
         return RfidResultResponse(status="error", message="No tag_uuid provided")
 
     # Duplicate check and cleanup - clear rfid_uid from ALL spools (incl. archived)
-    # to prevent UNIQUE constraint violation on spools.rfid_uid
+    # to prevent UNIQUE constraint violation on spools.rfid_uid.
+    # Case-insensitive: the weigh lookup matches UIDs via lower(), so a UID stored
+    # with different casing would otherwise survive cleanup and later cause
+    # MultipleResultsFound on weigh.
     removed_info = []
     
     # Check spools - all spools regardless of status
     spool_query = (
         select(Spool)
-        .where(Spool.rfid_uid == data.tag_uuid)
+        .where(func.lower(Spool.rfid_uid) == data.tag_uuid.lower())
     )
     if data.spool_id:
         spool_query = spool_query.where(Spool.id != data.spool_id)
@@ -374,14 +486,30 @@ async def device_rfid_result(
 @router.post("/scale/weight", response_model=WeighResponse)
 async def weigh_spool(
     data: WeighRequest,
+    request: Request,
     db: DBSession,
     device: Device = Depends(get_current_device),
 ):
+    # Drivers only live on the primary Gunicorn worker. Proxy the whole request
+    # there so auto-assign can reach them; the primary handles measurement too.
+    if device.auto_assign_enabled and not _is_primary_worker():
+        try:
+            from app.api.v1.printers import _proxy_to_primary
+            payload = await _proxy_to_primary(
+                request,
+                method="POST",
+                path="/api/v1/devices/scale/weight",
+                json_body=data.model_dump(),
+            )
+            return WeighResponse.model_validate(payload)
+        except Exception as e:
+            logger.warning(f"Auto-assign primary-proxy failed, running locally: {e}")
+
     service = SpoolService(db)
-    
+
     # Find Spool: UUID has priority over ID (backward compatible)
     spool = None
-    
+
     if data.tag_uuid:
         # Normalize UUID to lowercase for case-insensitive comparison
         normalized_uuid = data.tag_uuid.lower()
@@ -416,7 +544,7 @@ async def weigh_spool(
         )
         hex_code = fc_result.scalar_one_or_none()
         if hex_code:
-            base_color = hex_code.replace("#", "")[:6]
+            base_color = visible_rgb_hex_or_legacy(hex_code).replace("#", "")
     # Record Measurement
     principal = Principal(auth_type="device", device_id=device.id, scopes=device.scopes)
     
@@ -428,7 +556,8 @@ async def weigh_spool(
         source="device",
         note=f"Recorded by device {device.name}",
     )
-    # Auto-assign: if device has auto_assign_enabled, notify all running drivers
+    # Auto-assign: if device has auto_assign_enabled, notify all running drivers.
+    # Drivers only live on the primary Gunicorn worker; proxy if we're not it.
     logger.debug(f"Auto-assign check: device={device.name} (id={device.id}), auto_assign_enabled={device.auto_assign_enabled}")
     if device.auto_assign_enabled:
         try:
@@ -529,3 +658,146 @@ async def locate_spool(
         location_id=location.id,
         location_name=location.name
     )
+
+
+@router.post("/{device_id}/request-tag-scan", response_model=dict)
+async def request_tag_scan(
+    device_id: int,
+    db: DBSession,
+):
+    """Fordert das Gerät auf, den nächsten NFC-Tag zu lesen und die Daten zurückzusenden."""
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+
+    if not device or not device.is_active or device.deleted_at or not device.ip_address:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Device not found, inactive or has no IP address"},
+        )
+
+    # Status auf pending setzen
+    if device.custom_fields is None:
+        device.custom_fields = {}
+    new_cf = dict(device.custom_fields)
+    new_cf["last_tag_scan"] = {
+        "status": "pending",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    device.custom_fields = new_cf
+    await db.commit()
+
+    # Scan-Request ans Gerät senden und Ergebnis prüfen
+    device_url = f"http://{device.ip_address}/api/v1/rfid/scan-request"
+    request_error: str | None = None
+    try:
+        async with httpx.AsyncClient(timeout=5.0, http2=False, follow_redirects=True) as client:
+            response = await client.post(device_url, json={})
+
+        if response.status_code >= 400:
+            if response.status_code == status.HTTP_404_NOT_FOUND:
+                request_error = "Geraete-Firmware unterstuetzt '/api/v1/rfid/scan-request' nicht."
+            else:
+                request_error = f"Geraet antwortete mit HTTP {response.status_code}."
+    except Exception as e:
+        request_error = f"Geraet nicht erreichbar: {e}"
+
+    if request_error:
+        logger.warning(
+            "Tag scan request failed for device %s (%s): %s",
+            device_id,
+            device_url,
+            request_error,
+        )
+
+        new_cf = dict(device.custom_fields or {})
+        new_cf["last_tag_scan"] = {
+            "status": "error",
+            "error_message": request_error,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        device.custom_fields = new_cf
+        await db.commit()
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "device_scan_request_failed",
+                "message": "Tag-Scan konnte auf dem Geraet nicht gestartet werden. Bitte Firmware/Verbindung pruefen.",
+            },
+        )
+
+    return {"success": True, "message": "Scan-Request gesendet"}
+
+
+@router.post("/tag-data", response_model=dict)
+async def receive_tag_data(
+    data: TagDataRequest,
+    db: DBSession,
+    device: Device = Depends(get_current_device),
+):
+    """Empfängt Tag-Daten vom Gerät und speichert sie für den Frontend-Polling-Mechanismus."""
+    import json as _json
+
+    logger.info(f"Received tag data from device {device.id}: {data.tag_json[:100]}...")
+
+    parse_ok = True
+    try:
+        tag_data = _json.loads(data.tag_json)
+    except Exception:
+        parse_ok = False
+        tag_data = {"raw": data.tag_json}
+
+    scan_status = "success"
+    scan_error_message: str | None = None
+
+    if not parse_ok:
+        scan_status = "error"
+        scan_error_message = "Ungueltige Tag-Daten vom Geraet empfangen"
+    elif isinstance(tag_data, dict):
+        status_hint = str(tag_data.get("scan_status") or tag_data.get("status") or "").strip().lower()
+        if status_hint in {"error", "timeout", "failed", "failure"}:
+            scan_status = "error"
+            scan_error_message = str(tag_data.get("error_message") or "Tag-Scan fehlgeschlagen")
+
+    if scan_status == "error":
+        logger.warning(
+            "Received tag scan error from device %s: %s",
+            device.id,
+            scan_error_message,
+        )
+
+    if device.custom_fields is None:
+        device.custom_fields = {}
+    new_cf = dict(device.custom_fields)
+    new_cf["last_tag_scan"] = {
+        "status": scan_status,
+        "tag_data": tag_data if scan_status == "success" else None,
+        "error_message": scan_error_message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    device.custom_fields = new_cf
+    await db.commit()
+
+    return {"status": "ok"}
+
+
+@router.get("/{device_id}/tag-scan-result", response_model=TagScanStatusResponse)
+async def get_tag_scan_result(
+    device_id: int,
+    db: DBSession,
+):
+    """Gibt den Status und das Ergebnis des letzten Tag-Scans zurück."""
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Device not found"},
+        )
+
+    last_scan = (device.custom_fields or {}).get("last_tag_scan")
+    if not last_scan:
+        return TagScanStatusResponse(status="none")
+
+    return TagScanStatusResponse(**last_scan)

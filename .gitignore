@@ -74,6 +74,7 @@ local_cache
 skills-lock.json
 Agents.md
 Claude.md
+.omo
 
 # Installed plugins (only spoolman_import ships as default)
 backend/app/plugins/*/
@@ -85,3 +86,4 @@ package.json
 package-lock.json
 filaman.db*
 uploads/
+frontend/version.txt

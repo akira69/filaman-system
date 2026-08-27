@@ -101,8 +101,80 @@ import Layout from '../../layouts/Layout.astro'
           <option value="DKK">DKK — Danish Krone</option>
           <option value="PLN">PLN — Polish Zloty</option>
           <option value="CZK">CZK — Czech Koruna</option>
+          <option value="BRL">BRL — Brazilian Real</option>
         </select>
       </div>
+    </div>
+
+    <!-- RFID Extended Data Card (full width) -->
+    <div class="fm-card" style="padding: 20px;">
+      <h2 style="font-size: 1rem; font-weight: 600; margin: 0 0 16px;" data-i18n="admin.rfidSettingsTitle">RFID Tag Extended Data</h2>
+
+      <!-- Toggle: Extended Data aktivieren -->
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <div style="flex: 1;">
+          <label data-i18n="admin.rfidExtendedDataEnabled" style="font-weight: 500; display: block; margin-bottom: 4px;">Write extended data</label>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0;" data-i18n="admin.rfidExtendedDataEnabledHint">When enabled, additional filament data will be written to the RFID tag.</p>
+        </div>
+        <label class="fm-toggle">
+          <input type="checkbox" id="rfid-extended-data-enabled" />
+          <span class="fm-toggle-slider"></span>
+        </label>
+      </div>
+
+      <!-- Protokoll-Auswahl -->
+      <div id="rfid-protocol-section">
+        <label data-i18n="admin.rfidProtocol" style="font-weight: 500; display: block; margin-bottom: 4px;">Protocol</label>
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 8px;" data-i18n="admin.rfidProtocolHint">Select the protocol for the extended tag data.</p>
+        <select id="rfid-protocol" class="fm-select" style="max-width: 240px;">
+          <option value="openspool" data-i18n="admin.rfidProtocolOpenspool">OpenSpool</option>
+          <option value="filaman" data-i18n="admin.rfidProtocolFilaman">FilaMan</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Spool Weight Defaults Card (full width) -->
+    <div class="fm-card" style="padding: 20px;">
+      <h2 style="font-size: 1rem; font-weight: 600; margin: 0 0 4px;" data-i18n="admin.spoolWeightDefaultsTitle">Spool Weight Defaults</h2>
+      <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 16px;" data-i18n="admin.spoolWeightDefaultsDesc">Global weight settings applied to all spools. Individual spools can override these on their Edit page.</p>
+
+      <div>
+        <label style="font-weight: 500; display: block; margin-bottom: 4px;" for="default-spool-core-weight" data-i18n="admin.defaultCoreWeightLabel">Default Core / Adapter Weight (g)</label>
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 8px;">
+          <span data-i18n="admin.defaultCoreWeightHint">Extra weight added on top of the empty spool weight when calculating remaining filament from a scale reading. Use this for cardboard inner tubes, spool holders, or scale adapters that are always present when weighing a spool.</span>
+          <br><strong data-i18n="admin.defaultCoreWeightFormulaLabel">Formula:</strong> <span data-i18n="admin.defaultCoreWeightFormula">Remaining = Scale reading − Empty spool weight − Core/adapter weight.</span>
+          <br><span data-i18n="admin.defaultCoreWeightDisableHint">Leave blank or set to 0 to disable.</span>
+        </p>
+        <input
+          type="number"
+          id="default-spool-core-weight"
+          step="1"
+          min="0"
+          placeholder="0 (disabled)"
+          data-i18n-placeholder="admin.defaultCoreWeightPlaceholder"
+          class="fm-input"
+          style="max-width: 200px;"
+        />
+      </div>
+    </div>
+
+    <!-- Slicer Profile Fallback Card (full width) -->
+    <div class="fm-card" style="padding: 20px;">
+      <h2 style="font-size: 1rem; font-weight: 600; margin: 0 0 4px;" data-i18n="admin.slicerProfileFallbackTitle">Slicer Profile Fallback</h2>
+      <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 16px;" data-i18n="admin.slicerProfileFallbackDesc">
+        Determines which profile is sent to a Bambu printer's AMS slot when no specific slicer
+        profile resolves for a filament (e.g. a third-party filament with no matching cloud profile
+        for the connected printer model).
+      </p>
+
+      <label style="font-weight: 500; display: block; margin-bottom: 4px;" for="bambu-unmatched-fallback" data-i18n="admin.slicerFallbackLabel">Default for unmatched filament</label>
+      <select id="bambu-unmatched-fallback" class="fm-select" style="max-width: 320px;">
+        <option value="generic" data-i18n="admin.slicerFallbackGeneric">Generic profile (Generic PLA, PETG, …)</option>
+        <option value="bambu" data-i18n="admin.slicerFallbackBambu">Bambu profile (Bambu PLA Basic, PETG Basic, …)</option>
+      </select>
+      <p style="font-size: 0.78rem; color: var(--text-muted); margin: 8px 0 0;">
+        <span data-i18n="admin.slicerFallbackHintPre">Choose</span> <strong data-i18n="admin.slicerFallbackHintStrong">Bambu profile</strong> <span data-i18n="admin.slicerFallbackHintPost">if you prefer Bambu's own material profiles for third-party filament instead of the bland Generic ones. Falls back to Generic for materials without a Bambu-brand equivalent.</span>
+      </p>
     </div>
 
     <!-- Form message AND Save button OUTSIDE the cards, below the grid -->
@@ -130,6 +202,11 @@ import Layout from '../../layouts/Layout.astro'
       const warningDiv = document.getElementById('login-warning')!
       const formMessage = document.getElementById('form-message')!
       const saveBtn = document.getElementById('save-btn') as HTMLButtonElement
+      const rfidExtendedDataInput = document.getElementById('rfid-extended-data-enabled') as HTMLInputElement
+      const rfidProtocolSelect = document.getElementById('rfid-protocol') as HTMLSelectElement
+      const rfidProtocolSection = document.getElementById('rfid-protocol-section')!
+      const defaultSpoolCoreWeightInput = document.getElementById('default-spool-core-weight') as HTMLInputElement
+      const bambuUnmatchedFallbackSelect = document.getElementById('bambu-unmatched-fallback') as HTMLSelectElement
 
       function showMessage(text: string, isError: boolean) {
         formMessage.textContent = text
@@ -143,6 +220,13 @@ import Layout from '../../layouts/Layout.astro'
         warningDiv.classList.toggle('hidden', !loginDisabledInput.checked)
       })
 
+      // Protokoll-Section nur sichtbar wenn Extended Data aktiv
+      function updateRfidProtocolVisibility() {
+        rfidProtocolSection.style.opacity = rfidExtendedDataInput.checked ? '1' : '0.4'
+        rfidProtocolSelect.disabled = !rfidExtendedDataInput.checked
+      }
+      rfidExtendedDataInput.addEventListener('change', updateRfidProtocolVisibility)
+
       // Load settings
       try {
         const resp = await fetch('/api/v1/admin/app-settings/', { credentials: 'include', signal: getAbortSignal() })
@@ -151,6 +235,11 @@ import Layout from '../../layouts/Layout.astro'
           loginDisabledInput.checked = data.login_disabled
           currencySelect.value = data.currency || 'EUR'
           warningDiv.classList.toggle('hidden', !data.login_disabled)
+          rfidExtendedDataInput.checked = data.rfid_extended_data_enabled ?? false
+          rfidProtocolSelect.value = data.rfid_protocol || 'openspool'
+          updateRfidProtocolVisibility()
+          defaultSpoolCoreWeightInput.value = data.default_spool_core_weight_g != null ? String(data.default_spool_core_weight_g) : ''
+          bambuUnmatchedFallbackSelect.value = data.bambu_unmatched_profile_fallback || 'generic'
         } else {
           showMessage(t('admin.appSettingsLoadFailed'), true)
         }
@@ -165,9 +254,14 @@ import Layout from '../../layouts/Layout.astro'
         saveBtn.disabled = true
         saveBtn.textContent = t('admin.appSettingsSaving')
 
+        const rawCoreWeight = defaultSpoolCoreWeightInput.value.trim()
         const payload = {
           login_disabled: loginDisabledInput.checked,
           currency: currencySelect.value,
+          rfid_extended_data_enabled: rfidExtendedDataInput.checked,
+          rfid_protocol: rfidProtocolSelect.value,
+          default_spool_core_weight_g: rawCoreWeight !== '' ? parseFloat(rawCoreWeight) : null,
+          bambu_unmatched_profile_fallback: bambuUnmatchedFallbackSelect.value,
         }
 
         try {

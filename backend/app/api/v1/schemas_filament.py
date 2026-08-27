@@ -1,6 +1,12 @@
 from typing import Any
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
+
+from app.api.v1.schemas_entity_extra_field import (
+    EntityExtraFieldDefinitions,
+    optional_entity_definitions_field,
+)
+from app.utils.colors import normalize_hex_color_if_valid
 
 # mypy does not support decorators stacked above @property.
 # pydantic still supports this usage at runtime.
@@ -74,11 +80,23 @@ class ColorCreate(BaseModel):
     hex_code: str
     custom_fields: dict[str, Any] | None = None
 
+    @field_validator("hex_code")
+    @classmethod
+    def validate_hex_code(cls, value: str) -> str:
+        return normalize_hex_color_if_valid(value)
+
 
 class ColorUpdate(BaseModel):
     name: str | None = None
     hex_code: str | None = None
     custom_fields: dict[str, Any] | None = None
+
+    @field_validator("hex_code")
+    @classmethod
+    def validate_hex_code(cls, value: str | None) -> str | None:
+        if value is None:
+            raise ValueError("hex_code cannot be null")
+        return normalize_hex_color_if_valid(value)
 
 
 class ColorResponse(BaseModel):
@@ -140,7 +158,33 @@ class FilamentCreate(BaseModel):
     color_mode: str = "single"
     multi_color_style: str | None = None
     custom_fields: dict[str, Any] | None = None
+    custom_field_definitions: EntityExtraFieldDefinitions | None = (
+        optional_entity_definitions_field()
+    )
     colors: list[FilamentColorEntry] | None = None
+
+
+class ResolveFilamentFromTagRequest(BaseModel):
+    brand: str | None = None
+    type: str | None = None
+    subtype: str | None = None
+    min_temp: int | float | str | None = None
+    max_temp: int | float | str | None = None
+    diameter: float | str | None = None
+
+
+class ResolveFilamentFromTagResponse(BaseModel):
+    filament_id: int
+    filament_created: bool
+    filament_updated: bool
+    manufacturer_id: int
+    manufacturer_name: str
+    manufacturer_created: bool
+    material_type: str
+    designation: str
+    min_temp: int | None = None
+    max_temp: int | None = None
+    system_extra_fields_created: list[str] = []
 
 
 class FilamentUpdate(BaseModel):
@@ -162,6 +206,9 @@ class FilamentUpdate(BaseModel):
     color_mode: str | None = None
     multi_color_style: str | None = None
     custom_fields: dict[str, Any] | None = None
+    custom_field_definitions: EntityExtraFieldDefinitions | None = (
+        optional_entity_definitions_field()
+    )
 
 
 class FilamentResponse(BaseModel):
@@ -184,6 +231,9 @@ class FilamentResponse(BaseModel):
     color_mode: str
     multi_color_style: str | None
     custom_fields: dict[str, Any] | None
+    custom_field_definitions: EntityExtraFieldDefinitions | None = (
+        optional_entity_definitions_field(omit_none=True)
+    )
 
     class Config:
         from_attributes = True

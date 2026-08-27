@@ -1,36 +1,40 @@
-"""Admin-Endpoints fuer System, Plugin-Management, Spoolman-Import und Killswitch."""
+"""Admin-Endpoints fuer System, Plugin-Management und Killswitch."""
 
 import importlib
 import logging
 import os
+import re
 import shutil
 import sys
-import re
-from datetime import datetime, timezone
-from typing import Any
-from pathlib import Path
 import time
-
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, status
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from sqlalchemy import delete, select, text
-from sqlalchemy.inspection import inspect as sa_inspect
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 import httpx
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from sqlalchemy import DateTime, delete, select, text
+from sqlalchemy.inspection import inspect as sa_inspect
+
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.core.cache import response_cache
 from app.core.config import settings
+from app.core.seeds import BUILTIN_PLUGINS, DEPRECATED_PLUGINS
+from app.core.shared_health import shared_health_store
+from app.core.worker_reload import request_worker_reload
 from app.models import (
     AppSettings,
     Color,
     Device,
     Filament,
     FilamentColor,
-    FilamentPrinterProfile,
     FilamentPrinterParam,
+    FilamentPrinterProfile,
     FilamentRating,
     InstalledPlugin,
+    LabelPreset,
     Location,
     Manufacturer,
     OAuthIdentity,
@@ -54,19 +58,18 @@ from app.models import (
     UserRole,
     UserSession,
 )
-from app.services.plugin_service import PluginInstallError, PluginInstallService
-from app.core.seeds import DEPRECATED_PLUGINS, BUILTIN_PLUGINS
-from app.services.spoolman_import_service import (
-    SpoolmanImportError,
-    SpoolmanImportService,
+from app.models.label_preset import (
+    label_preset_name_key,
+    normalize_label_preset_name,
 )
 from app.services.filamentdb_import_service import (
     FilamentDBImportError,
     FilamentDBImportService,
 )
-from app.core.shared_health import shared_health_store
+from app.services.plugin_service import PluginInstallError, PluginInstallService
 
 logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/admin/system", tags=["admin-system"])
 
@@ -518,6 +521,10 @@ async def install_from_registry(
         from app.api.v1.router import mount_plugin_router_on_app
 
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
+        # mount_plugin_router_on_app() only patches the current worker's
+        # routes — reload all Gunicorn workers so the route is consistently
+        # available regardless of which worker handles the next request.
+        request_worker_reload()
 
     # Caches invalidieren (Plugin-Status hat sich geaendert)
     _invalidate_version_cache()
@@ -625,6 +632,10 @@ async def install_plugin(
         from app.api.v1.router import mount_plugin_router_on_app
 
         mount_plugin_router_on_app(request.app, plugin.plugin_key)
+        # mount_plugin_router_on_app() only patches the current worker's
+        # routes — reload all Gunicorn workers so the route is consistently
+        # available regardless of which worker handles the next request.
+        request_worker_reload()
 
     # Caches invalidieren (Plugin-Status hat sich geaendert)
     _invalidate_version_cache()
@@ -711,6 +722,13 @@ async def uninstall_plugin(
                 "message": str(e),
             },
         )
+
+    # Fuer Import-/Integration-Plugins bleibt der Router sonst in jedem Worker
+    # gemountet, der ihn zuvor dynamisch geladen hat — Worker-Reload erzwingt
+    # den konsistenten Kaltstart-Pfad (Plugin-Verzeichnis ist bereits geloescht,
+    # also wird die Route ueberall entfernt).
+    if plugin_info and plugin_info.plugin_type in ("import", "integration"):
+        request_worker_reload()
 
     # Caches invalidieren (Plugin entfernt)
     _invalidate_version_cache()
@@ -843,149 +861,6 @@ async def get_plugin(
         )
 
     return plugin
-
-
-# ------------------------------------------------------------------ #
-#  Spoolman Import Endpoints
-# ------------------------------------------------------------------ #
-
-
-class SpoolmanUrlRequest(BaseModel):
-    url: str
-
-
-class SpoolmanConnectionResponse(BaseModel):
-    status: str
-    url: str
-    info: dict[str, Any]
-
-
-class SpoolmanPreviewResponse(BaseModel):
-    summary: dict[str, int]
-    vendors: list[dict[str, Any]]
-    filaments: list[dict[str, Any]]
-    spools: list[dict[str, Any]]
-    locations: list[dict[str, Any]]
-    colors: list[dict[str, str]]
-
-
-class SpoolmanImportResultResponse(BaseModel):
-    manufacturers_created: int
-    manufacturers_skipped: int
-    locations_created: int
-    locations_skipped: int
-    colors_created: int
-    colors_skipped: int
-    filaments_created: int
-    filaments_skipped: int
-    spools_created: int
-    spools_skipped: int
-    errors: list[str]
-    warnings: list[str]
-
-
-@router.post(
-    "/spoolman-import/test-connection",
-    response_model=SpoolmanConnectionResponse,
-)
-async def spoolman_test_connection(
-    body: SpoolmanUrlRequest,
-    db: DBSession,
-    principal=RequirePermission("admin:plugins_manage"),
-):
-    """Verbindung zu Spoolman-Instanz testen."""
-    service = SpoolmanImportService(db)
-    try:
-        result = await service.test_connection(body.url)
-        return result
-    except SpoolmanImportError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": e.code, "message": str(e)},
-        )
-
-
-@router.post(
-    "/spoolman-import/preview",
-)
-async def spoolman_preview(
-    body: SpoolmanUrlRequest,
-    db: DBSession,
-    principal=RequirePermission("admin:plugins_manage"),
-):
-    """Vorschau der zu importierenden Daten."""
-    service = SpoolmanImportService(db)
-    try:
-        preview = await service.preview(body.url)
-        return JSONResponse(
-            {
-                "summary": preview.summary,
-                "vendors": preview.vendors,
-                "filaments": preview.filaments,
-                "spools": preview.spools,
-                "locations": preview.locations,
-                "colors": preview.colors,
-            }
-        )
-    except SpoolmanImportError as e:
-        logger.warning(f"Spoolman Import Error: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"detail": {"code": e.code, "message": str(e)}},
-        )
-    except Exception as e:
-        import traceback
-
-        tb = traceback.format_exc()
-        logger.exception(f"Unexpected error in Spoolman preview: {tb}")
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "detail": {
-                    "code": "internal_error",
-                    "message": f"Unerwarteter Fehler: {str(e)}\n\nTraceback:\n{tb}",
-                    "type": type(e).__name__,
-                }
-            },
-        )
-
-
-@router.post(
-    "/spoolman-import/execute",
-    response_model=SpoolmanImportResultResponse,
-)
-async def spoolman_execute(
-    body: SpoolmanUrlRequest,
-    db: DBSession,
-    principal=RequirePermission("admin:plugins_manage"),
-):
-    """Spoolman-Import ausfuehren."""
-    service = SpoolmanImportService(db)
-    try:
-        result = await service.execute(body.url)
-        return result
-    except SpoolmanImportError as e:
-        logger.warning(f"Spoolman Import Execution Error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": e.code, "message": str(e)},
-        )
-    except Exception as e:
-        import traceback
-
-        tb = traceback.format_exc()
-        logger.exception(f"Unexpected error in Spoolman import execution: {tb}")
-        # Return JSONResponse for 500 errors to give more details
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "detail": {
-                    "code": "internal_error",
-                    "message": f"Unerwarteter Fehler beim Import: {str(e)}\n\nTraceback:\n{tb}",
-                    "type": type(e).__name__,
-                }
-            },
-        )
 
 
 # ------------------------------------------------------------------ #
@@ -1411,6 +1286,7 @@ async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
         ("oauth_identities", OAuthIdentity),
         ("user_api_keys", UserApiKey),
         ("user_sessions", UserSession),
+        ("label_presets", LabelPreset),
         ("oidc_settings", OIDCSettings),
         ("oidc_auth_states", OIDCAuthState),
         # Devices
@@ -1664,6 +1540,7 @@ async def _delete_all_data(db: DBSession) -> dict[str, int]:
         ("user_sessions", UserSession),
         ("user_api_keys", UserApiKey),
         ("oauth_identities", OAuthIdentity),
+        ("label_presets", LabelPreset),
         ("role_permissions", RolePermission),
         ("user_permissions", UserPermission),
         ("user_roles", UserRole),
@@ -1795,6 +1672,7 @@ async def _import_all_data(
         ("oauth_identities", OAuthIdentity),
         ("user_api_keys", UserApiKey),
         ("user_sessions", UserSession),
+        ("label_presets", LabelPreset),
         ("oidc_settings", OIDCSettings),
         ("oidc_auth_states", OIDCAuthState),
         ("devices", Device),
@@ -1824,13 +1702,21 @@ async def _import_all_data(
             col_to_attr = {
                 attr.columns[0].name: attr.key for attr in mapper.column_attrs
             }
+            columns = {
+                attr.columns[0].name: attr.columns[0] for attr in mapper.column_attrs
+            }
 
             for row_data in rows:
                 attr_data = {}
                 for col_name, value in row_data.items():
                     attr_name = col_to_attr.get(col_name, col_name)
 
-                    if isinstance(value, str) and "T" in value:
+                    column = columns.get(col_name)
+                    column_type = getattr(column, "type", None)
+                    is_datetime_column = isinstance(
+                        column_type, DateTime
+                    ) or isinstance(getattr(column_type, "impl", None), DateTime)
+                    if isinstance(value, str) and is_datetime_column:
                         try:
                             attr_data[attr_name] = datetime.fromisoformat(
                                 value.replace("Z", "+00:00")
@@ -1839,6 +1725,10 @@ async def _import_all_data(
                             attr_data[attr_name] = value
                     else:
                         attr_data[attr_name] = value
+
+                if model is LabelPreset and isinstance(attr_data.get("name"), str):
+                    attr_data["name"] = normalize_label_preset_name(attr_data["name"])
+                    attr_data["name_key"] = label_preset_name_key(attr_data["name"])
 
                 db.add(model(**attr_data))
 
