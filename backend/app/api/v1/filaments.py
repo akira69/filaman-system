@@ -44,6 +44,7 @@ from app.models import (
     SpoolStatus,
     SystemExtraField,
 )
+from app.utils.query_params import parse_multi_int, parse_multi_str
 
 logger = logging.getLogger(__name__)
 
@@ -741,8 +742,25 @@ async def resolve_filament_from_tag(
         system_extra_fields_created=created_system_fields,
     )
 
+
 # Default filament types (always included in the types list)
 DEFAULT_FILAMENT_TYPES = ["PLA", "PETG", "ABS", "ASA", "TPU", "NYLON", "PC"]
+
+
+class FilterOption(BaseModel):
+    value: str
+    label: str
+
+
+class ColorFilterOption(FilterOption):
+    color_hexes: list[str]
+
+
+class FilamentFilterOptionsResponse(BaseModel):
+    manufacturers: list[FilterOption]
+    types: list[str]
+    colors: list[ColorFilterOption]
+    has_empty_colors: bool
 
 
 @router_filaments.get("/types", response_model=list[str])
@@ -760,14 +778,79 @@ async def list_filament_types(db: DBSession, principal: PrincipalDep):
     return all_types
 
 
+@router_filaments.get("/filter-options", response_model=FilamentFilterOptionsResponse)
+async def list_filament_filter_options(db: DBSession, principal: PrincipalDep):
+    """Return only values used by at least one filament, in one database query."""
+    cached = response_cache.get("filter_options:filaments")
+    if cached is not None:
+        return cached
+
+    result = await db.execute(
+        select(
+            Filament.manufacturer_id,
+            Manufacturer.name,
+            Filament.material_type,
+            Color.name,
+            Color.hex_code,
+        )
+        .join(Manufacturer, Manufacturer.id == Filament.manufacturer_id)
+        .outerjoin(FilamentColor, FilamentColor.filament_id == Filament.id)
+        .outerjoin(Color, Color.id == FilamentColor.color_id)
+    )
+
+    manufacturers: dict[int, str] = {}
+    types: set[str] = set()
+    colors: dict[str, set[str]] = {}
+    has_empty_colors = False
+    for (
+        manufacturer_id,
+        manufacturer_name,
+        material_type,
+        color_name,
+        hex_code,
+    ) in result.all():
+        manufacturers[manufacturer_id] = manufacturer_name
+        if material_type:
+            types.add(material_type)
+        if color_name:
+            colors.setdefault(color_name, set())
+            if hex_code:
+                colors[color_name].add(hex_code)
+        else:
+            has_empty_colors = True
+
+    payload = FilamentFilterOptionsResponse(
+        manufacturers=[
+            FilterOption(value=str(manufacturer_id), label=name)
+            for manufacturer_id, name in sorted(
+                manufacturers.items(), key=lambda item: item[1].casefold()
+            )
+        ],
+        types=sorted(types, key=str.casefold),
+        colors=[
+            ColorFilterOption(
+                value=name,
+                label=name,
+                color_hexes=sorted(hex_codes),
+            )
+            for name, hex_codes in sorted(
+                colors.items(), key=lambda item: item[0].casefold()
+            )
+        ],
+        has_empty_colors=has_empty_colors,
+    )
+    response_cache.set("filter_options:filaments", payload, ttl=300)
+    return payload
+
+
 @router_filaments.get("", response_model=PaginatedResponse[FilamentDetailResponse])
 async def list_filaments(
     db: DBSession,
     principal: PrincipalDep,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    type: str | None = None,
-    manufacturer_id: int | None = None,
+    type: list[str] | None = Query(None),
+    manufacturer_id: list[str] | None = Query(None),
     search: str | None = Query(None, max_length=200),
     sort_by: str = Query(
         "designation",
@@ -780,11 +863,13 @@ async def list_filaments(
     needs_manufacturer_join = False
     needs_spool_count_join = False
     spool_count_subquery = None
+    types = parse_multi_str(type, "type")
+    manufacturer_ids = parse_multi_int(manufacturer_id, "manufacturer_id")
 
-    if type:
-        conditions.append(Filament.material_type == type)
-    if manufacturer_id:
-        conditions.append(Filament.manufacturer_id == manufacturer_id)
+    if types:
+        conditions.append(Filament.material_type.in_(types))
+    if manufacturer_ids:
+        conditions.append(Filament.manufacturer_id.in_(manufacturer_ids))
 
     if search:
         search_term = f"%{search}%"
