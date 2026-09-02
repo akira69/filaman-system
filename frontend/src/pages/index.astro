@@ -1,41 +1,5 @@
 ---
 import Layout from '../layouts/Layout.astro'
-
-interface Spool {
-  id: number
-  filament_id: number
-  status_id: number
-  remaining_weight_g: number | null
-  low_weight_threshold_g: number
-  lot_number: string | null
-  rfid_uid: string | null
-  external_id: string | null
-}
-
-interface Filament {
-  id: number
-  designation: string
-  type: string
-  manufacturer_id: number
-}
-
-interface Status {
-  id: number
-  key: string
-  label: string
-}
-
-interface SpoolWithFilament extends Spool {
-  filament?: Filament
-  status?: Status
-}
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  page_size: number
-}
 ---
 
 <Layout title="FilaMan - Dashboard">
@@ -122,7 +86,7 @@ interface PaginatedResponse<T> {
     </div>
     
     <div class="fm-card">
-      <h2 style="font-weight: 600; margin: 0 0 16px 0;" data-i18n="dashboard.filamentTypes">Filament-Arten</h2>
+      <h2 style="font-weight: 600; margin: 0 0 16px 0;"><span data-i18n="dashboard.filamentTypes">Filament-Arten</span><span id="filament-types-scope-label" style="font-size: 0.75em; font-weight: 400; color: var(--text-muted); margin-left: 4px;"></span></h2>
       <div id="filament-types" style="max-height: 280px; overflow-y: auto;">
         <p style="color: var(--text-muted);" data-i18n="common.loading">Loading...</p>
       </div>
@@ -147,7 +111,7 @@ interface PaginatedResponse<T> {
     </div>
     
     <div class="fm-card overflow-y-auto" style="max-height: 400px;">
-      <h2 style="font-weight: 600; margin: 0 0 16px 0;" data-i18n="dashboard.filamentStats">Filament-Statistik</h2>
+      <h2 style="font-weight: 600; margin: 0 0 16px 0;"><span data-i18n="dashboard.filamentStats">Filament-Statistik</span><span id="filament-stats-scope-label" style="font-size: 0.75em; font-weight: 400; color: var(--text-muted); margin-left: 4px;"></span></h2>
       <div id="filament-stats">
         <p style="color: var(--text-muted);" data-i18n="common.loading">Loading...</p>
       </div>
@@ -191,12 +155,88 @@ interface PaginatedResponse<T> {
     import { formatPrice, getCurrency, initCurrency } from '../lib/format'
     import { VERSION } from '../version.js'
     import changelogData from '../changelog.json'
-    import { cachedFetchAllPages, fetchSequential, CACHE_KEYS } from '../lib/cache'
+    import { cachedFetch, cachedFetchAllPages, fetchSequential, CACHE_KEYS } from '../lib/cache'
     import { getAbortSignal, isAbortError } from '../lib/abort'
+    import {
+      buildDashboardFilamentScopeData,
+      type DashboardFilament,
+      type DashboardSpool,
+      type DashboardSpoolStatus,
+      type FilamentStat,
+      type FilamentTypeCount,
+    } from '../lib/dashboard-filament-scope'
 
     let allSpools: any[] = []
     let allFilaments: any[] = []
-    let filamentCounts = { all: 0, active: 0, used: 0 }
+    const filamentCounts = { all: 0, active: 0, used: 0 }
+    let filamentScopeData = buildDashboardFilamentScopeData([], [], [])
+
+    function appendTableCell(
+      row: HTMLTableRowElement,
+      text: string,
+      options: { alignRight?: boolean, monospace?: boolean } = {},
+    ): void {
+      const cell = row.insertCell()
+      cell.textContent = text
+      cell.style.padding = '6px 8px'
+      if (options.alignRight) cell.style.textAlign = 'right'
+      if (options.monospace) cell.style.fontFamily = 'monospace'
+    }
+
+    function renderFilamentTypes(container: HTMLElement, rows: FilamentTypeCount[]): void {
+      if (rows.length === 0) {
+        const empty = document.createElement('p')
+        empty.style.color = 'var(--text-muted)'
+        empty.textContent = t('dashboard.noData')
+        container.replaceChildren(empty)
+        return
+      }
+
+      const table = document.createElement('table')
+      table.className = 'fm-table'
+      table.style.fontSize = '0.85rem'
+      const body = table.createTBody()
+      for (const item of rows) {
+        const row = body.insertRow()
+        row.style.cursor = 'pointer'
+        row.addEventListener('click', () => {
+          window.location.href = `/filaments?material=${encodeURIComponent(item.material_type)}`
+        })
+        appendTableCell(row, item.material_type)
+        appendTableCell(row, String(item.count), { alignRight: true, monospace: true })
+      }
+      container.replaceChildren(table)
+    }
+
+    function renderFilamentStats(container: HTMLElement, rows: FilamentStat[]): void {
+      if (rows.length === 0) {
+        const empty = document.createElement('p')
+        empty.style.color = 'var(--text-muted)'
+        empty.textContent = t('dashboard.noData')
+        container.replaceChildren(empty)
+        return
+      }
+
+      const table = document.createElement('table')
+      table.className = 'fm-table'
+      table.style.fontSize = '0.85rem'
+      const header = table.createTHead().insertRow()
+      appendTableCell(header, t('dashboard.filament'))
+      appendTableCell(header, t('dashboard.spools'), { alignRight: true })
+      appendTableCell(header, t('dashboard.remaining'), { alignRight: true })
+      const body = table.createTBody()
+      for (const item of rows) {
+        const row = body.insertRow()
+        row.style.cursor = 'pointer'
+        row.addEventListener('click', () => {
+          window.location.href = `/spools?material=${encodeURIComponent(item.filament_type)}`
+        })
+        appendTableCell(row, item.filament_type)
+        appendTableCell(row, String(item.spool_count), { alignRight: true, monospace: true })
+        appendTableCell(row, formatWeight(item.total_weight_g), { alignRight: true, monospace: true })
+      }
+      container.replaceChildren(table)
+    }
 
     function applyFilamentScope() {
       const scope = (localStorage.getItem('dashboard-filament-scope') || 'all') as 'all' | 'active' | 'used'
@@ -205,6 +245,20 @@ interface PaginatedResponse<T> {
       document.querySelectorAll<HTMLButtonElement>('.fm-scope-pill').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.scope === scope)
       })
+
+      const scopeLabel = scope === 'all' ? '' : `(${t('dashboard.filamentScope' + scope.charAt(0).toUpperCase() + scope.slice(1))})`
+      const typesLabel = document.getElementById('filament-types-scope-label')
+      const statsLabel = document.getElementById('filament-stats-scope-label')
+      if (typesLabel) typesLabel.textContent = scopeLabel
+      if (statsLabel) statsLabel.textContent = scopeLabel
+
+      // --- Filament Types table ---
+      const typesContainer = document.getElementById('filament-types')
+      if (typesContainer) renderFilamentTypes(typesContainer, filamentScopeData.filamentTypes[scope])
+
+      // --- Filament Statistics table ---
+      const statsContainer = document.getElementById('filament-stats')
+      if (statsContainer) renderFilamentStats(statsContainer, filamentScopeData.filamentStats[scope])
     }
 
     function initFilamentScopePills() {
@@ -390,18 +444,25 @@ interface PaginatedResponse<T> {
     async function loadDashboardData() {
       try {
         // Sequential fetching mit Caching für bessere SQLite-Performance
-        const [spoolsData, filamentsData, dashboardRes] = await fetchSequential([
-          () => cachedFetchAllPages('spools-dashboard', '/api/v1/spools'),
-          () => cachedFetchAllPages(CACHE_KEYS.FILAMENTS, '/api/v1/filaments'),
+        const [spoolsData, filamentsData, statuses, dashboardRes] = await fetchSequential([
+          () => cachedFetchAllPages<DashboardSpool>('spools-dashboard-all', '/api/v1/spools?include_archived=true'),
+          () => cachedFetchAllPages<DashboardFilament>(CACHE_KEYS.FILAMENTS, '/api/v1/filaments'),
+          () => cachedFetch<DashboardSpoolStatus[]>(CACHE_KEYS.STATUSES, async () => {
+            const response = await fetch('/api/v1/spools/statuses', { credentials: 'include', signal: getAbortSignal() })
+            if (!response.ok) throw new Error('Failed to fetch spool statuses')
+            return response.json()
+          }),
           () => fetch('/api/v1/dashboard/stats?limit=20', { credentials: 'include', signal: getAbortSignal() }),
         ] as const)
         
         const dashboardData = dashboardRes.ok ? await dashboardRes.json() : null
         
-        allSpools = spoolsData.items
+        const archivedStatusIds = new Set(statuses.filter(status => status.key === 'archived').map(status => status.id))
+        allSpools = spoolsData.items.filter(spool => !archivedStatusIds.has(spool.status_id))
         allFilaments = filamentsData.items
+        filamentScopeData = buildDashboardFilamentScopeData(filamentsData.items, spoolsData.items, statuses)
         
-        document.getElementById('stat-total-spools')!.textContent = String(spoolsData.total)
+        document.getElementById('stat-total-spools')!.textContent = String(allSpools.length)
         filamentCounts.all = filamentsData.total
         if (dashboardData) {
           filamentCounts.active = dashboardData.filament_count_active ?? 0
@@ -452,27 +513,6 @@ interface PaginatedResponse<T> {
               `</tbody></table>`
           }
 
-          const filamentStatsContainer = document.getElementById('filament-stats')!
-          if (!dashboardData.filament_stats || dashboardData.filament_stats.length === 0) {
-            filamentStatsContainer.innerHTML = `<p style="color: var(--text-muted);">${t('dashboard.noData')}</p>`
-          } else {
-            filamentStatsContainer.innerHTML = `<table class="fm-table" style="font-size: 0.85rem;">
-              <thead><tr>
-                <th style="padding: 6px 8px;">${t('dashboard.filament')}</th>
-                <th style="padding: 6px 8px; text-align: right;">${t('dashboard.spools')}</th>
-                <th style="padding: 6px 8px; text-align: right;">${t('dashboard.remaining')}</th>
-              </tr></thead>
-              <tbody>` + 
-              dashboardData.filament_stats.map((f: any) => 
-                `<tr style="cursor: pointer;" onclick="window.location.href='/spools?material=${encodeURIComponent(f.filament_type)}'">
-                  <td style="padding: 6px 8px;">${f.filament_type}</td>
-                  <td style="padding: 6px 8px; text-align: right; font-family: monospace;">${f.spool_count}</td>
-                  <td style="padding: 6px 8px; text-align: right; font-family: monospace;">${formatWeight(f.total_weight_g)}</td>
-                </tr>`
-              ).join('') +
-              `</tbody></table>`
-          }
-
           const mfrContainer = document.getElementById('manufacturers-with-spools')!
           if (dashboardData.manufacturers_with_spools.length === 0) {
             mfrContainer.innerHTML = `<p style="color: var(--text-muted);">${t('dashboard.noData')}</p>`
@@ -507,16 +547,6 @@ interface PaginatedResponse<T> {
               `</tbody></table>`
           }
 
-          const typesContainer = document.getElementById('filament-types')!
-          if (dashboardData.filament_types.length === 0) {
-            typesContainer.innerHTML = `<p style="color: var(--text-muted);">${t('dashboard.noData')}</p>`
-          } else {
-            typesContainer.innerHTML = `<table class="fm-table" style="font-size: 0.85rem;"><tbody>` + 
-              dashboardData.filament_types.map((t: any) => 
-                `<tr style="cursor: pointer;" onclick="window.location.href='/spools?material=${encodeURIComponent(t.material_type)}'"><td>${t.material_type}</td><td style="text-align: right; font-family: monospace;">${t.count}</td></tr>`
-              ).join('') +
-              `</tbody></table>`
-          }
         }
       } catch (error) {
         if (isAbortError(error)) return

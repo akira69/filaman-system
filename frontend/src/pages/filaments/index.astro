@@ -160,7 +160,6 @@ import Layout from '../../layouts/Layout.astro'
       } catch { return 50 }
     })()
     let allFilaments: any[] = []
-    let filteredFilaments: any[] = []
     let totalFilaments = 0
     let sortKey: string | null = null
     let sortDirection: 'asc' | 'desc' | null = null
@@ -205,9 +204,12 @@ import Layout from '../../layouts/Layout.astro'
     } catch { /* ignore invalid data */ }
     let isInitialLoad = true
     let filterManufacturerId: string | null = null
+    let filterMaterialType: string | null = null
 
     const urlParams = new URLSearchParams(window.location.search)
     filterManufacturerId = urlParams.get('manufacturer_id')
+    filterMaterialType = urlParams.get('material')
+    if (filterMaterialType) currentPage = 1
 
     // Debounce timer for search input
     let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -293,46 +295,6 @@ import Layout from '../../layouts/Layout.astro'
       return { search, manufacturerId, type, color, groupBy }
     }
 
-    function filterFilaments(filaments: any[]): any[] {
-      const { search, manufacturerId, type, color } = getFilterValues()
-
-      return filaments.filter(f => {
-        // Manufacturer filter
-        if (manufacturerId && String(f.manufacturer_id) !== manufacturerId) return false
-
-        // Type filter
-        if (type && f.material_type !== type) return false
-
-        // Color filter
-        if (color) {
-          const hasColor = f.colors?.some((fc: any) => {
-            const c = fc.color
-            return c && c.name === color
-          })
-          if (!hasColor) return false
-        }
-
-        // Text search across designation, manufacturer name, color names, type, manufacturer_color_name
-        if (search) {
-          const designation = (f.designation || '').toLowerCase()
-          const manufacturerName = (f.manufacturer?.name || '').toLowerCase()
-          const colorNames = (f.colors || []).map((fc: any) => {
-            const parts: string[] = []
-            if (fc.color?.name) parts.push(fc.color.name.toLowerCase())
-            if (fc.display_name_override) parts.push(fc.display_name_override.toLowerCase())
-            return parts.join(' ')
-          }).join(' ')
-          const typeName = (f.material_type || '').toLowerCase()
-          const mfColorName = (f.manufacturer_color_name || '').toLowerCase()
-
-          const haystack = `${designation} ${manufacturerName} ${colorNames} ${typeName} ${mfColorName}`
-          if (!haystack.includes(search)) return false
-        }
-
-        return true
-      })
-    }
-
     function applyFiltersAndRender() {
       if (isInitialLoad) {
         isInitialLoad = false
@@ -403,7 +365,8 @@ import Layout from '../../layouts/Layout.astro'
             typeSelect.appendChild(opt)
           })
         }
-        if (savedFilterState?.type) typeSelect.value = savedFilterState.type
+        if (filterMaterialType) typeSelect.value = filterMaterialType
+        else if (savedFilterState?.type) typeSelect.value = savedFilterState.type
 
         // Colors
         const colorSelect = document.getElementById('filter-color') as HTMLSelectElement
