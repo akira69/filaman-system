@@ -1,11 +1,11 @@
 import asyncio
-from contextlib import asynccontextmanager
-import fcntl
 import json as _json
 import os
-from pathlib import Path
 import tempfile
 import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import BinaryIO
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +16,7 @@ from sqlalchemy import text
 from app.api.auth import router as auth_router
 from app.api.auth_oidc import router as auth_oidc_router
 from app.api.v1.router import api_router, mount_deferred_plugin_routers
-from app.core.config import settings, MANUFACTURER_LOGO_DIR
+from app.core.config import MANUFACTURER_LOGO_DIR, settings
 from app.core.database import async_session_maker
 from app.core.logging_config import setup_logging
 from app.core.middleware import AuthMiddleware, CsrfMiddleware, RequestIdMiddleware
@@ -24,6 +24,11 @@ from app.core.seeds import run_all_seeds
 from app.core.shared_health import shared_health_store
 from app.plugins.manager import plugin_manager
 from app.services.plugin_service import PLUGINS_DIR
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 setup_logging()
 logger = __import__("logging").getLogger(__name__)
@@ -35,8 +40,39 @@ logger = __import__("logging").getLogger(__name__)
 # ---------------------------------------------------------------------------
 _STARTUP_LOCK_PATH = Path(tempfile.gettempdir()) / "filaman-startup.lock"
 _is_primary = False
-_lock_fd = None
+_lock_fd: BinaryIO | None = None
 _WATCHDOG_INTERVAL = 60  # seconds
+
+
+def _acquire_startup_lock() -> BinaryIO:
+    lock_file = open(_STARTUP_LOCK_PATH, "a+b")  # noqa: SIM115 - lock lifetime spans startup
+    try:
+        if os.name == "nt":
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(  # type: ignore[attr-defined]
+                lock_file.fileno(), msvcrt.LK_NBLCK, 1  # type: ignore[attr-defined]
+            )
+        else:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock_file.close()
+        raise
+    return lock_file
+
+
+def _release_startup_lock(lock_file: BinaryIO) -> None:
+    if os.name == "nt":
+        lock_file.seek(0)
+        msvcrt.locking(  # type: ignore[attr-defined]
+            lock_file.fileno(), msvcrt.LK_UNLCK, 1  # type: ignore[attr-defined]
+        )
+    else:
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+    lock_file.close()
 
 
 def run_migrations() -> None:
@@ -208,8 +244,7 @@ async def _watchdog_try_takeover() -> None:
     global _is_primary, _lock_fd
 
     try:
-        fd = open(_STARTUP_LOCK_PATH, "w")
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fd = _acquire_startup_lock()
         # Lock acquired – previous primary is gone.
         _lock_fd = fd
         _is_primary = True
@@ -252,8 +287,7 @@ async def lifespan(app: FastAPI):
     # We use an exclusive file-lock: the first worker wins and runs the
     # one-time tasks; the others skip them.
     try:
-        _lock_fd = open(_STARTUP_LOCK_PATH, "w")
-        fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _lock_fd = _acquire_startup_lock()
         _is_primary = True
         logger.info("Primary worker – running seeds and starting plugins")
     except OSError:
@@ -296,8 +330,7 @@ async def lifespan(app: FastAPI):
         # workers can still attempt flock() on it during takeover.
         if _lock_fd:
             try:
-                fcntl.flock(_lock_fd, fcntl.LOCK_UN)
-                _lock_fd.close()
+                _release_startup_lock(_lock_fd)
             except OSError:
                 pass
             _lock_fd = None
