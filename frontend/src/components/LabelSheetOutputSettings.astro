@@ -1,4 +1,4 @@
-<div id="tab-panel-sheets" class="settings-section" hidden>
+<div id="tab-panel-sheets" class="settings-section" role="tabpanel" aria-labelledby="tab-btn-sheets" hidden>
 <details class="ds-section sheet-output-section" open>
   <summary class="ds-section-header" data-i18n="labelPrint.outputTitle">Output</summary>
   <div class="ds-section-body">
@@ -6,7 +6,7 @@
       <legend data-i18n="labelPrint.sheetSource">Label source</legend>
       <label><input type="radio" name="label-sheet-source" value="standard" checked /><span data-i18n="labelPrint.standardLabel">Standard Label</span></label>
       <label><input type="radio" name="label-sheet-source" value="designer" /><span data-i18n="labelPrint.designedLabel">Designed Label</span></label>
-      <select id="sheet-designer-preset" class="fm-input" aria-label="Designed label preset" disabled></select>
+      <select id="sheet-designer-preset" class="fm-input" aria-label="Designed label preset" data-i18n-aria-label="labelPrint.designedLabelPreset" disabled></select>
       <button id="sheet-edit-designer" type="button" data-i18n="labelPrint.editDesignedLabel">Edit this label</button>
     </fieldset>
     <div>
@@ -24,7 +24,7 @@
             <div class="preset-control-row">
               <select id="sheet-preset" class="fm-select preset-select"></select>
               <button type="button" id="sheet-load-preset" class="preset-action-btn" data-i18n="labelPrint.loadPaperPreset">Load</button>
-              <button type="button" id="sheet-delete-preset" class="preset-action-btn preset-action-btn-danger preset-action-btn-icon" data-i18n-title="labelPrint.deletePaperPreset" title="Delete selected preset" aria-label="Delete selected preset">
+              <button type="button" id="sheet-delete-preset" class="preset-action-btn preset-action-btn-danger preset-action-btn-icon" data-i18n-title="labelPrint.deletePaperPreset" data-i18n-aria-label="labelPrint.deletePaperPreset" title="Delete selected preset" aria-label="Delete selected preset">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>
               </button>
             </div>
@@ -38,10 +38,10 @@
           </div>
         </div>
       </details>
-      <section class="sheet-layout-guide full" aria-label="Label paper layout">
+      <section class="sheet-layout-guide full" aria-label="Label paper layout" data-i18n-aria-label="labelPrint.paperLayout">
         <h3 class="sheet-layout-guide-title" data-i18n="labelPrint.paperLayoutTitle">Label Paper Layout</h3>
-        <div class="sheet-geometry-guide" aria-label="Label paper geometry guide">
-          <svg viewBox="0 0 800 420" role="img" aria-label="Label paper geometry guide">
+        <div class="sheet-geometry-guide" aria-label="Label paper geometry guide" data-i18n-aria-label="labelPrint.paperGeometryGuide">
+          <svg viewBox="0 0 800 420" role="img" aria-label="Label paper geometry guide" data-i18n-aria-label="labelPrint.paperGeometryGuide">
             <defs>
               <marker id="sheet-guide-arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M0 0l10 5-10 5z"></path>
@@ -150,6 +150,11 @@
 
   .sheet-source-picker legend { color: var(--text-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; padding: 0 4px; text-transform: uppercase; }
   .sheet-source-picker label { align-items: center; display: flex; font-size: 0.78rem; gap: 5px; }
+
+  @media (max-width: 900px) {
+    .sheet-source-picker { grid-template-columns: 1fr; }
+    .sheet-source-picker :is(button, select) { min-height: 44px; }
+  }
 
   .sheet-output-section > .ds-section-header {
     align-items: center;

@@ -1,42 +1,47 @@
 ---
+import { designerIcon, type DesignerIconName } from '../../lib/freeform-label/icons'
+
 const filamentFields = [
-  ['{filament.name}', 'Name'],
-  ['{filament.type}', 'Type'],
-  ['{filament.manufacturer}', 'Manufacturer'],
-  ['{filament.color_name}', 'Color'],
-  ['{filament.color_hex}', 'Hex'],
+  ['{filament.name}', 'Name', 'labelDesigner.fieldName'],
+  ['{filament.type}', 'Type', 'labelDesigner.fieldType'],
+  ['{filament.manufacturer}', 'Manufacturer', 'labelDesigner.fieldManufacturer'],
+  ['{filament.color_name}', 'Color', 'labelDesigner.fieldColor'],
+  ['{filament.color_hex}', 'Hex', 'labelDesigner.fieldHex'],
 ]
 const spoolFields = [
-  ['{id}', 'ID'],
-  ['{location}', 'Location'],
-  ['{status}', 'Status'],
-  ['{remaining_weight_g}', 'Remaining'],
-  ['{lot_number}', 'Lot'],
+  ['{id}', 'ID', 'labelDesigner.fieldId'],
+  ['{location}', 'Location', 'labelDesigner.fieldLocation'],
+  ['{status}', 'Status', 'labelDesigner.fieldStatus'],
+  ['{remaining_weight_g}', 'Remaining', 'labelDesigner.fieldRemaining'],
+  ['{lot_number}', 'Lot', 'labelDesigner.fieldLot'],
+]
+const iconModifiers: Array<{ modifier: string; icon: DesignerIconName; label: string; i18n: string }> = [
+  { modifier: 'caps', icon: 'uppercase', label: 'Uppercase', i18n: 'labelDesigner.modifierUppercase' },
+  { modifier: 'inverse', icon: 'inverse', label: 'Inverse', i18n: 'labelDesigner.modifierInverse' },
+  { modifier: 'colorInverse', icon: 'colorInverse', label: 'Filament color inverse', i18n: 'labelDesigner.modifierColorInverse' },
+  { modifier: 'date', icon: 'date', label: 'Date only', i18n: 'labelDesigner.modifierDateOnly' },
 ]
 ---
 
 <section id="freeform-field-dock" class="freeform-field-dock" aria-labelledby="freeform-fields-title">
   <div class="freeform-field-dock-heading">
     <h2 id="freeform-fields-title" data-i18n="labelDesigner.fieldsAndModifiers">Fields & modifiers</h2>
-    <div class="freeform-modifiers" role="group" aria-label="Text modifiers">
-      <button type="button" data-field-modifier="bold" aria-pressed="false" title="Bold"><strong>B</strong></button>
-      <button type="button" data-field-modifier="italic" aria-pressed="false" title="Italic"><em>I</em></button>
-      <button type="button" data-field-modifier="underline" aria-pressed="false" title="Underline"><u>U</u></button>
-      <button type="button" data-field-modifier="caps" aria-pressed="false" title="Uppercase">AA</button>
-      <button type="button" data-field-modifier="inverse" aria-pressed="false" title="Inverse">◐</button>
-      <button type="button" data-field-modifier="colorInverse" aria-pressed="false" title="Filament color inverse">◑</button>
-      <button type="button" data-field-modifier="date" aria-pressed="false" title="Date only">Date</button>
+    <div class="freeform-modifiers" role="group" aria-label="Text modifiers" data-i18n-aria-label="labelDesigner.textModifiers">
+      <button type="button" data-field-modifier="bold" aria-pressed="false" title="Bold" aria-label="Bold" data-i18n-title="labelDesigner.modifierBold" data-i18n-aria-label="labelDesigner.modifierBold"><strong>B</strong></button>
+      <button type="button" data-field-modifier="italic" aria-pressed="false" title="Italic" aria-label="Italic" data-i18n-title="labelDesigner.modifierItalic" data-i18n-aria-label="labelDesigner.modifierItalic"><em>I</em></button>
+      <button type="button" data-field-modifier="underline" aria-pressed="false" title="Underline" aria-label="Underline" data-i18n-title="labelDesigner.modifierUnderline" data-i18n-aria-label="labelDesigner.modifierUnderline"><u>U</u></button>
+      {iconModifiers.map(item => <button type="button" data-field-modifier={item.modifier} aria-pressed="false" title={item.label} aria-label={item.label} data-i18n-title={item.i18n} data-i18n-aria-label={item.i18n} set:html={designerIcon(item.icon)} />)}
     </div>
   </div>
-  <div class="freeform-field-tabs" role="tablist" aria-label="Field groups">
-    <button type="button" role="tab" aria-selected="true" data-field-group-tab="filament" data-i18n="labelDesigner.filamentFields">Filament</button>
-    <button type="button" role="tab" aria-selected="false" data-field-group-tab="spool" data-i18n="labelDesigner.spoolFields">Spool</button>
-    <button type="button" role="tab" aria-selected="false" data-field-group-tab="extra" data-i18n="labelDesigner.extraFields">Custom / extra</button>
+  <div class="freeform-field-tabs" role="tablist" aria-label="Field groups" data-i18n-aria-label="labelDesigner.fieldGroups">
+    <button id="freeform-field-tab-filament" type="button" role="tab" aria-selected="true" aria-controls="freeform-field-panel-filament" tabindex="0" data-field-group-tab="filament" data-i18n="labelDesigner.filamentFields">Filament</button>
+    <button id="freeform-field-tab-spool" type="button" role="tab" aria-selected="false" aria-controls="freeform-field-panel-spool" tabindex="-1" data-field-group-tab="spool" data-i18n="labelDesigner.spoolFields">Spool</button>
+    <button id="freeform-field-tab-extra" type="button" role="tab" aria-selected="false" aria-controls="freeform-field-panel-extra" tabindex="-1" data-field-group-tab="extra" data-i18n="labelDesigner.extraFields">Custom / extra</button>
   </div>
   <div class="freeform-field-groups">
-    <div data-field-group="filament">{filamentFields.map(([token, label]) => <button type="button" data-field-token={token} title={token}>{label}</button>)}</div>
-    <div data-field-group="spool" hidden>{spoolFields.map(([token, label]) => <button type="button" data-field-token={token} title={token}>{label}</button>)}</div>
-    <div data-field-group="extra" hidden id="freeform-extra-fields"><span data-i18n="labelDesigner.noExtraFields">No custom fields available.</span></div>
+    <div id="freeform-field-panel-filament" role="tabpanel" aria-labelledby="freeform-field-tab-filament" data-field-group="filament">{filamentFields.map(([token, label, i18n]) => <button type="button" data-field-token={token} title={token} data-i18n={i18n}>{label}</button>)}</div>
+    <div id="freeform-field-panel-spool" role="tabpanel" aria-labelledby="freeform-field-tab-spool" data-field-group="spool" hidden>{spoolFields.map(([token, label, i18n]) => <button type="button" data-field-token={token} title={token} data-i18n={i18n}>{label}</button>)}</div>
+    <div id="freeform-field-panel-extra" role="tabpanel" aria-labelledby="freeform-field-tab-extra" data-field-group="extra" hidden><div id="freeform-extra-fields"><span data-i18n="labelDesigner.noExtraFields">No custom fields available.</span></div></div>
   </div>
   <p id="freeform-field-hint" class="freeform-field-hint" data-i18n="labelDesigner.selectTextHint">Select a text element to insert at its caret. With another element selected, a new text box is created.</p>
 </section>
@@ -51,4 +56,6 @@ const spoolFields = [
   .freeform-field-tabs { margin: 7px 0 5px; }
   .freeform-field-groups { max-height: 86px; overflow: auto; }
   .freeform-field-hint { color: var(--text-muted); font-size: 0.68rem; margin: 6px 0 0; }
+  .freeform-modifiers button :global(svg) { height: 16px; width: 16px; }
+  .freeform-field-dock button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>

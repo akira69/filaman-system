@@ -67,6 +67,7 @@ export interface FreeformEditorOptions {
   assets?: LabelAssetClient
   onChange?: (state: FreeformEditorState) => void
   render?: (design: LabelDesignV2, revision: number) => void | Promise<void>
+  translate?: (key: string, fallback: string) => string
 }
 
 export interface FreeformLabelDesignerEditorOptions {
@@ -85,6 +86,7 @@ export interface FreeformLabelDesignerEditorOptions {
   crossPresetsKey?: string
   ownPresetsLabel?: string
   crossPresetsLabel?: string
+  loadInteract?: () => Promise<InteractFactory>
 }
 
 export interface FreeformLabelDesignerEditorController {
@@ -104,9 +106,47 @@ export interface JsonApplyResult {
 
 const defaultId: LabelElementIdFactory = () => crypto.randomUUID()
 const activeEditors = new Map<string, FreeformEditorController>()
+export const FREEFORM_EDITOR_BREAKPOINT_PX = 900
+
+const elementLabelKeys: Record<LabelElementType, string> = {
+  text: 'labelDesigner.elementText',
+  qr: 'labelDesigner.elementQr',
+  manufacturerLogo: 'labelDesigner.elementManufacturerLogo',
+  image: 'labelDesigner.elementImage',
+  swatch: 'labelDesigner.elementSwatch',
+  shape: 'labelDesigner.elementShape',
+}
+
+const elementLabelFallbacks: Record<LabelElementType, string> = {
+  text: 'Text element',
+  qr: 'QR code element',
+  manufacturerLogo: 'Manufacturer logo element',
+  image: 'Image element',
+  swatch: 'Color swatch element',
+  shape: 'Shape element',
+}
+
+const jsonErrorKeys = new Map<string, string>([
+  ['Element JSON must be valid JSON', 'labelDesigner.jsonInvalid'],
+  ['Element JSON must contain an object', 'labelDesigner.jsonMustBeObject'],
+  ['Element id cannot be changed', 'labelDesigner.jsonIdImmutable'],
+  ['Element type cannot be changed', 'labelDesigner.jsonTypeImmutable'],
+  ['Element type is not supported', 'labelDesigner.jsonUnsupportedType'],
+])
 
 function clone<T>(value: T): T {
   return structuredClone(value)
+}
+
+function localizedErrorMessage(
+  error: unknown,
+  translate: (key: string, fallback: string) => string,
+  key: string,
+  fallback: string,
+) {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : translate(key, fallback)
 }
 
 function readJsonObject(key: string): Record<string, unknown> | null {
@@ -240,6 +280,7 @@ function wrapField(token: string, modifier?: LabelFieldModifier | null) {
 export function createFreeformEditorController(
   options: FreeformEditorOptions = {},
 ) {
+  const translate = options.translate ?? ((_key: string, fallback: string) => fallback)
   const createId = options.createId ?? defaultId
   let design = normalizeLabelDesign(
     options.initialDesign ?? createDefaultLabelDesign(options.kind ?? 'spool', createId),
@@ -374,7 +415,7 @@ export function createFreeformEditorController(
 
   const applySelectedJson = (source: string): JsonApplyResult => {
     const selected = getSelectedElement()
-    if (!selected) return { ok: false, error: 'Select an element first' }
+    if (!selected) return { ok: false, error: translate('labelDesigner.selectElementFirst', 'Select an element first') }
     try {
       const next = parseLabelElementJson(source, selected, design.label)
       updateSelected(next)
@@ -382,7 +423,9 @@ export function createFreeformEditorController(
     } catch (error) {
       return {
         ok: false,
-        error: error instanceof Error ? error.message : 'Element JSON is invalid',
+        error: error instanceof Error
+          ? translate(jsonErrorKeys.get(error.message) ?? 'labelDesigner.jsonInvalid', error.message)
+          : translate('labelDesigner.jsonInvalid', 'Element JSON is invalid'),
       }
     }
   }
@@ -412,7 +455,12 @@ export function createFreeformEditorController(
       assets = await options.assets.list()
       return clone(assets)
     } catch (error) {
-      assetError = error instanceof Error ? error.message : 'Could not load label images'
+      assetError = localizedErrorMessage(
+        error,
+        translate,
+        'labelDesigner.imageLoadFailed',
+        'Could not load label images',
+      )
       throw error
     } finally {
       assetsLoading = false
@@ -421,7 +469,7 @@ export function createFreeformEditorController(
   }
 
   const uploadAsset = async (file: File) => {
-    if (!options.assets) throw new Error('Label image uploads are unavailable')
+    if (!options.assets) throw new Error(translate('labelDesigner.imageUploadUnavailable', 'Label image uploads are unavailable'))
     const asset = await options.assets.upload(file)
     assets = [asset, ...assets.filter(candidate => candidate.id !== asset.id)]
     assetError = null
@@ -430,7 +478,7 @@ export function createFreeformEditorController(
   }
 
   const deleteAsset = async (assetId: string) => {
-    if (!options.assets) throw new Error('Label image deletion is unavailable')
+    if (!options.assets) throw new Error(translate('labelDesigner.imageDeleteUnavailable', 'Label image deletion is unavailable'))
     await options.assets.delete(assetId)
     assets = assets.filter(asset => asset.id !== assetId)
     publish()
@@ -529,6 +577,7 @@ export interface BindFreeformEditorDomOptions {
   controller: FreeformEditorController
   editable?: boolean
   loadInteract?: () => Promise<InteractFactory>
+  translate?: (key: string, fallback: string) => string
 }
 
 function isElementProperty(value: string): value is keyof LabelDesignElement {
@@ -545,6 +594,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   let interaction: LabelInteractionController | null = null
   let editable = options.editable !== false
   let activeModifier: LabelFieldModifier | null = null
+  const translate = options.translate ?? ((_key: string, fallback: string) => fallback)
 
   const listen = <T extends Event>(
     target: EventTarget | null | undefined,
@@ -560,6 +610,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   const query = <T extends Element>(selector: string) => root.querySelector<T>(selector)
   const queryAll = <T extends Element>(selector: string) => Array.from(root.querySelectorAll<T>(selector))
   const canvasHost = query<HTMLElement>('#freeform-canvas-host')
+  const workspace = query<HTMLElement>('#freeform-designer-workspace')
   let interactionRoot: HTMLElement | null = null
   let interactionGeneration = 0
 
@@ -569,7 +620,11 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     const title = query<HTMLElement>('#freeform-inspector-title')
     const empty = query<HTMLElement>('#freeform-inspector-empty')
     const fields = query<HTMLElement>('#freeform-inspector-fields')
-    if (title) title.textContent = selected ? selected.type : 'No selection'
+    if (title) {
+      title.textContent = selected
+        ? translate(elementLabelKeys[selected.type], elementLabelFallbacks[selected.type])
+        : translate('labelDesigner.noSelection', 'No element selected')
+    }
     if (empty) empty.hidden = Boolean(selected)
     if (fields) fields.hidden = !selected
 
@@ -614,8 +669,23 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     queryAll<HTMLButtonElement>('[data-designer-action="undo"]').forEach(button => { button.disabled = !editable || !controller.canUndo() })
     queryAll<HTMLButtonElement>('[data-designer-action="redo"]').forEach(button => { button.disabled = !editable || !controller.canRedo() })
     canvasHost?.setAttribute('aria-readonly', String(!editable))
+    if (workspace) workspace.dataset.editorEditable = String(editable)
+    for (const chrome of queryAll<HTMLElement>('.freeform-toolbar, #freeform-element-inspector, #freeform-field-dock')) {
+      chrome.toggleAttribute('inert', !editable)
+      chrome.toggleAttribute('aria-hidden', !editable)
+    }
     queryAll<HTMLElement>('[data-label-element-id]').forEach(element => {
-      element.classList.toggle('is-selected', element.dataset.labelElementId === state.selectedId)
+      element.classList.toggle('is-selected', editable && element.dataset.labelElementId === state.selectedId)
+      const type = element.dataset.labelElementType as LabelElementType | undefined
+      if (editable && type && type in elementLabelKeys) {
+        element.tabIndex = 0
+        element.setAttribute('role', 'button')
+        element.setAttribute('aria-label', translate(elementLabelKeys[type], elementLabelFallbacks[type]))
+      } else {
+        element.removeAttribute('tabindex')
+        element.removeAttribute('role')
+        element.removeAttribute('aria-label')
+      }
     })
   }
 
@@ -667,11 +737,21 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     syncDom()
   }
 
-  const mutate = (operation: () => unknown) => {
+  const focusElement = (elementId: string | null) => {
+    const target = elementId
+      ? canvasHost?.querySelector<HTMLElement>(`[data-label-element-id="${CSS.escape(elementId)}"]`)
+      : null
+    ;(target ?? canvasHost)?.focus()
+  }
+
+  const mutate = (operation: () => unknown, focusAfter?: 'selected' | 'canvas') => {
     if (!editable) return
     operation()
     syncDom()
-    void refresh()
+    void refresh().then(() => {
+      if (focusAfter === 'selected') focusElement(controller.getState().selectedId)
+      if (focusAfter === 'canvas') focusElement(null)
+    })
   }
 
   queryAll<HTMLButtonElement>('[data-designer-add]').forEach(button => {
@@ -686,8 +766,8 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       switch (button.dataset.designerAction) {
         case 'undo': mutate(() => controller.undo()); break
         case 'redo': mutate(() => controller.redo()); break
-        case 'duplicate': mutate(() => controller.duplicateSelected()); break
-        case 'delete': mutate(() => controller.deleteSelected()); break
+        case 'duplicate': mutate(() => controller.duplicateSelected(), 'selected'); break
+        case 'delete': mutate(() => controller.deleteSelected(), 'canvas'); break
         case 'forward': mutate(() => controller.moveSelected('forward')); break
         case 'back': mutate(() => controller.moveSelected('back')); break
       }
@@ -738,15 +818,35 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     queryAll<HTMLButtonElement>('[data-field-modifier]').forEach(candidate => candidate.setAttribute('aria-pressed', 'false'))
   })
 
-  queryAll<HTMLButtonElement>('[data-field-group-tab]').forEach(button => {
-    listen<MouseEvent>(button, 'click', () => {
-      const group = button.dataset.fieldGroupTab
-      queryAll<HTMLButtonElement>('[data-field-group-tab]').forEach(candidate => {
-        candidate.setAttribute('aria-selected', String(candidate === button))
-      })
-      queryAll<HTMLElement>('[data-field-group]').forEach(panel => {
-        panel.hidden = panel.dataset.fieldGroup !== group
-      })
+  const fieldTabs = queryAll<HTMLButtonElement>('[data-field-group-tab]')
+  const activateFieldTab = (button: HTMLButtonElement) => {
+    const group = button.dataset.fieldGroupTab
+    fieldTabs.forEach(candidate => {
+      const active = candidate === button
+      candidate.setAttribute('aria-selected', String(active))
+      candidate.tabIndex = active ? 0 : -1
+    })
+    queryAll<HTMLElement>('[data-field-group]').forEach(panel => {
+      panel.hidden = panel.dataset.fieldGroup !== group
+    })
+  }
+  fieldTabs.forEach(button => {
+    listen<MouseEvent>(button, 'click', () => activateFieldTab(button))
+    listen<KeyboardEvent>(button, 'keydown', event => {
+      const current = fieldTabs.indexOf(button)
+      const next = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? fieldTabs.length - 1
+          : event.key === 'ArrowRight'
+            ? (current + 1) % fieldTabs.length
+            : event.key === 'ArrowLeft'
+              ? (current - 1 + fieldTabs.length) % fieldTabs.length
+              : -1
+      if (next < 0) return
+      event.preventDefault()
+      activateFieldTab(fieldTabs[next])
+      fieldTabs[next].focus()
     })
   })
 
@@ -756,6 +856,8 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     if (!editable) return
     const result = controller.applySelectedJson(json?.value ?? '')
     if (jsonError) jsonError.textContent = result.error ?? ''
+    if (result.ok) json?.removeAttribute('aria-invalid')
+    else json?.setAttribute('aria-invalid', 'true')
     if (result.ok) {
       syncDom()
       void refresh()
@@ -764,9 +866,15 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   listen<MouseEvent>(query('#freeform-json-revert'), 'click', () => {
     if (json) json.value = controller.getSelectedJson()
     if (jsonError) jsonError.textContent = ''
+    json?.removeAttribute('aria-invalid')
   })
   listen<MouseEvent>(query('#freeform-json-expand'), 'click', () => {
-    query<HTMLElement>('.freeform-json-section')?.classList.toggle('is-expanded')
+    const button = query<HTMLButtonElement>('#freeform-json-expand')
+    const expanded = query<HTMLElement>('.freeform-json-section')?.classList.toggle('is-expanded') ?? false
+    button?.setAttribute('aria-expanded', String(expanded))
+    if (button) button.textContent = expanded
+      ? translate('labelDesigner.collapse', 'Collapse')
+      : translate('labelDesigner.expand', 'Expand')
   })
 
   const upload = query<HTMLInputElement>('#freeform-image-upload')
@@ -780,7 +888,12 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       void refresh()
     }).catch(error => {
       const status = query<HTMLElement>('#freeform-image-status')
-      if (status) status.textContent = error instanceof Error ? error.message : 'Upload failed'
+      if (status) status.textContent = localizedErrorMessage(
+        error,
+        translate,
+        'labelDesigner.imageUploadFailed',
+        'Upload failed',
+      )
     })
   })
   listen<MouseEvent>(query('#freeform-image-delete'), 'click', () => {
@@ -789,29 +902,52 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     if (selected?.type !== 'image' || !selected.assetId) return
     void controller.deleteAsset(selected.assetId).then(syncDom).catch(error => {
       const status = query<HTMLElement>('#freeform-image-status')
-      if (status) status.textContent = error instanceof Error ? error.message : 'Delete failed'
+      if (status) status.textContent = localizedErrorMessage(
+        error,
+        translate,
+        'labelDesigner.imageDeleteFailed',
+        'Delete failed',
+      )
     })
   })
 
   listen<KeyboardEvent>(canvasHost, 'keydown', event => {
     if (!editable) return
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) return
+    const element = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-label-element-id]')
+      : null
+    if ((event.key === 'Enter' || event.key === ' ') && element?.dataset.labelElementId) {
+      event.preventDefault()
+      controller.select(element.dataset.labelElementId)
+      syncDom()
+      return
+    }
     const step = event.shiftKey ? 1 : 0.1
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
       event.preventDefault()
       mutate(() => event.shiftKey ? controller.redo() : controller.undo())
     } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'd') {
       event.preventDefault()
-      mutate(() => controller.duplicateSelected())
+      mutate(() => controller.duplicateSelected(), 'selected')
     } else if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault()
-      mutate(() => controller.deleteSelected())
+      mutate(() => controller.deleteSelected(), 'canvas')
     } else if (event.key.startsWith('Arrow')) {
       event.preventDefault()
       const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0
       const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
-      mutate(() => controller.nudgeSelected(dx, dy))
+      mutate(() => controller.nudgeSelected(dx, dy), 'selected')
     }
+  })
+  listen<FocusEvent>(canvasHost, 'focusin', event => {
+    if (!editable) return
+    const element = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-label-element-id]')
+      : null
+    if (!element?.dataset.labelElementId) return
+    controller.select(element.dataset.labelElementId)
+    syncDom()
   })
 
   syncDom()
@@ -935,6 +1071,7 @@ export async function initFreeformLabelDesignerEditor(
     initialDesign,
     kind: entityType,
     assets: createLabelAssetClient(),
+    translate: options.translate,
     onChange: state => {
       const serialized = JSON.stringify(state.design)
       if (serialized !== lastPersisted) {
@@ -944,8 +1081,14 @@ export async function initFreeformLabelDesignerEditor(
       const summary = document.getElementById('freeform-selection-summary')
       if (summary) {
         const selected = state.design.elements.find(element => element.id === state.selectedId)
+        const typeName = selected
+          ? (options.translate?.(elementLabelKeys[selected.type], elementLabelFallbacks[selected.type]) ?? elementLabelFallbacks[selected.type])
+          : ''
         summary.textContent = selected
-          ? `${selected.type} · ${selected.w.toFixed(1)} × ${selected.h.toFixed(1)} mm`
+          ? (options.translate?.('labelDesigner.selectionSummary', '{type} · {width} × {height} mm') ?? '{type} · {width} × {height} mm')
+            .replace('{type}', typeName)
+            .replace('{width}', selected.w.toFixed(1))
+            .replace('{height}', selected.h.toFixed(1))
           : (options.translate?.('labelDesigner.noSelection', 'No element selected') ?? 'No element selected')
       }
     },
@@ -966,8 +1109,19 @@ export async function initFreeformLabelDesignerEditor(
   const presetDelete = document.getElementById('freeform-preset-delete') as HTMLButtonElement | null
   const presetStatus = document.getElementById('freeform-preset-status')
   const mobileNotice = document.getElementById('freeform-mobile-notice')
+  const workspace = document.getElementById('freeform-designer-workspace')
+  const editorContainer = workspace?.parentElement ?? workspace
   const cleanups: Array<() => void> = []
-  let editorEditable = window.innerWidth > 900
+  const measuredWorkspaceWidth = () => {
+    const workspaceWidth = workspace?.getBoundingClientRect().width ?? 0
+    const measured = workspaceWidth > 0
+      ? workspaceWidth
+      : (editorContainer?.getBoundingClientRect().width ?? 0)
+    return measured > 0 ? measured : window.innerWidth
+  }
+  let editorEditable = measuredWorkspaceWidth() > FREEFORM_EDITOR_BREAKPOINT_PX
+  let resizeObserver: ResizeObserver | null = null
+  let destroyed = false
   let pendingPresetMutations = 0
   let presetMutationTail: Promise<void> = Promise.resolve()
 
@@ -1044,8 +1198,17 @@ export async function initFreeformLabelDesignerEditor(
       }
       groups.push(group)
     }
-    appendGroup(options.ownPresetsLabel ?? `${options.entityLabel ?? 'Label'} presets`, 'own', own)
-    appendGroup(options.crossPresetsLabel ?? 'Other presets', 'cross', cross)
+    const ownFallback = `${options.entityLabel ?? 'Label'} presets`
+    const ownLabel = options.ownPresetsLabel
+      ?? (options.translate?.('labelDesigner.ownPresets', '{entity} presets') ?? '{entity} presets')
+        .replace('{entity}', options.entityLabel ?? 'Label')
+    appendGroup(ownLabel || ownFallback, 'own', own)
+    appendGroup(
+      options.crossPresetsLabel
+        ?? (options.translate?.('labelDesigner.otherPresets', 'Other presets') ?? 'Other presets'),
+      'cross',
+      cross,
+    )
     presetSelect.replaceChildren(...groups)
     const preferred = selectName ? `own:${selectName}` : presetSelect.options[0]?.value
     if (preferred) presetSelect.value = preferred
@@ -1156,15 +1319,25 @@ export async function initFreeformLabelDesignerEditor(
     })
   })
 
-  const syncMobileState = () => {
-    const nextEditable = window.innerWidth > 900
+  const syncMobileState = (availableWidth = measuredWorkspaceWidth()) => {
+    const nextEditable = availableWidth > FREEFORM_EDITOR_BREAKPOINT_PX
     if (mobileNotice) mobileNotice.hidden = nextEditable
+    if (workspace) workspace.dataset.editorEditable = String(nextEditable)
     const changed = nextEditable !== editorEditable
     editorEditable = nextEditable
     syncSidebarMutationControls()
     if (changed) void domBinding?.setEditable(nextEditable)
   }
-  listen(window, 'resize', syncMobileState)
+  if (editorContainer && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(entries => {
+      if (destroyed) return
+      const entry = entries.find(candidate => candidate.target === editorContainer) ?? entries[0]
+      syncMobileState(entry?.contentRect.width ?? measuredWorkspaceWidth())
+    })
+    resizeObserver.observe(editorContainer)
+  } else {
+    listen(window, 'resize', () => syncMobileState())
+  }
   renderExtraFields()
   syncGeometry()
   refreshPresetList()
@@ -1173,6 +1346,8 @@ export async function initFreeformLabelDesignerEditor(
     root: document,
     controller,
     editable: editorEditable,
+    loadInteract: options.loadInteract,
+    translate: options.translate,
   })
 
   return {
@@ -1187,6 +1362,8 @@ export async function initFreeformLabelDesignerEditor(
     refreshPresetList,
     refreshTokenAreas: renderExtraFields,
     destroy() {
+      destroyed = true
+      resizeObserver?.disconnect()
       domBinding?.destroy()
       cleanups.splice(0).forEach(cleanup => cleanup())
       if (activeEditors.get(options.settingsKey) === controller) activeEditors.delete(options.settingsKey)

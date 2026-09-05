@@ -40,6 +40,11 @@ export function prepareLabelOutputClone(root: Element): void {
     if (outputOnly) element.removeAttribute('aria-hidden')
     element.removeAttribute('data-label-interactive')
     element.removeAttribute('data-label-interaction-bound')
+    if (element.hasAttribute('data-label-element-id')) {
+      element.removeAttribute('tabindex')
+      element.removeAttribute('role')
+      element.removeAttribute('aria-label')
+    }
   })
 }
 

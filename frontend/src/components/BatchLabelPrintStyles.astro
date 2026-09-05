@@ -30,4 +30,9 @@
   .print-page-batch .label-spool-id,
   .print-page-batch .label-id-corner { color: black !important; }
 
+  @media (max-width: 900px) {
+    .print-page-batch { overflow: visible; }
+    .print-page-batch .preview-container { align-items: center; flex: 0 0 auto; min-height: 320px; overflow: auto; padding: 20px; }
+  }
+
 </style>

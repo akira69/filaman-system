@@ -11,6 +11,10 @@ export type DesignerIconName =
   | 'delete'
   | 'forward'
   | 'back'
+  | 'uppercase'
+  | 'inverse'
+  | 'colorInverse'
+  | 'date'
 
 const paths: Record<DesignerIconName, string> = {
   text: '<path d="M5 5h14M12 5v14M8 19h8"/>',
@@ -25,6 +29,10 @@ const paths: Record<DesignerIconName, string> = {
   delete: '<path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/>',
   forward: '<path d="M7 17 17 7M10 7h7v7"/>',
   back: '<path d="m17 7-10 10M7 10v7h7"/>',
+  uppercase: '<path d="M4 18 9 6l5 12M6 14h6M15 9h5M17.5 6v6"/>',
+  inverse: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/>',
+  colorInverse: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor" stroke="none"/><path d="M8 8h8v8H8z"/>',
+  date: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h2M12 14h2M16 14h1M8 17h2M12 17h2"/>',
 }
 
 export function designerIcon(name: DesignerIconName) {

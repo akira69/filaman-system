@@ -851,6 +851,24 @@ export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
       const mode = button.dataset.workspaceMode
       activate(mode === 'designer' || mode === 'sheets' ? mode : 'standard')
     })
+    button.addEventListener('keydown', event => {
+      const current = buttons.indexOf(button)
+      const next = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : event.key === 'ArrowRight'
+            ? (current + 1) % buttons.length
+            : event.key === 'ArrowLeft'
+              ? (current - 1 + buttons.length) % buttons.length
+              : -1
+      if (next < 0) return
+      event.preventDefault()
+      const destination = buttons[next]
+      const mode = destination.dataset.workspaceMode
+      activate(mode === 'designer' || mode === 'sheets' ? mode : 'standard')
+      destination.focus()
+    })
   })
 
   return {

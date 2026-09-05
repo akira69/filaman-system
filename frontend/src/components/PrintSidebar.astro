@@ -33,10 +33,10 @@ const {
       <span id={backLabelId} data-i18n={backI18n}>{backLabel}</span>
     </a>
 
-    <div class="tab-nav" role="tablist" aria-label="Label workspace">
-      <button type="button" role="tab" aria-selected="true" class="tab-btn active" id="tab-btn-print" data-tab="print" data-workspace-mode="standard" data-i18n={standardI18n}>{standardLabel}</button>
-      <button type="button" role="tab" aria-selected="false" class="tab-btn" id="tab-btn-designer" data-tab="designer" data-workspace-mode="designer" data-i18n={designerI18n}>{designerLabel}</button>
-      <button type="button" role="tab" aria-selected="false" class="tab-btn" id="tab-btn-sheets" data-tab="print" data-workspace-mode="sheets" data-i18n={sheetsI18n}>{sheetsLabel}</button>
+    <div class="tab-nav" role="tablist" aria-label="Label workspace" data-i18n-aria-label="labelPrint.workspaceTabs">
+      <button type="button" role="tab" aria-selected="true" aria-controls="tab-panel-print" tabindex="0" class="tab-btn active" id="tab-btn-print" data-tab="print" data-workspace-mode="standard" data-i18n={standardI18n}>{standardLabel}</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="tab-panel-designer-v2" tabindex="-1" class="tab-btn" id="tab-btn-designer" data-tab="designer" data-workspace-mode="designer" data-i18n={designerI18n}>{designerLabel}</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="tab-panel-sheets" tabindex="-1" class="tab-btn" id="tab-btn-sheets" data-tab="print" data-workspace-mode="sheets" data-i18n={sheetsI18n}>{sheetsLabel}</button>
     </div>
 
     <slot />

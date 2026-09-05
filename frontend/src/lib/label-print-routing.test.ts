@@ -3,12 +3,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, URL as NodeURL } from 'node:url'
 
 import LabelDesignerEditor from '../components/LabelDesignerEditor.astro'
 import LabelSheetOutputSettings from '../components/LabelSheetOutputSettings.astro'
 import PrintActionFooter from '../components/PrintActionFooter.astro'
 import PrintSidebar from '../components/PrintSidebar.astro'
+import DesignerSidebar from '../components/freeform-label/DesignerSidebar.astro'
+import DesignerWorkspace from '../components/freeform-label/DesignerWorkspace.astro'
 
 import {
   bindLabelSheetControls,
@@ -17,6 +19,8 @@ import {
   type LabelSheetControls,
   type LabelSheetSettings,
 } from './label-sheet'
+
+const componentsDirectory = fileURLToPath(new NodeURL('../components/', import.meta.url))
 
 const settings: LabelSheetSettings = {
   paperSize: 'custom',
@@ -250,7 +254,42 @@ describe('first-class print workspace navigation', () => {
 
     const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-workspace-mode]'))
     expect(tabs.map(tab => tab.dataset.workspaceMode)).toEqual(['standard', 'designer', 'sheets'])
-    expect(document.querySelector('[role="tablist"]')).not.toBeNull()
+    expect(document.querySelector('[role="tablist"]')?.getAttribute('data-i18n-aria-label')).toBe('labelPrint.workspaceTabs')
+    expect(tabs.map(tab => ({
+      id: tab.id,
+      controls: tab.getAttribute('aria-controls'),
+      tabIndex: tab.tabIndex,
+    }))).toEqual([
+      { id: 'tab-btn-print', controls: 'tab-panel-print', tabIndex: 0 },
+      { id: 'tab-btn-designer', controls: 'tab-panel-designer-v2', tabIndex: -1 },
+      { id: 'tab-btn-sheets', controls: 'tab-panel-sheets', tabIndex: -1 },
+    ])
+  })
+
+  it('renders associated workspace and field tabpanels from the real components', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = [
+      await container.renderToString(DesignerSidebar),
+      await container.renderToString(DesignerWorkspace),
+      await container.renderToString(LabelSheetOutputSettings),
+    ].join('')
+
+    expect(document.querySelector('#tab-panel-designer-v2')?.getAttribute('role')).toBe('tabpanel')
+    expect(document.querySelector('#tab-panel-designer-v2')?.getAttribute('aria-labelledby')).toBe('tab-btn-designer')
+    expect(document.querySelector('#tab-panel-sheets')?.getAttribute('role')).toBe('tabpanel')
+    expect(document.querySelector('#tab-panel-sheets')?.getAttribute('aria-labelledby')).toBe('tab-btn-sheets')
+
+    const fieldTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-field-group-tab]'))
+    expect(fieldTabs.map(tab => [tab.id, tab.getAttribute('aria-controls'), tab.tabIndex])).toEqual([
+      ['freeform-field-tab-filament', 'freeform-field-panel-filament', 0],
+      ['freeform-field-tab-spool', 'freeform-field-panel-spool', -1],
+      ['freeform-field-tab-extra', 'freeform-field-panel-extra', -1],
+    ])
+    for (const tab of fieldTabs) {
+      const panel = document.getElementById(tab.getAttribute('aria-controls')!)
+      expect(panel?.getAttribute('role')).toBe('tabpanel')
+      expect(panel?.getAttribute('aria-labelledby')).toBe(tab.id)
+    }
   })
 
   it('renders an explicit Standard or Designed Label source selector in sheets mode', async () => {
@@ -260,6 +299,27 @@ describe('first-class print workspace navigation', () => {
     expect(document.querySelector('#tab-panel-sheets')).not.toBeNull()
     expect(Array.from(document.querySelectorAll<HTMLInputElement>('[name="label-sheet-source"]')).map(input => input.value)).toEqual(['standard', 'designer'])
     expect(document.querySelector<HTMLSelectElement>('#output-mode')?.hidden).toBe(true)
+    expect(document.querySelector('#sheet-designer-preset')?.getAttribute('data-i18n-aria-label')).toBe('labelPrint.designedLabelPreset')
+    expect(document.querySelector('#sheet-delete-preset')?.getAttribute('data-i18n-aria-label')).toBe('labelPrint.deletePaperPreset')
+    expect(document.querySelector('.sheet-layout-guide')?.getAttribute('data-i18n-aria-label')).toBe('labelPrint.paperLayout')
+    expect(document.querySelectorAll('[data-i18n-aria-label="labelPrint.paperGeometryGuide"]')).toHaveLength(2)
+  })
+
+  it('preserves long translated tab labels as text', async () => {
+    const container = await AstroContainer.create()
+    const longDesignerLabel = 'Etikettendesigner mit besonders ausführlicher Bezeichnung'
+    document.body.innerHTML = await container.renderToString(PrintSidebar, {
+      props: {
+        backLabel: 'Zurück',
+        standardLabel: 'Standardetikett mit ausführlicher Bezeichnung',
+        designerLabel: longDesignerLabel,
+        sheetsLabel: 'Etikettenbögen mit gespeicherten Vorlagen',
+      },
+    })
+
+    const designer = document.querySelector<HTMLButtonElement>('#tab-btn-designer')!
+    expect(designer.textContent).toBe(longDesignerLabel)
+    expect(designer.getAttribute('aria-label')).toBeNull()
   })
 
   it('persists the selected sheet label source and designed preset', async () => {
@@ -282,5 +342,32 @@ describe('first-class print workspace navigation', () => {
     expect(preset.disabled).toBe(false)
     expect(JSON.parse(localStorage.getItem('filaman-label-sheet-source-v1')!)).toEqual({ type: 'designer', presetName: 'Compact' })
     expect(changed.length).toBeGreaterThan(0)
+  })
+})
+
+describe('compact responsive print layout', () => {
+  it('stacks preview before full-width controls and keeps mobile actions touch-sized', () => {
+    const base = readFileSync(`${componentsDirectory}LabelPrintBaseStyles.astro`, 'utf8')
+    const single = readFileSync(`${componentsDirectory}SingleLabelPrintStyles.astro`, 'utf8')
+    const batch = readFileSync(`${componentsDirectory}BatchLabelPrintStyles.astro`, 'utf8')
+    const styles = `${base}\n${single}\n${batch}`
+
+    expect(styles).toMatch(/@media \(max-width: 900px\)/)
+    expect(styles).toMatch(/\.print-page\s*\{[^}]*height:\s*auto[^}]*overflow-y:\s*auto/s)
+    expect(styles).toMatch(/\.print-sidebar\s*\{[^}]*width:\s*100%/s)
+    expect(styles).toMatch(/\.preview-container\s*\{[^}]*order:\s*-1/s)
+    expect(styles).toMatch(/\.fm-btn\s*\{[^}]*min-height:\s*44px/s)
+    expect(styles).toMatch(/\.tab-btn\s*\{[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/s)
+  })
+
+  it('keeps compact desktop controls and nonshrinking designer canvas affordances', () => {
+    const base = readFileSync(`${componentsDirectory}LabelPrintBaseStyles.astro`, 'utf8')
+    const workspace = readFileSync(`${componentsDirectory}freeform-label/DesignerWorkspace.astro`, 'utf8')
+
+    expect(base).toMatch(/\.fm-input\s*\{[^}]*font-size:\s*0\.8rem/s)
+    expect(workspace).toMatch(/\.freeform-toolbar\s*button\s*\{[^}]*height:\s*32px[^}]*width:\s*32px/s)
+    expect(workspace).toMatch(/\.freeform-toolbar\s*button\s*:global\(svg\)\s*\{[^}]*height:\s*16px[^}]*width:\s*16px/s)
+    expect(workspace).toMatch(/\.freeform-toolbar-group\s*\{[^}]*flex-shrink:\s*0/s)
+    expect(workspace).toMatch(/\.freeform-canvas-region[^}]*min-width:\s*320px[^}]*overflow:\s*auto/s)
   })
 })
