@@ -1,11 +1,18 @@
+<div id="tab-panel-sheets" class="settings-section" hidden>
 <details class="ds-section sheet-output-section" open>
   <summary class="ds-section-header" data-i18n="labelPrint.outputTitle">Output</summary>
   <div class="ds-section-body">
+    <fieldset class="sheet-source-picker">
+      <legend data-i18n="labelPrint.sheetSource">Label source</legend>
+      <label><input type="radio" name="label-sheet-source" value="standard" checked /><span data-i18n="labelPrint.standardLabel">Standard Label</span></label>
+      <label><input type="radio" name="label-sheet-source" value="designer" /><span data-i18n="labelPrint.designedLabel">Designed Label</span></label>
+      <select id="sheet-designer-preset" class="fm-input" aria-label="Designed label preset" disabled></select>
+      <button id="sheet-edit-designer" type="button" data-i18n="labelPrint.editDesignedLabel">Edit this label</button>
+    </fieldset>
     <div>
-      <label class="fm-label" for="output-mode" data-i18n="labelPrint.outputMode">Output mode</label>
-      <select id="output-mode" class="fm-input">
-        <option value="individual" data-i18n="labelPrint.outputIndividual">Individual labels</option>
-        <option value="sheet" data-i18n="labelPrint.outputSheet">Label paper</option>
+      <select id="output-mode" hidden aria-hidden="true" tabindex="-1">
+        <option value="individual">Individual labels</option>
+        <option value="sheet">Label paper</option>
       </select>
     </div>
     <div id="label-sheet-settings" class="sheet-settings-grid" style="display:none;">
@@ -119,6 +126,7 @@
     </div>
   </div>
 </details>
+</div>
 
 <style>
   .sheet-output-section {
@@ -129,6 +137,19 @@
     margin-top: auto;
     overflow: hidden;
   }
+
+  .sheet-source-picker {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    margin: 0;
+    padding: 10px;
+  }
+
+  .sheet-source-picker legend { color: var(--text-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; padding: 0 4px; text-transform: uppercase; }
+  .sheet-source-picker label { align-items: center; display: flex; font-size: 0.78rem; gap: 5px; }
 
   .sheet-output-section > .ds-section-header {
     align-items: center;

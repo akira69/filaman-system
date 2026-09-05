@@ -20,12 +20,14 @@ import {
   bindPdfOutputActions,
   bindPrintPageSidebarCollapse,
   bindPrintPdfPreference,
+  bindPrintWorkspaceTabs,
   captureLabelSettings,
   createPreviewRenderCoordinator,
   getLabelOutputControls,
   getLabelSettingsControls,
   getStandardLabelSettings,
   readVersionedLabelSettings,
+  readPrintWorkspaceMode,
   resetLabelSettings,
   restoreLabelSettings,
   type LabelPdfFactoryOverride,
@@ -101,6 +103,56 @@ describe('createPreviewRenderCoordinator', () => {
   })
 })
 
+describe('print workspace modes', () => {
+  it('validates persisted modes and falls back to standard', () => {
+    localStorage.setItem('workspace-mode', 'sheets')
+    expect(readPrintWorkspaceMode('workspace-mode')).toBe('sheets')
+    localStorage.setItem('workspace-mode', 'unknown')
+    expect(readPrintWorkspaceMode('workspace-mode')).toBe('standard')
+  })
+
+  it('shows one of Standard, Designer, and Label Sheets and updates output availability', () => {
+    document.body.innerHTML = `
+      <button data-workspace-mode="standard"></button>
+      <button data-workspace-mode="designer"></button>
+      <button data-workspace-mode="sheets"></button>
+      <section id="standard"></section>
+      <section id="designer"></section>
+      <section id="sheets"></section>
+      <button id="png"></button><button id="aml"></button><button id="pdf"></button><button id="print"></button>
+    `
+    const changes: string[] = []
+    const binding = bindPrintWorkspaceTabs({
+      buttons: document.querySelectorAll('[data-workspace-mode]'),
+      panels: {
+        standard: document.querySelector('#standard')!,
+        designer: document.querySelector('#designer')!,
+        sheets: document.querySelector('#sheets')!,
+      },
+      outputButtons: {
+        png: document.querySelector('#png')!,
+        aml: document.querySelector('#aml')!,
+        pdf: document.querySelector('#pdf')!,
+        print: document.querySelector('#print')!,
+      },
+      storageKey: 'workspace-mode',
+      onChange: mode => changes.push(mode),
+    })
+
+    binding.activate('sheets')
+    expect(document.querySelector<HTMLElement>('#sheets')!.hidden).toBe(false)
+    expect(document.querySelector<HTMLElement>('#standard')!.hidden).toBe(true)
+    expect(document.querySelector<HTMLButtonElement>('#png')!.hidden).toBe(true)
+    expect(document.querySelector<HTMLButtonElement>('#aml')!.hidden).toBe(true)
+    expect(document.querySelector<HTMLButtonElement>('#pdf')!.hidden).toBe(false)
+
+    binding.activate('designer')
+    expect(document.querySelector<HTMLButtonElement>('#png')!.hidden).toBe(false)
+    expect(changes).toEqual(['sheets', 'designer'])
+    expect(binding.getActiveMode()).toBe('designer')
+  })
+})
+
 function makePdfDocument() {
   return {
     save: vi.fn(),
@@ -147,6 +199,9 @@ function makeBrowserPrintBinding(
       {} as ReturnType<LabelSheetControls['getSettings']>
     ),
     setOutputMode: () => undefined,
+    getSource: () => ({ type: 'standard' }),
+    setSource: () => undefined,
+    setDesignerPresets: () => undefined,
   } as LabelSheetControls
   return {
     previewRoot: document.body,
@@ -859,6 +914,9 @@ describe('shared single-label print-page behavior', () => {
       setOutputMode: mode => {
         outputMode = mode
       },
+      getSource: () => ({ type: 'standard' }),
+      setSource: () => undefined,
+      setDesignerPresets: () => undefined,
     } satisfies LabelSheetControls
     const applyIndividualZoom = vi.fn()
     const sync = bindLabelOutputPreview({
