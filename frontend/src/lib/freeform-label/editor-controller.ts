@@ -93,6 +93,7 @@ export interface FreeformLabelDesignerEditorController {
   getDesign: () => LabelDesignV2
   loadSettings: () => void
   refresh: () => Promise<void>
+  refreshInteractions: () => Promise<void>
   refreshExtraFields: (extraFields: DesignerExtraField[]) => void
   refreshPresetList: (selectName?: string) => void
   refreshTokenAreas: () => void
@@ -956,6 +957,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
 
   return {
     refresh,
+    refreshInteractions: refreshInteraction,
     sync: syncDom,
     async setEditable(next: boolean) {
       editable = next
@@ -1175,6 +1177,7 @@ export async function initFreeformLabelDesignerEditor(
       const source = field.source === 'filament' || field.source === 'spool' ? field.source : entityType
       const key = field.key.startsWith(`${source}.`) ? field.key : `${source}.${field.key}`
       button.type = 'button'
+      button.className = 'freeform-token-chip'
       button.dataset.fieldToken = `{${key}}`
       button.title = button.dataset.fieldToken
       button.textContent = field.label || field.key
@@ -1354,6 +1357,7 @@ export async function initFreeformLabelDesignerEditor(
     getDesign: () => controller.getState().design,
     loadSettings,
     refresh: () => domBinding?.refresh() ?? Promise.resolve(),
+    refreshInteractions: () => domBinding?.refreshInteractions() ?? Promise.resolve(),
     refreshExtraFields(next) {
       extraFields = next
       renderExtraFields()

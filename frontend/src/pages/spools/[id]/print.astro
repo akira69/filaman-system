@@ -347,6 +347,7 @@ export function getStaticPaths() {
     applyIndividualZoom: zoom => {
       labelPreview.style.transform = `scale(${zoom / 100})`
       labelPreview.style.transformOrigin = 'center center'
+      void designerEditor?.refreshInteractions()
     },
   })
 

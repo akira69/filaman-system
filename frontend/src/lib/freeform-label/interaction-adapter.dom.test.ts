@@ -6,7 +6,7 @@ import { bindLabelInteractions, type InteractFactory } from './interaction-adapt
 import type { LabelDesignElement, LabelDesignV2 } from './types'
 
 type Listener = (event: Record<string, unknown>) => void
-type InteractionOptions = { listeners: Record<string, Listener>; edges?: Record<string, boolean> }
+type InteractionOptions = { listeners: Record<string, Listener>; edges?: Record<string, boolean>; margin?: number }
 
 function createInteractMock() {
   const bindings = new Map<string, {
@@ -60,6 +60,7 @@ beforeEach(() => {
     </div>`
   const root = document.querySelector<HTMLElement>('#root')!
   Object.defineProperty(root, 'getBoundingClientRect', {
+    configurable: true,
     value: () => ({ width: 600, height: 400, x: 0, y: 0, top: 0, left: 0, right: 600, bottom: 400 }),
   })
 })
@@ -127,6 +128,9 @@ describe('freeform label interaction adapter', () => {
     expect(bindings.get('text')!.resize!.edges).toEqual({ left: true, right: true, top: false, bottom: false })
     expect(bindings.get('qr')!.resize!.edges).toEqual({ left: true, right: true, top: true, bottom: true })
     expect(bindings.get('shape')!.resize!.edges).toEqual({ left: true, right: true, top: true, bottom: true })
+    expect(bindings.get('text')!.resize!.margin).toBe(3)
+    expect(bindings.get('qr')!.resize!.margin).toBe(3)
+    expect(bindings.get('shape')!.resize!.margin).toBe(3)
 
     bindings.get('text')!.resize!.listeners.move({
       rect: { width: 250, height: 100 },
@@ -148,6 +152,42 @@ describe('freeform label interaction adapter', () => {
       edges: { right: true, bottom: true },
     })
     expect(onGeometryChange).toHaveBeenLastCalledWith('shape', { x: 10, y: 15, w: 35, h: 12 })
+  })
+
+  it('keeps an eight-pixel move target by disabling resize for undersized elements', async () => {
+    const root = document.querySelector<HTMLElement>('#root')!
+    let rootWidth = 60
+    Object.defineProperty(root, 'getBoundingClientRect', {
+      value: () => ({ width: rootWidth, height: 40, x: 0, y: 0, top: 0, left: 0, right: rootWidth, bottom: 40 }),
+    })
+    const design = makeDesign()
+    const text = design.elements.find(element => element.id === 'text')!
+    const shape = design.elements.find(element => element.id === 'shape')!
+    text.h = 0.3
+    shape.w = 13
+    shape.h = 7
+    const { factory, bindings } = createInteractMock()
+    const controller = await bindLabelInteractions({
+      root,
+      getDesign: () => design,
+      editable: true,
+      onSelect: vi.fn(),
+      onGeometryChange: vi.fn(),
+      loadInteract: async () => factory,
+    })
+
+    expect(bindings.get('text')!.resize).toBeDefined()
+    expect(bindings.get('shape')!.drag).toBeDefined()
+    expect(bindings.get('shape')!.resize).toBeUndefined()
+    expect(document.querySelector<HTMLElement>('[data-label-element-id="shape"]')!.style.cursor).toBe('move')
+
+    rootWidth = 120
+    controller.refresh()
+    expect(bindings.get('shape')!.resize).toBeDefined()
+    expect(bindings.get('shape')!.resize!.margin).toBe(3)
+
+    controller.destroy()
+    expect(document.querySelector<HTMLElement>('[data-label-element-id="shape"]')!.style.cursor).toBe('')
   })
 
   it('tears down old bindings on refresh and all bindings on destroy', async () => {

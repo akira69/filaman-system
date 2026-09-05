@@ -12,6 +12,7 @@ import JSZip from 'jszip'
 
 import {
   LABEL_PRINT_PDF_MODE_KEY,
+  applyBatchLabelPreviewZoom,
   appendLabelSettingsCheckbox,
   bindLabelOutputPreview,
   bindLabelOutputs,
@@ -740,6 +741,34 @@ describe('shared print-page controls', () => {
 })
 
 describe('shared single-label print-page behavior', () => {
+  it('zooms batch label wrappers nested inside the designer canvas host', () => {
+    document.body.innerHTML = `
+      <main id="preview-root">
+        <div id="freeform-designer-workspace">
+          <div id="freeform-canvas-host" class="freeform-canvas-host">
+            <div class="label-wrapper" id="wrapper-101">
+              <div class="label-preview" id="label-101"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    `
+    const root = document.querySelector<HTMLElement>('#preview-root')!
+    const wrapper = document.querySelector<HTMLElement>('#wrapper-101')!
+    const label = document.querySelector<HTMLElement>('#label-101')!
+    Object.defineProperties(label, {
+      offsetWidth: { configurable: true, value: 240 },
+      offsetHeight: { configurable: true, value: 160 },
+    })
+
+    applyBatchLabelPreviewZoom(root, 150)
+
+    expect(label.style.transform).toBe('scale(1.5)')
+    expect(label.style.transformOrigin).toBe('top left')
+    expect(wrapper.style.width).toBe('360px')
+    expect(wrapper.style.height).toBe('240px')
+  })
+
   it('restores and persists preview zoom through the existing zoom controls', () => {
     renderPrintPageControls()
     localStorage.setItem('test-label-zoom', '135')

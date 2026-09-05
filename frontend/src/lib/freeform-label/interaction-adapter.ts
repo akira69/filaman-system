@@ -16,6 +16,7 @@ interface InteractionOptions {
   }
   edges?: { left: boolean; right: boolean; top: boolean; bottom: boolean }
   inertia?: boolean
+  margin?: number
 }
 
 interface Interactable {
@@ -51,6 +52,9 @@ export interface LabelInteractionController {
 
 const roundMm = (value: number) => Math.round(value * 1000) / 1000
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+const RESIZE_EDGE_MARGIN_PX = 3
+const MINIMUM_MOVE_TARGET_PX = 8
+const MINIMUM_RESIZABLE_AXIS_PX = RESIZE_EDGE_MARGIN_PX * 2 + MINIMUM_MOVE_TARGET_PX
 
 function geometryOf(element: LabelDesignElement): LabelGeometry {
   return { x: element.x, y: element.y, w: element.w, h: element.h }
@@ -162,6 +166,7 @@ export async function bindLabelInteractions(
     interactables = []
     for (const node of options.root.querySelectorAll<HTMLElement>('[data-label-interaction-bound]')) {
       node.removeAttribute('data-label-interaction-bound')
+      node.style.removeProperty('cursor')
     }
   }
 
@@ -175,18 +180,25 @@ export async function bindLabelInteractions(
       const element = design.elements.find(candidate => candidate.id === id)
       if (!element) continue
       node.setAttribute('data-label-interaction-bound', '')
+      node.style.cursor = 'move'
       const interactable = interact(node)
       interactable.draggable({
         listeners: gestureListeners(node, element, false),
         inertia: false,
       })
-      interactable.resizable({
-        edges: element.type === 'text'
-          ? { left: true, right: true, top: false, bottom: false }
-          : { left: true, right: true, top: true, bottom: true },
-        listeners: gestureListeners(node, element, true),
-        inertia: false,
-      })
+      const scale = pxPerMm()
+      const hasHorizontalMoveTarget = element.w * scale >= MINIMUM_RESIZABLE_AXIS_PX
+      const hasVerticalMoveTarget = element.h * scale >= MINIMUM_RESIZABLE_AXIS_PX
+      if (hasHorizontalMoveTarget && (element.type === 'text' || hasVerticalMoveTarget)) {
+        interactable.resizable({
+          edges: element.type === 'text'
+            ? { left: true, right: true, top: false, bottom: false }
+            : { left: true, right: true, top: true, bottom: true },
+          listeners: gestureListeners(node, element, true),
+          inertia: false,
+          margin: RESIZE_EDGE_MARGIN_PX,
+        })
+      }
       interactables.push(interactable)
     }
   }

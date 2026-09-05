@@ -5,6 +5,7 @@ import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 
 import DesignerSidebar from '../../components/freeform-label/DesignerSidebar.astro'
 import DesignerWorkspace from '../../components/freeform-label/DesignerWorkspace.astro'
+import PrintSidebar from '../../components/PrintSidebar.astro'
 import de from '../../i18n/de.json'
 import { createDefaultLabelDesign } from './defaults'
 import type { InteractFactory } from './interaction-adapter'
@@ -187,6 +188,23 @@ describe('freeform editor JSON and field insertion', () => {
     expect(created.type).toBe('text')
     expect(created.type === 'text' && created.template).toBe('{filament.name|date}')
   })
+
+  it.each([
+    ['bold', '**{filament.name}**'],
+    ['italic', '*{filament.name}*'],
+    ['underline', '__{filament.name}__'],
+    ['inverse', '=={filament.name}=='],
+    ['colorInverse', '@@{filament.name}@@'],
+    ['caps', '^^{filament.name}^^'],
+    ['date', '{filament.name|date}'],
+  ] as const)('preserves the legacy %s field modifier syntax', (modifier, expected) => {
+    const controller = makeController()
+    controller.clearSelection()
+
+    const created = controller.insertField('{filament.name}', modifier)
+
+    expect(created.type === 'text' && created.template).toBe(expected)
+  })
 })
 
 describe('freeform editor assets and async lifecycle', () => {
@@ -296,6 +314,15 @@ describe('freeform editor DOM binding', () => {
     }
     for (const modifier of ['caps', 'inverse', 'colorInverse', 'date']) {
       expect(document.querySelector(`[data-field-modifier="${modifier}"] svg`)).not.toBeNull()
+    }
+    const toolbarTools = Array.from(document.querySelectorAll<HTMLElement>(
+      '.freeform-toolbar [data-designer-add], .freeform-toolbar [data-designer-action]',
+    ))
+    const visibleLabels = Array.from(document.querySelectorAll<HTMLElement>('.freeform-toolbar .freeform-tool-label'))
+    expect(visibleLabels).toHaveLength(toolbarTools.length)
+    for (const label of visibleLabels) {
+      expect(label.dataset.i18n).toMatch(/^labelDesigner\.tool/)
+      expect(label.textContent?.trim()).toBeTruthy()
     }
     expect(document.querySelector('[data-field-modifier="bold"]')?.textContent?.trim()).toBe('B')
     expect(document.querySelector('[data-field-modifier="italic"]')?.textContent?.trim()).toBe('I')
@@ -416,6 +443,12 @@ describe('freeform editor DOM binding', () => {
     const controller = makeController()
     const binding = bindFreeformEditorDom({ root: document, controller, editable: true })
     const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-field-group-tab]'))
+    const panels = Array.from(document.querySelectorAll<HTMLElement>('#freeform-field-dock [role="tabpanel"]'))
+
+    expect(document.querySelector('.freeform-field-groups')?.classList.contains('freeform-field-panel-frame')).toBe(true)
+    expect(panels).toHaveLength(tabs.length)
+    expect(document.querySelectorAll('.freeform-token-chip')).toHaveLength(10)
+    tabs.forEach((tab, index) => expect(tab.getAttribute('aria-controls')).toBe(panels[index].id))
 
     tabs[0].focus()
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
@@ -543,6 +576,9 @@ describe('freeform editor DOM binding', () => {
     await vi.waitFor(() => expect(loadInteract).toHaveBeenCalled())
     const initialBindCount = loadInteract.mock.calls.length
 
+    await binding.refreshInteractions()
+    expect(interactable.unset).toHaveBeenCalled()
+
     await binding.setEditable(false)
     expect(interactable.unset).toHaveBeenCalled()
 
@@ -553,6 +589,16 @@ describe('freeform editor DOM binding', () => {
 })
 
 describe('freeform editor responsive lifecycle', () => {
+  it('keeps the single-page designer sidebar compact enough for the preview workspace', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(PrintSidebar, {
+      props: { backLabel: 'Zurück' },
+    })
+    const sidebar = document.querySelector<HTMLElement>('.print-sidebar')!
+
+    expect(sidebar.style.getPropertyValue('--designer-sidebar-width')).toBe('360px')
+  })
+
   it('localizes the selected element name in the live selection summary', async () => {
     await renderRealDesignerEditor()
     const workspace = document.querySelector<HTMLElement>('#freeform-designer-workspace')!

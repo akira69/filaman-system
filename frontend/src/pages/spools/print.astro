@@ -592,7 +592,10 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     getSourceElements: getLabelSourceElements,
     getDimensions: getActiveLabelDimensions,
     getZoom: previewZoom.getZoom,
-    applyIndividualZoom: zoom => applyBatchLabelPreviewZoom(previewContainer, zoom),
+    applyIndividualZoom: zoom => {
+      applyBatchLabelPreviewZoom(previewContainer, zoom)
+      void designerEditor?.refreshInteractions()
+    },
   })
   syncOutputPreview = () => {
     syncSharedOutputPreview()
