@@ -648,8 +648,15 @@ export function bindLabelSettingsEvents(
 export function applyBatchLabelPreviewZoom(previewRoot: HTMLElement, zoomPercent: number) {
   const zoom = normalizeZoom(Number(zoomPercent), 25, 300, 5, 100) / 100
   bindFixedPreviewToolbar({ previewRoot })
-  const labels = Array.from(previewRoot.querySelectorAll<HTMLElement>(':scope > .label-wrapper')).map(wrapper => {
-    const label = wrapper.querySelector<HTMLElement>(':scope > .label-preview')
+  const directWrappers = Array.from(previewRoot.children)
+    .filter((element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains('label-wrapper'))
+  const canvasWrappers = Array.from(previewRoot.querySelectorAll<HTMLElement>(
+    '.freeform-canvas-host > .label-wrapper',
+  ))
+  const labels = [...directWrappers, ...canvasWrappers].map(wrapper => {
+    const label = Array.from(wrapper.children).find(
+      (element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains('label-preview'),
+    )
     return label ? { wrapper, label, width: label.offsetWidth, height: label.offsetHeight } : null
   }).filter((entry): entry is { wrapper: HTMLElement; label: HTMLElement; width: number; height: number } => !!entry)
 
