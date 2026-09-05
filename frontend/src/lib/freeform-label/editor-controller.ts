@@ -77,7 +77,7 @@ export interface FreeformLabelDesignerEditorOptions {
   getFilamentColorHex?: () => string | null | undefined
   getFilamentColorHexes?: () => string | null | undefined
   getFilamentMultiColorStyle?: () => string | null | undefined
-  onChange: () => void | Promise<void>
+  onChange: () => Promise<void>
   safeSetLocalStorage?: (key: string, value: string) => boolean
   translate?: (key: string, fallback: string) => string
   presetsKey: string
@@ -952,10 +952,11 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   })
 
   syncDom()
-  void refresh()
+  const ready = refresh()
   void controller.loadAssets().then(syncDom).catch(() => syncDom())
 
   return {
+    ready,
     refresh,
     refreshInteractions: refreshInteraction,
     sync: syncDom,
@@ -1352,6 +1353,7 @@ export async function initFreeformLabelDesignerEditor(
     loadInteract: options.loadInteract,
     translate: options.translate,
   })
+  await domBinding.ready
 
   return {
     getDesign: () => controller.getState().design,

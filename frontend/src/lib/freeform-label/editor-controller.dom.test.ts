@@ -599,6 +599,57 @@ describe('freeform editor responsive lifecycle', () => {
     expect(sidebar.style.getPropertyValue('--designer-sidebar-width')).toBe('360px')
   })
 
+  it('waits for a late persisted-design render before resolving with bound interactions', async () => {
+    renderDesignerEditorShell()
+    const initialDesign = createDefaultLabelDesign('spool', () => 'late-persisted-element')
+    persistFreeformLabelDesign('late-persisted-working', initialDesign)
+    const renderStarted = deferred<void>()
+    const finishRender = deferred<void>()
+    const interactable: ReturnType<InteractFactory> = {
+      draggable: vi.fn(() => interactable),
+      resizable: vi.fn(() => interactable),
+      unset: vi.fn(),
+    }
+    const editorPromise = initFreeformLabelDesignerEditor({
+      onChange: async () => {
+        renderStarted.resolve()
+        await finishRender.promise
+        const preview = document.createElement('div')
+        preview.className = 'label-preview'
+        for (const element of initialDesign.elements) {
+          const node = document.createElement('div')
+          node.dataset.labelElementId = element.id
+          node.dataset.labelElementType = element.type
+          preview.append(node)
+        }
+        document.querySelector('#freeform-canvas-host')!.replaceChildren(preview)
+      },
+      presetsKey: 'late-persisted-presets',
+      settingsKey: 'late-persisted-working',
+      loadInteract: async () => vi.fn(() => interactable),
+    })
+
+    await renderStarted.promise
+    const initializationState = await Promise.race([
+      editorPromise.then(() => 'resolved'),
+      new Promise<'pending'>(resolve => setTimeout(() => resolve('pending'), 0)),
+    ])
+    finishRender.resolve()
+    const editor = await editorPromise
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-label-interaction-bound]')).not.toBeNull()
+    })
+    const rendered = document.querySelector<HTMLElement>('[data-label-element-id]')!
+    const interactionState = {
+      bound: rendered.hasAttribute('data-label-interaction-bound'),
+      cursor: rendered.style.cursor,
+    }
+    editor.destroy()
+
+    expect(initializationState).toBe('pending')
+    expect(interactionState).toEqual({ bound: true, cursor: 'move' })
+  })
+
   it('localizes the selected element name in the live selection summary', async () => {
     await renderRealDesignerEditor()
     const workspace = document.querySelector<HTMLElement>('#freeform-designer-workspace')!
@@ -621,7 +672,7 @@ describe('freeform editor responsive lifecycle', () => {
       unset: vi.fn(),
     }
     const editor = await initFreeformLabelDesignerEditor({
-      onChange: () => undefined,
+      onChange: async () => undefined,
       presetsKey: 'localized-summary-presets',
       settingsKey: 'localized-summary-working',
       translate: (key, fallback) => resolveTranslation(de, key, fallback),
@@ -660,7 +711,7 @@ describe('freeform editor responsive lifecycle', () => {
     }
     const loadInteract = vi.fn(async () => vi.fn(() => interactable))
     const editor = await initFreeformLabelDesignerEditor({
-      onChange: () => undefined,
+      onChange: async () => undefined,
       presetsKey: 'container-responsive-presets',
       settingsKey: 'container-responsive-working',
       loadInteract,
@@ -711,7 +762,7 @@ describe('freeform editor responsive lifecycle', () => {
     renderDesignerEditorShell()
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
     const editor = await initFreeformLabelDesignerEditor({
-      onChange: () => undefined,
+      onChange: async () => undefined,
       presetsKey: 'responsive-presets',
       settingsKey: 'responsive-working',
     })
@@ -741,7 +792,7 @@ describe('freeform editor responsive lifecycle', () => {
     renderDesignerEditorShell()
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
     const editor = await initFreeformLabelDesignerEditor({
-      onChange: () => undefined,
+      onChange: async () => undefined,
       presetsKey: 'responsive-sidebar-presets',
       settingsKey: 'responsive-sidebar-working',
     })
@@ -860,7 +911,7 @@ describe('freeform editor database-owned presets', () => {
   async function initPresetEditor() {
     renderDesignerEditorShell()
     return initFreeformLabelDesignerEditor({
-      onChange: () => undefined,
+      onChange: async () => undefined,
       presetsKey: 'database-presets',
       settingsKey: 'database-working',
     })
@@ -933,7 +984,7 @@ describe('freeform editor database-owned presets', () => {
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise)
     const editor = await initFreeformLabelDesignerEditor({
-      onChange: () => undefined,
+      onChange: async () => undefined,
       presetsKey: 'serialized-save-presets',
       settingsKey: 'serialized-save-working',
     })

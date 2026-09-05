@@ -114,6 +114,9 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null
   const previewContainer = document.getElementById('preview-container') as HTMLElement
   const previewLabelsHost = document.getElementById('freeform-canvas-host') as HTMLElement
+  const countEl = document.getElementById('label-count')!
+  const ids = (new URLSearchParams(window.location.search).get('ids') || '')
+    .split(',').map(Number).filter(n => n > 0)
   await hydrateLabelPresetStorage()
   let syncOutputPreview: () => void = () => undefined
   let refreshWorkspace: () => void = () => syncOutputPreview()
@@ -460,7 +463,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   }
 
   function queueRenderAll() {
-    void renderAll()
+    return renderAll()
   }
   refreshWorkspace = queueRenderAll
 
@@ -716,10 +719,6 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     backBtn.href = `/spools/${backId}`
     ;(document.getElementById('btn-back-label') as HTMLElement).textContent = t('labelPrint.backToSpool')
   }
-
-  const idsParam = urlParams.get('ids') || ''
-  const ids = idsParam.split(',').map(Number).filter(n => n > 0)
-  const countEl = document.getElementById('label-count')!
 
   if (ids.length === 0) {
     countEl.textContent = t('labelPrint.noSpoolsSelected')
