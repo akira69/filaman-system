@@ -1,0 +1,54 @@
+---
+const filamentFields = [
+  ['{filament.name}', 'Name'],
+  ['{filament.type}', 'Type'],
+  ['{filament.manufacturer}', 'Manufacturer'],
+  ['{filament.color_name}', 'Color'],
+  ['{filament.color_hex}', 'Hex'],
+]
+const spoolFields = [
+  ['{id}', 'ID'],
+  ['{location}', 'Location'],
+  ['{status}', 'Status'],
+  ['{remaining_weight_g}', 'Remaining'],
+  ['{lot_number}', 'Lot'],
+]
+---
+
+<section id="freeform-field-dock" class="freeform-field-dock" aria-labelledby="freeform-fields-title">
+  <div class="freeform-field-dock-heading">
+    <h2 id="freeform-fields-title" data-i18n="labelDesigner.fieldsAndModifiers">Fields & modifiers</h2>
+    <div class="freeform-modifiers" role="group" aria-label="Text modifiers">
+      <button type="button" data-field-modifier="bold" aria-pressed="false" title="Bold"><strong>B</strong></button>
+      <button type="button" data-field-modifier="italic" aria-pressed="false" title="Italic"><em>I</em></button>
+      <button type="button" data-field-modifier="underline" aria-pressed="false" title="Underline"><u>U</u></button>
+      <button type="button" data-field-modifier="caps" aria-pressed="false" title="Uppercase">AA</button>
+      <button type="button" data-field-modifier="inverse" aria-pressed="false" title="Inverse">◐</button>
+      <button type="button" data-field-modifier="colorInverse" aria-pressed="false" title="Filament color inverse">◑</button>
+      <button type="button" data-field-modifier="date" aria-pressed="false" title="Date only">Date</button>
+    </div>
+  </div>
+  <div class="freeform-field-tabs" role="tablist" aria-label="Field groups">
+    <button type="button" role="tab" aria-selected="true" data-field-group-tab="filament" data-i18n="labelDesigner.filamentFields">Filament</button>
+    <button type="button" role="tab" aria-selected="false" data-field-group-tab="spool" data-i18n="labelDesigner.spoolFields">Spool</button>
+    <button type="button" role="tab" aria-selected="false" data-field-group-tab="extra" data-i18n="labelDesigner.extraFields">Custom / extra</button>
+  </div>
+  <div class="freeform-field-groups">
+    <div data-field-group="filament">{filamentFields.map(([token, label]) => <button type="button" data-field-token={token} title={token}>{label}</button>)}</div>
+    <div data-field-group="spool" hidden>{spoolFields.map(([token, label]) => <button type="button" data-field-token={token} title={token}>{label}</button>)}</div>
+    <div data-field-group="extra" hidden id="freeform-extra-fields"><span data-i18n="labelDesigner.noExtraFields">No custom fields available.</span></div>
+  </div>
+  <p id="freeform-field-hint" class="freeform-field-hint" data-i18n="labelDesigner.selectTextHint">Select a text element to insert at its caret. With another element selected, a new text box is created.</p>
+</section>
+
+<style>
+  .freeform-field-dock { background: var(--bg-elevated); border-top: 1px solid var(--border); padding: 9px 12px; }
+  .freeform-field-dock-heading { align-items: center; display: flex; gap: 10px; justify-content: space-between; }
+  .freeform-field-dock h2 { color: var(--text-muted); font-size: 0.7rem; letter-spacing: 0.08em; margin: 0; text-transform: uppercase; }
+  .freeform-modifiers, .freeform-field-tabs, .freeform-field-groups > div { display: flex; flex-wrap: wrap; gap: 4px; }
+  .freeform-modifiers button, .freeform-field-tabs button, .freeform-field-groups button { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.72rem; min-height: 28px; padding: 4px 7px; }
+  .freeform-modifiers button[aria-pressed='true'], .freeform-field-tabs button[aria-selected='true'] { border-color: var(--accent); color: var(--accent); }
+  .freeform-field-tabs { margin: 7px 0 5px; }
+  .freeform-field-groups { max-height: 86px; overflow: auto; }
+  .freeform-field-hint { color: var(--text-muted); font-size: 0.68rem; margin: 6px 0 0; }
+</style>

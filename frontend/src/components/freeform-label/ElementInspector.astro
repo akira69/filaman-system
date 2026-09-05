@@ -1,0 +1,70 @@
+<aside id="freeform-element-inspector" class="freeform-element-inspector" aria-labelledby="freeform-inspector-title">
+  <header>
+    <div>
+      <span class="freeform-kicker" data-i18n="labelDesigner.selectedElement">Selected element</span>
+      <h2 id="freeform-inspector-title" data-i18n="labelDesigner.noSelection">No selection</h2>
+    </div>
+    <div class="freeform-inspector-actions">
+      <button type="button" data-designer-action="duplicate" data-i18n-title="labelDesigner.duplicate" title="Duplicate">Duplicate</button>
+      <button type="button" data-designer-action="delete" data-i18n-title="labelDesigner.deleteElement" title="Delete">Delete</button>
+    </div>
+  </header>
+
+  <div id="freeform-inspector-empty" class="freeform-inspector-empty" data-i18n="labelDesigner.selectElementHint">Select an element on the label to edit it.</div>
+  <div id="freeform-inspector-fields" class="freeform-inspector-fields" hidden>
+    <div class="freeform-geometry-grid">
+      <label>X (mm)<input class="fm-input" type="number" step="0.1" data-element-prop="x" /></label>
+      <label>Y (mm)<input class="fm-input" type="number" step="0.1" data-element-prop="y" /></label>
+      <label>W (mm)<input class="fm-input" type="number" step="0.1" data-element-prop="w" /></label>
+      <label>H (mm)<input class="fm-input" type="number" step="0.1" data-element-prop="h" /></label>
+    </div>
+
+    <div data-element-section="text" hidden>
+      <label class="freeform-field"><span data-i18n="labelDesigner.template">Template</span><textarea id="freeform-template" class="fm-input" rows="6" data-element-prop="template" spellcheck="false"></textarea></label>
+      <div class="freeform-geometry-grid">
+        <label><span data-i18n="labelDesigner.font">Font</span><select class="fm-input" data-element-prop="fontFamily"><option>Space Grotesk</option><option>Roboto Condensed</option><option>Fraunces</option><option>Space Mono</option></select></label>
+        <label><span data-i18n="labelDesigner.fontSizeMm">Size (mm)</span><input class="fm-input" type="number" min="1" max="20" step="0.1" data-element-prop="fontSizeMm" /></label>
+        <label><span data-i18n="labelDesigner.weight">Weight</span><select class="fm-input" data-element-prop="fontWeight"><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option></select></label>
+        <label><span data-i18n="labelDesigner.alignment">Alignment</span><select class="fm-input" data-element-prop="align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+      </div>
+    </div>
+
+    <div data-element-section="image" hidden>
+      <label class="freeform-field"><span data-i18n="labelDesigner.image">Image</span><select id="freeform-image-asset" class="fm-input" data-element-prop="assetId"></select></label>
+      <div class="freeform-image-actions">
+        <label class="freeform-upload-button"><span data-i18n="labelDesigner.uploadImage">Upload image</span><input id="freeform-image-upload" type="file" accept="image/png,image/jpeg,image/webp" /></label>
+        <button id="freeform-image-delete" type="button" data-i18n="labelDesigner.deleteUnusedImage">Delete unused image</button>
+      </div>
+      <p id="freeform-image-status" role="status" aria-live="polite"></p>
+    </div>
+
+    <section class="freeform-json-section" aria-labelledby="freeform-json-title">
+      <div class="freeform-json-heading"><h3 id="freeform-json-title" data-i18n="labelDesigner.elementJson">Element JSON</h3><button id="freeform-json-expand" type="button" data-i18n="labelDesigner.expand">Expand</button></div>
+      <textarea id="freeform-element-json" class="fm-input" rows="12" spellcheck="false" aria-describedby="freeform-json-error"></textarea>
+      <p id="freeform-json-error" class="freeform-json-error" role="alert"></p>
+      <div class="freeform-json-actions"><button id="freeform-json-revert" type="button" data-i18n="common.revert">Revert</button><button id="freeform-json-apply" type="button" class="preset-action-btn-primary" data-i18n="common.apply">Apply</button></div>
+    </section>
+  </div>
+</aside>
+
+<style>
+  .freeform-element-inspector { align-self: stretch; background: var(--bg-elevated); border-left: 1px solid var(--border); min-width: 260px; overflow: auto; padding: 12px; width: min(320px, 28vw); }
+  .freeform-element-inspector header, .freeform-json-heading, .freeform-json-actions, .freeform-image-actions { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+  .freeform-element-inspector h2, .freeform-element-inspector h3 { margin: 0; }
+  .freeform-element-inspector h2 { font-size: 0.9rem; }
+  .freeform-element-inspector h3 { font-size: 0.76rem; text-transform: uppercase; }
+  .freeform-kicker { color: var(--text-muted); font-size: 0.67rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  .freeform-inspector-actions { display: flex; gap: 4px; }
+  .freeform-inspector-actions button, .freeform-json-actions button, .freeform-json-heading button, .freeform-image-actions button, .freeform-upload-button { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 4px; color: var(--text); cursor: pointer; font-size: 0.72rem; padding: 5px 7px; }
+  .freeform-inspector-empty { color: var(--text-muted); font-size: 0.78rem; padding: 24px 0; }
+  .freeform-inspector-fields, .freeform-field { display: grid; gap: 10px; }
+  .freeform-geometry-grid { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .freeform-geometry-grid label, .freeform-field { font-size: 0.72rem; }
+  #freeform-template { min-height: 140px; resize: vertical; }
+  .freeform-json-section { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+  #freeform-element-json { font-family: 'Space Mono', monospace; min-height: 240px; resize: vertical; width: 100%; }
+  .freeform-json-section.is-expanded { background: var(--bg-elevated); inset: 12px; padding: 16px; position: fixed; z-index: 1000; }
+  .freeform-json-section.is-expanded #freeform-element-json { height: calc(100vh - 150px); }
+  .freeform-json-error { color: var(--danger, #c0392b); font-size: 0.72rem; min-height: 1.2em; }
+  .freeform-upload-button input { display: none; }
+</style>

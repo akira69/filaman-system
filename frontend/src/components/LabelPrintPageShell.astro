@@ -1,6 +1,7 @@
 ---
 import Layout from '../layouts/Layout.astro'
 import BatchLabelPrintStyles from './BatchLabelPrintStyles.astro'
+import DesignerWorkspace from './freeform-label/DesignerWorkspace.astro'
 import LabelDesignerEditor from './LabelDesignerEditor.astro'
 import LabelPrintBaseStyles from './LabelPrintBaseStyles.astro'
 import LabelSheetOutputSettings from './LabelSheetOutputSettings.astro'
@@ -85,14 +86,18 @@ const {
       <main class="preview-container">
         <PreviewZoomBar min="50" resetClass="preview-zoom-reset" />
         <div class="preview-scroll-area">
-          <slot name="preview" />
+          <DesignerWorkspace>
+            <slot name="preview" />
+          </DesignerWorkspace>
         </div>
         <TemporaryPdfPreview />
       </main>
     ) : (
       <main class="preview-container" id="preview-container">
         <PreviewZoomBar />
-        <slot name="preview" />
+        <DesignerWorkspace>
+          <slot name="preview" />
+        </DesignerWorkspace>
         <TemporaryPdfPreview />
       </main>
     )}
