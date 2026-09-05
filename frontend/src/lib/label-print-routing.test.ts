@@ -71,6 +71,28 @@ describe('label sheet preview styling', () => {
     expect(style!.textContent).toContain('width: 100mm')
     expect(style!.textContent).toContain('height: 50mm')
   })
+
+  it('removes designer selection state and editor chrome from every sheet copy', () => {
+    const source = document.querySelector<HTMLElement>('#source .label-preview')!
+    source.classList.add('is-selected')
+    source.setAttribute('data-label-interactive', '')
+    source.insertAdjacentHTML('beforeend', '<span class="is-selected" data-label-interaction-bound>Element</span><button data-editor-handle>Resize</button>')
+
+    renderLabelSheetPreview({
+      previewRoot: document.querySelector<HTMLElement>('#preview')!,
+      sourceElements: [document.querySelector<HTMLElement>('#source')!],
+      settings: { ...settings, copies: 2 },
+      labelWidthMm: 60,
+      labelHeightMm: 40,
+    })
+
+    const copies = Array.from(document.querySelectorAll<HTMLElement>('.label-sheet-page .label-preview'))
+    expect(copies).toHaveLength(2)
+    expect(copies.every(copy => !copy.hasAttribute('data-label-interactive'))).toBe(true)
+    expect(document.querySelector('.label-sheet-page .is-selected')).toBeNull()
+    expect(document.querySelector('.label-sheet-page [data-label-interaction-bound]')).toBeNull()
+    expect(document.querySelector('.label-sheet-page [data-editor-handle]')).toBeNull()
+  })
 })
 
 describe('label sheet individual export state', () => {
@@ -193,6 +215,44 @@ describe('label designer template fields', () => {
 })
 
 describe('first-class print workspace navigation', () => {
+  it.each([
+    '../pages/spools/[id]/print.astro',
+    '../pages/spools/print.astro',
+    '../pages/filaments/[id]/print.astro',
+    '../pages/filaments/print.astro',
+  ])('%s uses the shared v2 workspace, source, and output contracts', path => {
+    const source = readFileSync(
+      fileURLToPath(new URL(path, import.meta.url)),
+      'utf8',
+    )
+
+    for (const contract of [
+      'bindPrintWorkspaceTabs({',
+      'resolvePrintWorkspace(',
+      'initFreeformLabelDesignerEditor({',
+      'renderDesignerLabel({',
+      'design: getDesignerDesign()',
+      'resolveAssetUrl: labelAssetContentUrl',
+      'getPrintWorkspaceOutputItems(',
+    ]) {
+      expect(source).toContain(contract)
+    }
+    expect(source).not.toContain('initLabelDesignerEditor({')
+    expect(source).not.toContain('loadDesignerSettingsFromStorage({')
+  })
+
+  it('mounts the v2 designer sidebar in the shared print shell', () => {
+    const shellPath = '../components/LabelPrintPageShell.astro'
+    const source = readFileSync(
+      fileURLToPath(new URL(shellPath, import.meta.url)),
+      'utf8',
+    )
+
+    expect(source).toContain("import DesignerSidebar from './freeform-label/DesignerSidebar.astro'")
+    expect(source).toContain('<DesignerSidebar />')
+    expect(source).not.toContain('<LabelDesignerEditor')
+  })
+
   it('renders Standard, Designer, and Label Sheets as accessible tabs', async () => {
     const container = await AstroContainer.create()
     document.body.innerHTML = await container.renderToString(PrintSidebar, {

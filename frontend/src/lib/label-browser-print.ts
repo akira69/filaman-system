@@ -7,7 +7,7 @@ import type {
 } from './label-sheet'
 import {
   resetPreviewSurface,
-  stripElementIds,
+  prepareLabelOutputClone,
 } from './label-preview-dom'
 
 const PRINT_HOST_ID = 'filaman-label-print-host'
@@ -218,7 +218,7 @@ function createPrintHost(job: LabelBrowserPrintJob) {
     page.className = 'filaman-print-page'
     page.classList.toggle('filaman-print-grid', job.printGrid)
     const clone = sourcePage.cloneNode(true) as HTMLElement
-    stripElementIds(clone)
+    prepareLabelOutputClone(clone)
     normalizePrintClone(clone, job.kind, job.printGrid)
     page.appendChild(clone)
     host.appendChild(page)

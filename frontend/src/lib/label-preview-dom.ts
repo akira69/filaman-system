@@ -27,6 +27,22 @@ export function stripElementIds(root: Element): void {
   root.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'))
 }
 
+export function prepareLabelOutputClone(root: Element): void {
+  stripElementIds(root)
+  const editorChrome = '[data-editor-handle], [data-label-editor-chrome]'
+  if (root.matches(editorChrome)) root.remove()
+  root.querySelectorAll(editorChrome).forEach(element => element.remove())
+  const renderedElements = [root, ...root.querySelectorAll('*')]
+  renderedElements.forEach(element => {
+    const outputOnly = element.classList.contains('is-designer-output-only')
+    element.classList.remove('is-selected')
+    element.classList.remove('is-designer-representative', 'is-designer-output-only')
+    if (outputOnly) element.removeAttribute('aria-hidden')
+    element.removeAttribute('data-label-interactive')
+    element.removeAttribute('data-label-interaction-bound')
+  })
+}
+
 export function resetPreviewSurface(element: HTMLElement): void {
   element.style.zoom = '1'
   element.style.transform = 'none'

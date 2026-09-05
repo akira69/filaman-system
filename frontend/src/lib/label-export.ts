@@ -1,5 +1,5 @@
 import { toCanvas } from 'html-to-image'
-import { stripElementIds } from './label-preview-dom'
+import { prepareLabelOutputClone } from './label-preview-dom'
 
 export const LABEL_EXPORT_DPI = 600
 export const LABEL_EXPORT_CSS_DPI = 96
@@ -50,7 +50,7 @@ function hidePreviewChromeForCapture(element: HTMLElement) {
 
 function createOffscreenCaptureClone(element: HTMLElement) {
   const clone = element.cloneNode(true) as HTMLElement
-  stripElementIds(clone)
+  prepareLabelOutputClone(clone)
   const captureHost = document.createElement('div')
   captureHost.setAttribute('aria-hidden', 'true')
   captureHost.style.position = 'fixed'

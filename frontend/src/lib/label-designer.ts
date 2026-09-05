@@ -267,10 +267,17 @@ export function persistDesignerSettings(
   return setItem(settingsKey, payload)
 }
 
-export function getDesignerLabelDimensions(settings: LabelDesignerSettings) {
+export function getDesignerLabelDimensions(settings: LabelDesignerSettings | LabelDesignV2) {
+  if ('widthMm' in settings.label) {
+    return {
+      widthMm: clampNumber(Number(settings.label.widthMm), 20, 300, DESIGNER_DEFAULTS.label.width),
+      heightMm: clampNumber(Number(settings.label.heightMm), 10, 200, DESIGNER_DEFAULTS.label.height),
+    }
+  }
+  const label = settings.label
   return {
-    widthMm: clampNumber(Number(settings.label.width), 20, 300, DESIGNER_DEFAULTS.label.width),
-    heightMm: clampNumber(Number(settings.label.height), 10, 200, DESIGNER_DEFAULTS.label.height),
+    widthMm: clampNumber(Number(label.width), 20, 300, DESIGNER_DEFAULTS.label.width),
+    heightMm: clampNumber(Number(label.height), 10, 200, DESIGNER_DEFAULTS.label.height),
   }
 }
 

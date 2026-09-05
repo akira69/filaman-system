@@ -5,7 +5,7 @@ import type {
 import { deleteLabelPreset, saveLabelPreset } from './label-preset-storage'
 import {
   bindFixedPreviewToolbar,
-  stripElementIds,
+  prepareLabelOutputClone,
 } from './label-preview-dom'
 
 export const LABEL_SHEET_SETTINGS_KEY = 'filaman-label-sheet-settings-v1'
@@ -830,7 +830,7 @@ export function renderLabelSheetPreview(options: LabelSheetPreviewOptions) {
     const sourceLabel = getSourceLabel(source)
     if (sourceLabel) {
       const clone = sourceLabel.cloneNode(true) as HTMLElement
-      stripElementIds(clone)
+      prepareLabelOutputClone(clone)
       clone.style.zoom = '1'
       clone.style.transform = 'none'
       clone.style.transformOrigin = 'unset'

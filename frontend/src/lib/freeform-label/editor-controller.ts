@@ -1,7 +1,14 @@
 import { createDefaultLabelDesign } from './defaults'
+import { createLabelAssetClient } from './assets'
 import { createLabelHistory } from './history'
-import { bindLabelInteractions, type LabelInteractionController } from './interaction-adapter'
+import {
+  bindLabelInteractions,
+  type InteractFactory,
+  type LabelInteractionController,
+} from './interaction-adapter'
 import { normalizeLabelDesign, parseLabelElementJson } from './normalize'
+import { deleteLabelPreset, saveLabelPreset } from '../label-preset-storage'
+import type { DesignerExtraField } from '../label-designer'
 import type {
   LabelDesignElement,
   LabelDesignV2,
@@ -61,15 +68,95 @@ export interface FreeformEditorOptions {
   render?: (design: LabelDesignV2, revision: number) => void | Promise<void>
 }
 
+export interface FreeformLabelDesignerEditorOptions {
+  extraFields?: DesignerExtraField[]
+  entityType?: LabelKind
+  batchMode?: boolean
+  getFilamentColorHex?: () => string | null | undefined
+  getFilamentColorHexes?: () => string | null | undefined
+  getFilamentMultiColorStyle?: () => string | null | undefined
+  onChange: () => void | Promise<void>
+  safeSetLocalStorage?: (key: string, value: string) => boolean
+  translate?: (key: string, fallback: string) => string
+  presetsKey: string
+  settingsKey: string
+  entityLabel?: string
+  crossPresetsKey?: string
+  ownPresetsLabel?: string
+  crossPresetsLabel?: string
+}
+
+export interface FreeformLabelDesignerEditorController {
+  getDesign: () => LabelDesignV2
+  loadSettings: () => void
+  refresh: () => Promise<void>
+  refreshExtraFields: (extraFields: DesignerExtraField[]) => void
+  refreshPresetList: (selectName?: string) => void
+  refreshTokenAreas: () => void
+  destroy: () => void
+}
+
 export interface JsonApplyResult {
   ok: boolean
   error?: string
 }
 
 const defaultId: LabelElementIdFactory = () => crypto.randomUUID()
+const activeEditors = new Map<string, FreeformEditorController>()
 
 function clone<T>(value: T): T {
   return structuredClone(value)
+}
+
+function readJsonObject(key: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+export function persistFreeformLabelDesign(settingsKey: string, design: LabelDesignV2) {
+  try {
+    localStorage.setItem(settingsKey, JSON.stringify({ version: 2, design }))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function loadStoredFreeformLabelDesign(options: {
+  settingsKey: string
+  presetsKey: string
+  kind: LabelKind
+}): LabelDesignV2 {
+  const working = readJsonObject(options.settingsKey)
+  if (working?.version === 2 && working.design) {
+    return normalizeLabelDesign(working.design)
+  }
+
+  const cache = readJsonObject(options.presetsKey)
+  const presets = Array.isArray(cache?.presets) ? cache.presets : []
+  for (const candidate of presets) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const data = (candidate as { data?: unknown }).data
+    if (!data || typeof data !== 'object') continue
+    const preset = data as { version?: unknown; design?: unknown }
+    if (preset.version === 2 && preset.design) return normalizeLabelDesign(preset.design)
+  }
+  return createDefaultLabelDesign(options.kind)
+}
+
+export function loadFreeformLabelDesign(options: {
+  settingsKey: string
+  presetsKey: string
+  kind: LabelKind
+}): LabelDesignV2 {
+  const active = activeEditors.get(options.settingsKey)
+  return active?.getState().design ?? loadStoredFreeformLabelDesign(options)
 }
 
 function nextZ(design: LabelDesignV2) {
@@ -372,6 +459,12 @@ export function createFreeformEditorController(
       updateSelected({ assetId })
       return clone(getSelectedElement() as LabelImageElement)
     },
+    updateLabel(changes: Partial<LabelDesignV2['label']>) {
+      return replaceDesign({
+        ...design,
+        label: { ...design.label, ...changes },
+      })
+    },
     updateElement,
     updateSelected,
     deleteSelected,
@@ -434,6 +527,7 @@ export interface BindFreeformEditorDomOptions {
   root?: ParentNode
   controller: FreeformEditorController
   editable?: boolean
+  loadInteract?: () => Promise<InteractFactory>
 }
 
 function isElementProperty(value: string): value is keyof LabelDesignElement {
@@ -464,7 +558,8 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   const query = <T extends Element>(selector: string) => root.querySelector<T>(selector)
   const queryAll = <T extends Element>(selector: string) => Array.from(root.querySelectorAll<T>(selector))
   const canvasHost = query<HTMLElement>('#freeform-canvas-host')
-  const canvas = canvasHost?.querySelector<HTMLElement>('.label-preview') ?? null
+  let interactionRoot: HTMLElement | null = null
+  let interactionGeneration = 0
 
   const syncDom = () => {
     const state = controller.getState()
@@ -511,10 +606,46 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     })
   }
 
+  const refreshInteraction = async () => {
+    const canvas = canvasHost?.querySelector<HTMLElement>('.label-preview') ?? null
+    if (!canvas || options.editable === false) return
+    if (interaction && interactionRoot === canvas) {
+      interaction.refresh()
+      return
+    }
+    interaction?.destroy()
+    interaction = null
+    interactionRoot = null
+    const generation = ++interactionGeneration
+    const next = await bindLabelInteractions({
+      root: canvas,
+      getDesign: () => controller.getState().design,
+      editable: true,
+      onSelect: elementId => {
+        controller.select(elementId)
+        syncDom()
+      },
+      onGeometryChange: (elementId, geometry) => controller.updateGesture(elementId, geometry),
+      onGestureStart: () => controller.beginGesture(),
+      onGestureEnd: () => {
+        controller.endGesture()
+        syncDom()
+      },
+      loadInteract: options.loadInteract,
+    })
+    if (generation !== interactionGeneration || canvas !== canvasHost?.querySelector('.label-preview')) {
+      next.destroy()
+      return
+    }
+    interaction = next
+    interactionRoot = canvas
+  }
+
   const refresh = async () => {
     await controller.requestRender()
     syncDom()
-    interaction?.refresh()
+    await refreshInteraction()
+    syncDom()
   }
 
   const mutate = (operation: () => unknown) => {
@@ -575,14 +706,16 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       })
     })
   })
-  queryAll<HTMLButtonElement>('[data-field-token]').forEach(button => {
-    listen<MouseEvent>(button, 'click', () => {
-      const token = button.dataset.fieldToken
-      if (!token) return
-      mutate(() => controller.insertField(token, activeModifier))
-      activeModifier = null
-      queryAll<HTMLButtonElement>('[data-field-modifier]').forEach(candidate => candidate.setAttribute('aria-pressed', 'false'))
-    })
+  listen<MouseEvent>(root as ParentNode & EventTarget, 'click', event => {
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLButtonElement>('[data-field-token]')
+      : null
+    if (!target || !root.contains(target)) return
+    const token = target.dataset.fieldToken
+    if (!token) return
+    mutate(() => controller.insertField(token, activeModifier))
+    activeModifier = null
+    queryAll<HTMLButtonElement>('[data-field-modifier]').forEach(candidate => candidate.setAttribute('aria-pressed', 'false'))
   })
 
   queryAll<HTMLButtonElement>('[data-field-group-tab]').forEach(button => {
@@ -658,34 +791,286 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   })
 
   syncDom()
-  void refresh().then(async () => {
-    if (!canvas || options.editable === false) return
-    interaction = await bindLabelInteractions({
-      root: canvas,
-      getDesign: () => controller.getState().design,
-      editable: true,
-      onSelect: elementId => {
-        controller.select(elementId)
-        syncDom()
-      },
-      onGeometryChange: (elementId, geometry) => controller.updateGesture(elementId, geometry),
-      onGestureStart: () => controller.beginGesture(),
-      onGestureEnd: () => {
-        controller.endGesture()
-        syncDom()
-      },
-    })
-    syncDom()
-  })
+  void refresh()
   void controller.loadAssets().then(syncDom).catch(() => syncDom())
 
   return {
     refresh,
     sync: syncDom,
     destroy() {
+      interactionGeneration += 1
       interaction?.destroy()
       cleanups.splice(0).forEach(cleanup => cleanup())
       controller.destroy()
+    },
+  }
+}
+
+interface StoredPreset {
+  name: string
+  data: {
+    version: 2
+    design: LabelDesignV2
+  }
+}
+
+function readStoredPresets(storageKey: string): StoredPreset[] {
+  const value = readJsonObject(storageKey)
+  const presets = Array.isArray(value?.presets) ? value.presets : []
+  return presets.flatMap(candidate => {
+    if (!candidate || typeof candidate !== 'object') return []
+    const { name, data } = candidate as { name?: unknown; data?: unknown }
+    if (typeof name !== 'string' || !data || typeof data !== 'object') return []
+    const payload = data as { version?: unknown; design?: unknown }
+    if (payload.version !== 2 || !payload.design) return []
+    return [{
+      name,
+      data: { version: 2 as const, design: normalizeLabelDesign(payload.design) },
+    }]
+  })
+}
+
+export function getFreeformLabelPresetNames(storageKey: string) {
+  return readStoredPresets(storageKey).map(preset => preset.name)
+}
+
+export function loadFreeformLabelPresetDesign(options: {
+  presetsKey: string
+  presetName: string
+  kind: LabelKind
+}): LabelDesignV2 | null {
+  const preset = readStoredPresets(options.presetsKey)
+    .find(candidate => candidate.name === options.presetName)
+  return preset ? normalizeLabelDesign(preset.data.design) : null
+}
+
+function writeStoredPresets(storageKey: string, presets: StoredPreset[]) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify({ version: 2, presets }))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function initFreeformLabelDesignerEditor(
+  options: FreeformLabelDesignerEditorOptions,
+): Promise<FreeformLabelDesignerEditorController> {
+  const entityType = options.entityType ?? 'spool'
+  const initialDesign = loadFreeformLabelDesign({
+    settingsKey: options.settingsKey,
+    presetsKey: options.presetsKey,
+    kind: entityType,
+  })
+  let lastPersisted = JSON.stringify(initialDesign)
+  let extraFields = options.extraFields ?? []
+  let domBinding: ReturnType<typeof bindFreeformEditorDom> | null = null
+  const controller = createFreeformEditorController({
+    initialDesign,
+    kind: entityType,
+    assets: createLabelAssetClient(),
+    onChange: state => {
+      const serialized = JSON.stringify(state.design)
+      if (serialized !== lastPersisted) {
+        lastPersisted = serialized
+        persistFreeformLabelDesign(options.settingsKey, state.design)
+      }
+      const summary = document.getElementById('freeform-selection-summary')
+      if (summary) {
+        const selected = state.design.elements.find(element => element.id === state.selectedId)
+        summary.textContent = selected
+          ? `${selected.type} · ${selected.w.toFixed(1)} × ${selected.h.toFixed(1)} mm`
+          : (options.translate?.('labelDesigner.noSelection', 'No element selected') ?? 'No element selected')
+      }
+    },
+    render: async () => {
+      await options.onChange()
+    },
+  })
+  activeEditors.set(options.settingsKey, controller)
+
+  const width = document.getElementById('freeform-label-width') as HTMLInputElement | null
+  const height = document.getElementById('freeform-label-height') as HTMLInputElement | null
+  const margin = document.getElementById('freeform-label-margin') as HTMLInputElement | null
+  const border = document.getElementById('freeform-label-border') as HTMLInputElement | null
+  const presetSelect = document.getElementById('freeform-preset-list') as HTMLSelectElement | null
+  const presetName = document.getElementById('freeform-preset-name') as HTMLInputElement | null
+  const presetStatus = document.getElementById('freeform-preset-status')
+  const cleanups: Array<() => void> = []
+
+  const listen = <T extends Event>(target: EventTarget | null, event: string, listener: (event: T) => void) => {
+    if (!target) return
+    const handler = listener as EventListener
+    target.addEventListener(event, handler)
+    cleanups.push(() => target.removeEventListener(event, handler))
+  }
+  const setStatus = (message: string) => {
+    if (presetStatus) presetStatus.textContent = message
+  }
+  const syncGeometry = () => {
+    const label = controller.getState().design.label
+    if (width) width.value = String(label.widthMm)
+    if (height) height.value = String(label.heightMm)
+    if (margin) margin.value = String(label.marginMm)
+    if (border) border.checked = label.border
+  }
+  const renderExtraFields = () => {
+    const container = document.getElementById('freeform-extra-fields')
+    if (!container) return
+    if (extraFields.length === 0) {
+      const empty = document.createElement('span')
+      empty.dataset.i18n = 'labelDesigner.noExtraFields'
+      empty.textContent = options.translate?.('labelDesigner.noExtraFields', 'No custom fields available.') ?? 'No custom fields available.'
+      container.replaceChildren(empty)
+      return
+    }
+    container.replaceChildren(...extraFields.map(field => {
+      const button = document.createElement('button')
+      const source = field.source === 'filament' || field.source === 'spool' ? field.source : entityType
+      const key = field.key.startsWith(`${source}.`) ? field.key : `${source}.${field.key}`
+      button.type = 'button'
+      button.dataset.fieldToken = `{${key}}`
+      button.title = button.dataset.fieldToken
+      button.textContent = field.label || field.key
+      return button
+    }))
+  }
+  const refreshPresetList = (selectName?: string) => {
+    if (!presetSelect) return
+    const own = readStoredPresets(options.presetsKey)
+    const cross = options.crossPresetsKey ? readStoredPresets(options.crossPresetsKey) : []
+    const groups: HTMLOptGroupElement[] = []
+    const appendGroup = (label: string, prefix: string, presets: StoredPreset[]) => {
+      if (presets.length === 0) return
+      const group = document.createElement('optgroup')
+      group.label = label
+      for (const preset of presets) {
+        const item = document.createElement('option')
+        item.value = `${prefix}:${preset.name}`
+        item.textContent = preset.name
+        group.append(item)
+      }
+      groups.push(group)
+    }
+    appendGroup(options.ownPresetsLabel ?? `${options.entityLabel ?? 'Label'} presets`, 'own', own)
+    appendGroup(options.crossPresetsLabel ?? 'Other presets', 'cross', cross)
+    presetSelect.replaceChildren(...groups)
+    const preferred = selectName ? `own:${selectName}` : presetSelect.options[0]?.value
+    if (preferred) presetSelect.value = preferred
+    const names = own.map(preset => preset.name)
+    document.dispatchEvent(new CustomEvent('freeform-label-presets-changed', {
+      detail: { presets: names },
+    }))
+  }
+  const selectedPreset = () => {
+    const [source, ...nameParts] = (presetSelect?.value ?? '').split(':')
+    const name = nameParts.join(':')
+    const storageKey = source === 'cross' ? options.crossPresetsKey : options.presetsKey
+    return storageKey
+      ? readStoredPresets(storageKey).find(preset => preset.name === name) ?? null
+      : null
+  }
+  const loadSettings = () => {
+    const design = loadStoredFreeformLabelDesign({
+      settingsKey: options.settingsKey,
+      presetsKey: options.presetsKey,
+      kind: entityType,
+    })
+    controller.reset(design)
+    syncGeometry()
+    domBinding?.sync()
+    void domBinding?.refresh()
+  }
+  const updateGeometry = () => {
+    controller.updateLabel({
+      widthMm: Number(width?.value),
+      heightMm: Number(height?.value),
+      marginMm: Number(margin?.value),
+      border: border?.checked ?? false,
+    })
+    syncGeometry()
+    domBinding?.sync()
+    void domBinding?.refresh()
+  }
+
+  for (const control of [width, height, margin, border]) listen(control, 'change', updateGeometry)
+  listen<MouseEvent>(document.getElementById('freeform-preset-load'), 'click', () => {
+    const preset = selectedPreset()
+    if (!preset) return
+    controller.reset(preset.data.design)
+    persistFreeformLabelDesign(options.settingsKey, preset.data.design)
+    lastPersisted = JSON.stringify(preset.data.design)
+    if (presetName) presetName.value = preset.name
+    syncGeometry()
+    domBinding?.sync()
+    void domBinding?.refresh()
+    setStatus(options.translate?.('labelDesigner.presetLoaded', 'Preset loaded.') ?? 'Preset loaded.')
+  })
+  listen<MouseEvent>(document.getElementById('freeform-preset-save'), 'click', () => {
+    const name = presetName?.value.trim() ?? ''
+    if (!name) {
+      setStatus(options.translate?.('labelDesigner.presetNameRequired', 'Enter a preset name.') ?? 'Enter a preset name.')
+      presetName?.focus()
+      return
+    }
+    const preset: StoredPreset = {
+      name,
+      data: { version: 2, design: controller.getState().design },
+    }
+    const presets = readStoredPresets(options.presetsKey)
+    const index = presets.findIndex(candidate => candidate.name === name)
+    if (index >= 0) presets[index] = preset
+    else presets.push(preset)
+    writeStoredPresets(options.presetsKey, presets)
+    refreshPresetList(name)
+    void saveLabelPreset(options.presetsKey, preset).then(saved => {
+      setStatus(saved
+        ? (options.translate?.('labelDesigner.presetSaved', 'Preset saved.') ?? 'Preset saved.')
+        : (options.translate?.('labelDesigner.presetSaveFailed', 'Preset saved locally; server sync failed.') ?? 'Preset saved locally; server sync failed.'))
+    })
+  })
+  listen<MouseEvent>(document.getElementById('freeform-preset-delete'), 'click', () => {
+    const value = presetSelect?.value ?? ''
+    if (!value.startsWith('own:')) return
+    const name = value.slice(4)
+    writeStoredPresets(options.presetsKey, readStoredPresets(options.presetsKey).filter(preset => preset.name !== name))
+    refreshPresetList()
+    void deleteLabelPreset(options.presetsKey, name).then(deleted => {
+      setStatus(deleted
+        ? (options.translate?.('labelDesigner.presetDeleted', 'Preset deleted.') ?? 'Preset deleted.')
+        : (options.translate?.('labelDesigner.presetDeleteFailed', 'Preset removed locally; server sync failed.') ?? 'Preset removed locally; server sync failed.'))
+    })
+  })
+
+  const mobileNotice = document.getElementById('freeform-mobile-notice')
+  const syncMobileState = () => {
+    if (mobileNotice) mobileNotice.hidden = window.innerWidth > 900
+  }
+  listen(window, 'resize', syncMobileState)
+  renderExtraFields()
+  syncGeometry()
+  refreshPresetList()
+  syncMobileState()
+  domBinding = bindFreeformEditorDom({
+    root: document,
+    controller,
+    editable: window.innerWidth > 900,
+  })
+
+  return {
+    getDesign: () => controller.getState().design,
+    loadSettings,
+    refresh: () => domBinding?.refresh() ?? Promise.resolve(),
+    refreshExtraFields(next) {
+      extraFields = next
+      renderExtraFields()
+    },
+    refreshPresetList,
+    refreshTokenAreas: renderExtraFields,
+    destroy() {
+      domBinding?.destroy()
+      cleanups.splice(0).forEach(cleanup => cleanup())
+      if (activeEditors.get(options.settingsKey) === controller) activeEditors.delete(options.settingsKey)
     },
   }
 }

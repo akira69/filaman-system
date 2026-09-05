@@ -56,6 +56,7 @@ const addTools: Array<{ type: string; icon: DesignerIconName; label: string }> =
   .freeform-toolbar button:hover, .freeform-toolbar button:focus-visible { background: var(--bg-soft); border-color: var(--border); }
   .freeform-toolbar button :global(svg) { height: 16px; width: 16px; }
   .freeform-designer-workspace.is-active .freeform-canvas-region { display: grid; min-height: 240px; overflow: auto; padding: 20px; place-items: center; }
+  .freeform-designer-workspace.is-active :global(.is-designer-output-only) { left: -100000px; pointer-events: none; position: fixed; top: 0; }
   .freeform-canvas-host { outline: none; position: relative; }
   .freeform-canvas-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
   .freeform-canvas-host :global([data-label-element-id].is-selected) { outline: 1.5px solid var(--accent); outline-offset: 1px; }

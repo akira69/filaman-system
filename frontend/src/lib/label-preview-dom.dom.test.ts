@@ -11,6 +11,7 @@ import {
 
 import {
   bindFixedPreviewToolbar,
+  prepareLabelOutputClone,
   stripElementIds,
 } from './label-preview-dom'
 
@@ -34,6 +35,33 @@ describe('stripElementIds', () => {
 
     expect(root.id).toBe('')
     expect(root.querySelector('[id]')).toBeNull()
+  })
+})
+
+describe('prepareLabelOutputClone', () => {
+  it('removes editor-only state and chrome while preserving rendered label elements', () => {
+    const root = document.createElement('section')
+    root.id = 'label-root'
+    root.className = 'label-preview is-selected is-designer-output-only'
+    root.setAttribute('aria-hidden', 'true')
+    root.setAttribute('data-label-interactive', '')
+    root.innerHTML = `
+      <div id="content" class="is-selected" data-label-element-id="text" data-label-interaction-bound>Label</div>
+      <button data-editor-handle>Resize</button>
+      <div data-label-editor-chrome>Toolbar</div>
+    `
+
+    prepareLabelOutputClone(root)
+
+    expect(root.id).toBe('')
+    expect(root.hasAttribute('data-label-interactive')).toBe(false)
+    expect(root.classList.contains('is-designer-output-only')).toBe(false)
+    expect(root.hasAttribute('aria-hidden')).toBe(false)
+    expect(root.querySelector('[data-editor-handle]')).toBeNull()
+    expect(root.querySelector('[data-label-editor-chrome]')).toBeNull()
+    expect(root.querySelector('[data-label-element-id="text"]')?.textContent).toBe('Label')
+    expect(root.querySelector('.is-selected')).toBeNull()
+    expect(root.querySelector('[data-label-interaction-bound]')).toBeNull()
   })
 })
 
