@@ -11,13 +11,15 @@ import {
   SPOOL_BUILT_IN_LABEL_FIELD_DEFS,
   type SpoolExtraFieldDefinitionMap,
 } from './spool-label-data'
-import { canvasToQrImage, ensureQrCodeLoaded, getQrCodeConstructor } from './qr-code'
+import { canvasToQrImage, decorateQrCenter, ensureQrCodeLoaded, getQrCodeConstructor } from './qr-code'
 import {
   EMPTY_SPOOL_LABEL_LOOKUPS,
   type SpoolLabelLookups,
 } from './spool-label-lookups'
 import { formatDateDisplay } from './extra-fields'
 import type { LabelExtraFieldValue } from './label-extra-fields'
+import { renderFreeformLabel } from './freeform-label/render'
+import type { LabelDesignV2 } from './freeform-label/types'
 
 export const DESIGNER_KEY = 'filaman-label-designer-v1'
 export const DESIGNER_SCHEMA_VERSION = 1
@@ -442,83 +444,8 @@ function toStringValue(value: unknown): string {
   return value === undefined || value === null ? '' : String(value)
 }
 
-let qrBrandLogo: HTMLImageElement | null = null
-let qrBrandLogoPromise: Promise<HTMLImageElement | null> | null = null
-
-async function loadQrBrandLogo(): Promise<HTMLImageElement | null> {
-  if (qrBrandLogo) return qrBrandLogo
-  if (qrBrandLogoPromise) return qrBrandLogoPromise
-  qrBrandLogoPromise = new Promise<HTMLImageElement | null>((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      qrBrandLogo = img
-      resolve(img)
-    }
-    img.onerror = () => resolve(null)
-    img.src = window.location.origin + '/logo-qr.png'
-  }).finally(() => {
-    qrBrandLogoPromise = null
-  })
-  return qrBrandLogoPromise
-}
-
-async function decorateQrCenter(canvas: HTMLCanvasElement, qrPx: number, colorLogo: boolean) {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  if (document.fonts?.ready) {
-    await document.fonts.ready
-  }
-
-  const cx = qrPx / 2
-  const cy = qrPx / 2
-  const clearPad = Math.max(colorLogo ? 3 : 6, Math.round(qrPx * (colorLogo ? 0.014 : 0.03)))
-  const maxMarkW = Math.round(qrPx * (colorLogo ? 0.32 : 0.34))
-  const maxMarkH = Math.round(qrPx * 0.24)
-
-  const fillClearRect = (markW: number, markH: number, padX = clearPad, padY = clearPad) => {
-    const clearW = Math.round(markW + padX * 2)
-    const clearH = Math.round(markH + padY * 2)
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(cx - clearW / 2, cy - clearH / 2, clearW, clearH)
-  }
-
-  if (colorLogo) {
-    const logoImg = await loadQrBrandLogo()
-    if (logoImg) {
-      const ar = logoImg.naturalWidth > 0 && logoImg.naturalHeight > 0
-        ? logoImg.naturalWidth / logoImg.naturalHeight
-        : 1
-      let drawW = maxMarkW
-      let drawH = Math.round(drawW / ar)
-      if (drawH > maxMarkH) {
-        drawH = maxMarkH
-        drawW = Math.round(drawH * ar)
-      }
-      fillClearRect(drawW, drawH)
-      ctx.imageSmoothingEnabled = true
-      ctx.imageSmoothingQuality = 'high'
-      ctx.drawImage(logoImg, cx - drawW / 2, cy - drawH / 2, drawW, drawH)
-      return
-    }
-  }
-
-  const fontSize = Math.max(18, Math.round(qrPx * 0.11))
-  ctx.font = `700 ${fontSize}px "Space Grotesk", sans-serif`
-  ;(ctx as CanvasRenderingContext2D & { textRendering?: string }).textRendering = 'geometricPrecision'
-  const measured = ctx.measureText('FilaMan')
-  const textW = Math.min(maxMarkW, Math.ceil(measured.width))
-  const textH = Math.min(maxMarkH, Math.ceil(fontSize * 0.9))
-  const textPad = clearPad + Math.max(3, Math.round(qrPx * 0.015))
-  fillClearRect(textW, textH, textPad, textPad)
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillStyle = '#000000'
-  ctx.fillText('FilaMan', cx, cy)
-}
-
-export interface RenderDesignerLabelOptions {
+interface RenderDesignerLabelCommonOptions {
   element: HTMLElement
-  settings: LabelDesignerSettings
   data: SpoolData
   logoUrl?: string | null
   previewBorder?: boolean
@@ -527,7 +454,32 @@ export interface RenderDesignerLabelOptions {
   entityPath?: string
 }
 
+export type RenderDesignerLabelOptions = RenderDesignerLabelCommonOptions & (
+  | { settings: LabelDesignerSettings; design?: never }
+  | {
+      design: LabelDesignV2
+      settings?: never
+      resolveAssetUrl?: (assetId: string) => string | null | Promise<string | null>
+      interactive?: boolean
+    }
+)
+
 export async function renderDesignerLabel(options: RenderDesignerLabelOptions) {
+  if (options.design) {
+    await renderFreeformLabel({
+      element: options.element,
+      design: options.design,
+      data: options.data,
+      logoUrl: options.logoUrl,
+      resolveAssetUrl: options.resolveAssetUrl,
+      previewBorder: options.previewBorder,
+      interactive: options.interactive,
+      isStale: options.isStale,
+      entityPath: options.entityPath === 'filaments' ? 'filaments' : 'spools',
+    })
+    return
+  }
+
   await ensureQrCodeLoaded()
   if (options.isStale?.()) return
 
