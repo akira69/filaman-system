@@ -144,7 +144,8 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
         if (options.logoUrl) node.appendChild(createImage(options.logoUrl, ''))
         break
       case 'image': {
-        const src = await options.resolveAssetUrl?.(element.assetId)
+        const assetId = element.assetId.trim()
+        const src = assetId ? await options.resolveAssetUrl?.(assetId) : null
         if (options.isStale?.()) return
         if (src) node.appendChild(createImage(src, ''))
         break
