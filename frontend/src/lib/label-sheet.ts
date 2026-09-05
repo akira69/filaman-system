@@ -72,7 +72,7 @@ export interface LabelSheetLayout {
 export interface LabelSheetControls {
   getOutputMode: () => LabelOutputMode
   getSettings: () => LabelSheetSettings
-  setOutputMode: (mode: LabelOutputMode) => void
+  setOutputMode: (mode: LabelOutputMode, options?: { notify?: boolean }) => void
   getSource: () => LabelSheetSource
   setSource: (source: LabelSheetSource) => void
   setDesignerPresets: (names: string[], selectedName?: string) => void
@@ -682,11 +682,11 @@ export function bindLabelSheetControls(
   return {
     getOutputMode: () => outputMode?.value === 'sheet' ? 'sheet' : 'individual',
     getSettings: readFormSettings,
-    setOutputMode: (mode) => {
+    setOutputMode: (mode, options) => {
       if (outputMode) outputMode.value = mode
       writeStoredOutputMode(mode)
       syncVisibility()
-      onChange()
+      if (options?.notify !== false) onChange()
     },
     getSource,
     setSource,

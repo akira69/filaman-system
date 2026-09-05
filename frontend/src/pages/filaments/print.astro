@@ -54,6 +54,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     appendLabelSettingsCheckbox,
     captureLabelSettings,
     captureBatchLabel,
+    createPrintWorkspaceCoordinator,
     createPreviewRenderCoordinator,
     findBatchLabelElement,
     getCachedEntityLogoUrl,
@@ -62,15 +63,13 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     getStandardLabelSettings,
     makeBatchLabelHtml,
     bindPrintWorkspaceTabs,
-    getPrintWorkspaceOutputItems,
-    getPrintWorkspacePreviewItems,
+    PRINT_WORKSPACE_ROUTES,
     prefetchEntityLogos,
     readPrintWorkspaceMode,
     readVersionedLabelSettings,
     removeStorageValue,
     resetLabelSettings,
     restoreLabelSettings,
-    resolvePrintWorkspace,
     syncDesignerRepresentativeElements,
     type LabelSettingsState,
     type LabelPrintEntityAdapter,
@@ -133,6 +132,18 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   let designerEditor: Awaited<ReturnType<typeof initFreeformLabelDesignerEditor>> | null = null
   let renderVersion = 0
   const previewRenders = createPreviewRenderCoordinator()
+  const workspace = createPrintWorkspaceCoordinator({
+    config: PRINT_WORKSPACE_ROUTES.batchFilaments,
+    initialMode: activeMode,
+    getItems: () => filaments,
+    getSheetSource: sheetControls.getSource,
+    getSheetCopies: () => sheetControls.getSettings().copies,
+    onModeChange: state => {
+      activeMode = state.mode
+      if (state.mode === 'designer' && designerEditor) void designerEditor.refresh()
+      else queueRenderAll()
+    },
+  })
 
   // Extra field definitions for filaments only. The Standard Label tab is
   // reduced to common fields; Label Designer still receives all fields.
@@ -351,12 +362,12 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   }
 
   function getWorkspaceSource() {
-    return resolvePrintWorkspace(activeMode, sheetControls.getSource()).source
+    return workspace.getState().source
   }
 
   function getDesignerDesign() {
-    const source = sheetControls.getSource()
-    if (activeMode === 'sheets' && source.type === 'designer' && source.presetName) {
+    const source = workspace.getState().sheetPlan.source
+    if (workspace.getActiveMode() === 'sheets' && source.type === 'designer' && source.presetName) {
       return loadFreeformLabelPresetDesign({
         presetsKey: DESIGNER_PRESETS_KEY,
         presetName: source.presetName,
@@ -400,8 +411,9 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   async function renderAllNow(mode: PrintWorkspaceMode) {
     const token = ++renderVersion
     const isStale = () => token !== renderVersion || activeMode !== mode
-    const source = getWorkspaceSource()
-    const representative = getPrintWorkspacePreviewItems(mode, filaments)[0]
+    const workspaceState = workspace.getState(mode)
+    const source = workspaceState.source
+    const representative = workspaceState.representativeItem
     const CHUNK = 6
     for (let i = 0; i < filaments.length; i += CHUNK) {
       if (isStale()) return
@@ -555,11 +567,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     sheetControls,
     storageKey: 'filaman-label-active-tab',
     initialMode: activeMode,
-    onChange: mode => {
-      activeMode = mode
-      if (mode === 'designer' && designerEditor) void designerEditor.refresh()
-      else queueRenderAll()
-    },
+    onChange: mode => workspace.activate(mode),
   })
   document.addEventListener('label-designer-edit', event => {
     const presetName = (event as CustomEvent<{ presetName?: string }>).detail?.presetName
@@ -575,7 +583,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   bindLabelOutputs({
     controls: outputControls,
     collection: {
-      getItems: () => getPrintWorkspaceOutputItems(filaments),
+      getItems: workspace.getOutputItems,
       prepare: () => previewRenders.settle(),
       capture: captureLabel,
       getDimensions: getActiveLabelDimensions,

@@ -59,17 +59,17 @@ export function getStaticPaths() {
     appendLabelSettingsCheckbox,
     buildLabelExportBaseName,
     captureLabelSettings,
+    createPrintWorkspaceCoordinator,
     createPreviewRenderCoordinator,
     getLabelOutputControls,
     getLabelSettingsControls,
-    getPrintWorkspaceOutputItems,
     getStandardLabelSettings,
+    PRINT_WORKSPACE_ROUTES,
     readVersionedLabelSettings,
     readPrintWorkspaceMode,
     removeStorageValue,
     resetLabelSettings,
     restoreLabelSettings,
-    resolvePrintWorkspace,
     safeSetLocalStorage,
     type LabelSettingsState,
     type PrintWorkspaceMode,
@@ -181,6 +181,18 @@ export function getStaticPaths() {
   let designerEditor: Awaited<ReturnType<typeof initFreeformLabelDesignerEditor>> | null = null
   let previewRenderVersion = 0
   const previewRenders = createPreviewRenderCoordinator()
+  const workspace = createPrintWorkspaceCoordinator({
+    config: PRINT_WORKSPACE_ROUTES.singleFilament,
+    initialMode: activeMode,
+    getItems: () => [labelPreview],
+    getSheetSource: sheetControls.getSource,
+    getSheetCopies: () => sheetControls.getSettings().copies,
+    onModeChange: state => {
+      activeMode = state.mode
+      if (state.mode === 'designer' && designerEditor) void designerEditor.refresh()
+      else renderActiveMode(state.mode)
+    },
+  })
 
   function beginPreviewRender(mode: PrintWorkspaceMode) {
     activeMode = mode
@@ -189,12 +201,12 @@ export function getStaticPaths() {
   }
 
   function getWorkspaceSource() {
-    return resolvePrintWorkspace(activeMode, sheetControls.getSource()).source
+    return workspace.getState().source
   }
 
   function getDesignerDesign() {
-    const source = sheetControls.getSource()
-    if (activeMode === 'sheets' && source.type === 'designer' && source.presetName) {
+    const source = workspace.getState().sheetPlan.source
+    if (workspace.getActiveMode() === 'sheets' && source.type === 'designer' && source.presetName) {
       return loadFreeformLabelPresetDesign({
         presetsKey: DESIGNER_PRESETS_KEY,
         presetName: source.presetName,
@@ -247,11 +259,7 @@ export function getStaticPaths() {
     sheetControls,
     storageKey: ACTIVE_TAB_KEY,
     initialMode: activeMode,
-    onChange: mode => {
-      activeMode = mode
-      if (mode === 'designer' && designerEditor) void designerEditor.refresh()
-      else renderActiveMode(mode)
-    },
+    onChange: mode => workspace.activate(mode),
   })
 
 
@@ -484,7 +492,7 @@ export function getStaticPaths() {
       data: buildSpoolData(),
       logoUrl: labelLogoLoaded ? labelLogoUrl : null,
       resolveAssetUrl: labelAssetContentUrl,
-      interactive: activeMode === 'designer',
+      interactive: workspace.getActiveMode() === 'designer',
       isStale: () => isStale() || getWorkspaceSource() !== 'designer',
       entityPath: 'filaments',
     })
@@ -591,7 +599,7 @@ export function getStaticPaths() {
   bindLabelOutputs({
     controls: outputControls,
     collection: {
-      getItems: () => getPrintWorkspaceOutputItems([labelPreview]),
+      getItems: workspace.getOutputItems,
       prepare: () => previewRenders.settle(),
       capture: labelElement => captureLabelElement(labelElement, {
         pixelRatio: LABEL_EXPORT_PIXEL_RATIO,

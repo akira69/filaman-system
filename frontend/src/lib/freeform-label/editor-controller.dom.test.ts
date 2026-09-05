@@ -4,15 +4,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createDefaultLabelDesign } from './defaults'
 import type { InteractFactory } from './interaction-adapter'
+import { deleteLabelPreset, saveLabelPreset } from '../label-preset-storage'
 import {
   bindFreeformEditorDom,
   createFreeformEditorController,
   getFreeformLabelPresetNames,
+  initFreeformLabelDesignerEditor,
   loadFreeformLabelDesign,
   loadFreeformLabelPresetDesign,
   persistFreeformLabelDesign,
   type LabelAssetClient,
 } from './editor-controller'
+
+vi.mock('../label-preset-storage', () => ({
+  deleteLabelPreset: vi.fn(async () => true),
+  saveLabelPreset: vi.fn(async () => true),
+}))
+
+vi.mock('./assets', () => ({
+  createLabelAssetClient: () => ({
+    list: vi.fn(async () => []),
+    upload: vi.fn(),
+    delete: vi.fn(async () => undefined),
+  }),
+}))
 
 function makeController(overrides: Parameters<typeof createFreeformEditorController>[0] = {}) {
   const ids = ['added-1', 'copy-1', 'added-2']
@@ -23,6 +38,28 @@ function makeController(overrides: Parameters<typeof createFreeformEditorControl
     ...overrides,
   })
 }
+
+function renderDesignerEditorShell() {
+  document.body.innerHTML = `
+    <div id="freeform-mobile-notice" hidden></div>
+    <div id="freeform-canvas-host" tabindex="0"><div class="label-preview"></div></div>
+    <button data-designer-action="delete">Delete</button>
+    <select id="freeform-preset-list"></select>
+    <input id="freeform-preset-name" />
+    <button id="freeform-preset-load">Load</button>
+    <button id="freeform-preset-save">Save</button>
+    <button id="freeform-preset-delete">Delete preset</button>
+    <p id="freeform-preset-status"></p>
+  `
+}
+
+beforeEach(() => {
+  document.body.innerHTML = ''
+  localStorage.clear()
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
+  vi.mocked(saveLabelPreset).mockReset().mockResolvedValue(true)
+  vi.mocked(deleteLabelPreset).mockReset().mockResolvedValue(true)
+})
 
 describe('freeform editor element operations', () => {
   it('adds, selects, duplicates, reorders, and deletes elements', () => {
@@ -225,7 +262,7 @@ describe('freeform editor DOM binding', () => {
     const binding = bindFreeformEditorDom({
       root: document,
       controller,
-      editable: false,
+      editable: true,
     })
 
     document.querySelector<HTMLButtonElement>('[data-designer-add="shape"]')!.click()
@@ -286,6 +323,67 @@ describe('freeform editor DOM binding', () => {
     expect(controller.getState().selectedId).toBe(last.id)
     binding.destroy()
   })
+
+  it('destroys and rebinds interactions when editability changes', async () => {
+    document.body.innerHTML = '<div id="freeform-canvas-host"><div class="label-preview"></div></div>'
+    const controller = makeController()
+    const selectedId = controller.getState().selectedId!
+    document.querySelector('.label-preview')!.innerHTML = `<div data-label-element-id="${selectedId}"></div>`
+    const interactable: ReturnType<InteractFactory> = {
+      draggable: vi.fn(() => interactable),
+      resizable: vi.fn(() => interactable),
+      unset: vi.fn(),
+    }
+    const loadInteract = vi.fn(async () => vi.fn(() => interactable))
+    const binding = bindFreeformEditorDom({
+      root: document,
+      controller,
+      editable: true,
+      loadInteract,
+    })
+    await binding.refresh()
+    await vi.waitFor(() => expect(loadInteract).toHaveBeenCalled())
+    const initialBindCount = loadInteract.mock.calls.length
+
+    await binding.setEditable(false)
+    expect(interactable.unset).toHaveBeenCalled()
+
+    await binding.setEditable(true)
+    expect(loadInteract.mock.calls.length).toBeGreaterThan(initialBindCount)
+    binding.destroy()
+  })
+})
+
+describe('freeform editor responsive lifecycle', () => {
+  it('allows editing at 901px and blocks keyboard mutation at 900px', async () => {
+    renderDesignerEditorShell()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    const editor = await initFreeformLabelDesignerEditor({
+      onChange: () => undefined,
+      presetsKey: 'responsive-presets',
+      settingsKey: 'responsive-working',
+    })
+    const canvas = document.querySelector<HTMLElement>('#freeform-canvas-host')!
+
+    const wideCount = editor.getDesign().elements.length
+    canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
+    expect(editor.getDesign().elements).toHaveLength(wideCount - 1)
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+    window.dispatchEvent(new Event('resize'))
+    const narrowCount = editor.getDesign().elements.length
+    expect(document.querySelector<HTMLButtonElement>('[data-designer-action="delete"]')!.disabled).toBe(true)
+    canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
+    expect(editor.getDesign().elements).toHaveLength(narrowCount)
+    expect(document.querySelector<HTMLElement>('#freeform-mobile-notice')!.hidden).toBe(false)
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    window.dispatchEvent(new Event('resize'))
+    expect(document.querySelector<HTMLButtonElement>('[data-designer-action="delete"]')!.disabled).toBe(false)
+    canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
+    expect(editor.getDesign().elements).toHaveLength(narrowCount - 1)
+    editor.destroy()
+  })
 })
 
 describe('freeform editor working storage', () => {
@@ -342,5 +440,93 @@ describe('freeform editor working storage', () => {
       presetsKey: 'preset-cache',
       kind: 'spool',
     }).label.widthMm).toBe(compact.label.widthMm)
+  })
+})
+
+describe('freeform editor database-owned presets', () => {
+  function seedPreset() {
+    const design = createDefaultLabelDesign('spool', () => `preset-${Math.random()}`)
+    const cache = {
+      version: 2,
+      presets: [{
+        name: 'Existing',
+        data: {
+          version: 2,
+          design,
+          legacy_v1: { width: 64, height: 32 },
+        },
+        settings: { width: 64, height: 32 },
+      }],
+    }
+    localStorage.setItem('database-presets', JSON.stringify(cache))
+    return cache
+  }
+
+  async function initPresetEditor() {
+    renderDesignerEditorShell()
+    return initFreeformLabelDesignerEditor({
+      onChange: () => undefined,
+      presetsKey: 'database-presets',
+      settingsKey: 'database-working',
+    })
+  }
+
+  it('rolls back a failed preset save', async () => {
+    const cache = seedPreset()
+    vi.mocked(saveLabelPreset).mockResolvedValue(false)
+    const editor = await initPresetEditor()
+    document.querySelector<HTMLInputElement>('#freeform-preset-name')!.value = 'Phantom'
+
+    document.querySelector<HTMLButtonElement>('#freeform-preset-save')!.click()
+    await vi.waitFor(() => {
+      expect(document.querySelector('#freeform-preset-status')!.textContent).toContain('failed')
+    })
+
+    expect(JSON.parse(localStorage.getItem('database-presets')!)).toEqual(cache)
+    expect(getFreeformLabelPresetNames('database-presets')).toEqual(['Existing'])
+    expect(saveLabelPreset).toHaveBeenCalledWith(
+      'database-presets',
+      expect.objectContaining({ name: 'Phantom' }),
+    )
+    editor.destroy()
+  })
+
+  it('rolls back a failed preset deletion', async () => {
+    const cache = seedPreset()
+    vi.mocked(deleteLabelPreset).mockResolvedValue(false)
+    const editor = await initPresetEditor()
+
+    document.querySelector<HTMLButtonElement>('#freeform-preset-delete')!.click()
+    await vi.waitFor(() => {
+      expect(document.querySelector('#freeform-preset-status')!.textContent).toContain('failed')
+    })
+
+    expect(JSON.parse(localStorage.getItem('database-presets')!)).toEqual(cache)
+    expect(getFreeformLabelPresetNames('database-presets')).toEqual(['Existing'])
+    expect(deleteLabelPreset).toHaveBeenCalledWith('database-presets', 'Existing')
+    editor.destroy()
+  })
+
+  it('preserves legacy_v1 when a v2 preset is resaved', async () => {
+    seedPreset()
+    const editor = await initPresetEditor()
+    document.querySelector<HTMLInputElement>('#freeform-preset-name')!.value = 'Existing'
+
+    document.querySelector<HTMLButtonElement>('#freeform-preset-save')!.click()
+    await vi.waitFor(() => {
+      expect(document.querySelector('#freeform-preset-status')!.textContent).toContain('saved')
+    })
+
+    const stored = JSON.parse(localStorage.getItem('database-presets')!)
+    expect(stored.presets[0].data.legacy_v1).toEqual({ width: 64, height: 32 })
+    expect(stored.presets[0].settings).toEqual({ width: 64, height: 32 })
+    expect(saveLabelPreset).toHaveBeenCalledWith(
+      'database-presets',
+      expect.objectContaining({
+        data: expect.objectContaining({ legacy_v1: { width: 64, height: 32 } }),
+        settings: { width: 64, height: 32 },
+      }),
+    )
+    editor.destroy()
   })
 })
