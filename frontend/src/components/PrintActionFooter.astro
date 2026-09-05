@@ -148,6 +148,12 @@ const resolvedPrintButtonId = printButtonId ?? 'btn-print'
     .print-help-row { flex-wrap: wrap; }
   }
 
+  @media (max-width: 900px) {
+    .action-buttons { padding: 16px; }
+    .export-buttons { grid-template-columns: 1fr; }
+    .export-buttons .fm-btn { white-space: normal; }
+  }
+
   .print-help {
     position: relative;
     flex: 0 0 auto;

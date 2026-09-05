@@ -157,6 +157,43 @@ describe('print workspace modes', () => {
     expect(binding.getActiveMode()).toBe('designer')
   })
 
+  it('uses arrow, Home, and End keys to focus and activate workspace tabs', () => {
+    document.body.innerHTML = `
+      <div role="tablist">
+        <button id="tab-btn-print" data-workspace-mode="standard"></button>
+        <button id="tab-btn-designer" data-workspace-mode="designer"></button>
+        <button id="tab-btn-sheets" data-workspace-mode="sheets"></button>
+      </div>
+      <section id="standard"></section><section id="designer"></section><section id="sheets"></section>
+    `
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-workspace-mode]'))
+    bindPrintWorkspaceTabs({
+      buttons,
+      panels: {
+        standard: document.querySelector('#standard')!,
+        designer: document.querySelector('#designer')!,
+        sheets: document.querySelector('#sheets')!,
+      },
+      storageKey: 'workspace-keyboard-mode',
+      initialMode: 'standard',
+      onChange: () => undefined,
+    })
+
+    buttons[0].focus()
+    buttons[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+    expect(document.activeElement).toBe(buttons[2])
+    expect(buttons[2].getAttribute('aria-selected')).toBe('true')
+    expect(document.querySelector<HTMLElement>('#sheets')!.hidden).toBe(false)
+
+    buttons[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    expect(document.activeElement).toBe(buttons[0])
+    buttons[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    expect(document.activeElement).toBe(buttons[2])
+    buttons[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(document.activeElement).toBe(buttons[0])
+    expect(buttons.map(button => button.tabIndex)).toEqual([0, -1, -1])
+  })
+
   it.each([
     { route: 'single spool', config: PRINT_WORKSPACE_ROUTES.singleSpool, entities: [11] },
     { route: 'batch spools', config: PRINT_WORKSPACE_ROUTES.batchSpools, entities: [11, 12, 13] },

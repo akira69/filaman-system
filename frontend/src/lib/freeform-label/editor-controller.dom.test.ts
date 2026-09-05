@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 
+import DesignerSidebar from '../../components/freeform-label/DesignerSidebar.astro'
+import DesignerWorkspace from '../../components/freeform-label/DesignerWorkspace.astro'
+import de from '../../i18n/de.json'
 import { createDefaultLabelDesign } from './defaults'
 import type { InteractFactory } from './interaction-adapter'
 import { deleteLabelPreset, saveLabelPreset } from '../label-preset-storage'
@@ -15,6 +19,25 @@ import {
   persistFreeformLabelDesign,
   type LabelAssetClient,
 } from './editor-controller'
+
+function resolveTranslation(catalog: object, key: string, fallback: string) {
+  const value = key.split('.').reduce<unknown>((node, part) => (
+    node && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined
+  ), catalog)
+  return typeof value === 'string' ? value : fallback
+}
+
+async function renderRealDesignerEditor() {
+  const container = await AstroContainer.create()
+  document.body.innerHTML = [
+    await container.renderToString(DesignerSidebar),
+    await container.renderToString(DesignerWorkspace),
+  ].join('')
+  const preview = document.createElement('div')
+  preview.className = 'label-preview'
+  document.querySelector('#freeform-canvas-host')!.append(preview)
+  return preview
+}
 
 vi.mock('../label-preset-storage', () => ({
   deleteLabelPreset: vi.fn(async () => true),
@@ -68,6 +91,7 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  vi.unstubAllGlobals()
   document.body.innerHTML = ''
   localStorage.clear()
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
@@ -217,10 +241,22 @@ describe('freeform editor assets and async lifecycle', () => {
     expect(controller.getState().assets.map(asset => asset.id)).toEqual(['asset-1'])
   })
 
+  it('uses a localized image error only when the server provides no message', async () => {
+    assets.list = vi.fn(async () => { throw new Error('') })
+    const controller = makeController({
+      assets,
+      translate: (key, fallback) => key || fallback,
+    })
+
+    await expect(controller.loadAssets()).rejects.toThrow()
+    expect(controller.getState().assetError).toBe('labelDesigner.imageLoadFailed')
+  })
+
   it('ignores stale renders and stops publishing after destroy', async () => {
     const finish: Array<() => void> = []
     const rendered: number[] = []
     const controller = makeController({
+      translate: (key, fallback) => resolveTranslation(de, key, fallback),
       render: (_design, revision) => new Promise<void>(resolve => {
         finish.push(() => {
           rendered.push(revision)
@@ -246,6 +282,154 @@ describe('freeform editor assets and async lifecycle', () => {
 })
 
 describe('freeform editor DOM binding', () => {
+  it('gives every real icon tool a localized tooltip and accessible name', async () => {
+    await renderRealDesignerEditor()
+    const iconTools = Array.from(document.querySelectorAll<HTMLElement>(
+      '[data-designer-add], .freeform-toolbar [data-designer-action], [data-field-modifier]',
+    ))
+    expect(iconTools.length).toBeGreaterThan(15)
+    for (const tool of iconTools) {
+      expect(tool.dataset.i18nTitle, tool.outerHTML).toMatch(/^(labelDesigner|common)\./)
+      expect(tool.dataset.i18nAriaLabel, tool.outerHTML).toBe(tool.dataset.i18nTitle)
+      expect(tool.getAttribute('aria-label'), tool.outerHTML).toBeTruthy()
+      expect(tool.getAttribute('title'), tool.outerHTML).toBeTruthy()
+    }
+    for (const modifier of ['caps', 'inverse', 'colorInverse', 'date']) {
+      expect(document.querySelector(`[data-field-modifier="${modifier}"] svg`)).not.toBeNull()
+    }
+    expect(document.querySelector('[data-field-modifier="bold"]')?.textContent?.trim()).toBe('B')
+    expect(document.querySelector('[data-field-modifier="italic"]')?.textContent?.trim()).toBe('I')
+    expect(document.querySelector('[data-field-modifier="underline"]')?.textContent?.trim()).toBe('U')
+  })
+
+  it('selects real rendered elements from the keyboard and restores focus after mutations', async () => {
+    const preview = await renderRealDesignerEditor()
+    const controller = makeController({
+      render: design => {
+        preview.replaceChildren(...design.elements.map(element => {
+          const node = document.createElement('div')
+          node.dataset.labelElementId = element.id
+          node.dataset.labelElementType = element.type
+          return node
+        }))
+      },
+    })
+    const binding = bindFreeformEditorDom({
+      root: document,
+      controller,
+      editable: true,
+      translate: (key, fallback) => resolveTranslation(de, key, fallback),
+    })
+    await binding.refresh()
+
+    let elements = Array.from(preview.querySelectorAll<HTMLElement>('[data-label-element-id]'))
+    expect(elements[0].tabIndex).toBe(0)
+    expect(elements[0].getAttribute('role')).toBe('button')
+    expect(elements[0].getAttribute('aria-label')).toBe('Textelement')
+    expect(document.querySelector('#freeform-inspector-title')?.textContent).toBe('Textelement')
+
+    elements[1].focus()
+    expect(controller.getState().selectedId).toBe(elements[1].dataset.labelElementId)
+    controller.select(elements[0].dataset.labelElementId!)
+    elements[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(controller.getState().selectedId).toBe(elements[1].dataset.labelElementId)
+    controller.select(elements[0].dataset.labelElementId!)
+    elements[1].dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    expect(controller.getState().selectedId).toBe(elements[1].dataset.labelElementId)
+
+    const beforeNudge = controller.getSelectedElement()!
+    elements[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(controller.getSelectedElement()!.x).toBe(beforeNudge.x + 0.1)
+    await vi.waitFor(() => expect((document.activeElement as HTMLElement).dataset.labelElementId).toBe(elements[1].dataset.labelElementId))
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true }))
+    expect(controller.getSelectedElement()!.y).toBe(beforeNudge.y + 1)
+    await vi.waitFor(() => expect((document.activeElement as HTMLElement).dataset.labelElementId).toBe(elements[1].dataset.labelElementId))
+
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true }))
+    await vi.waitFor(() => {
+      elements = Array.from(preview.querySelectorAll<HTMLElement>('[data-label-element-id]'))
+      expect(elements).toHaveLength(5)
+      expect((document.activeElement as HTMLElement).dataset.labelElementId).toBe('added-1')
+    })
+
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
+    await vi.waitFor(() => expect(document.activeElement).toBe(document.querySelector('#freeform-canvas-host')))
+
+    const count = controller.getState().design.elements.length
+    const input = document.createElement('input')
+    preview.append(input)
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
+    expect(controller.getState().design.elements).toHaveLength(count)
+    binding.destroy()
+  })
+
+  it('associates localized JSON errors and keeps expansion state accessible', async () => {
+    await renderRealDesignerEditor()
+    const controller = makeController({
+      translate: (key, fallback) => resolveTranslation(de, key, fallback),
+    })
+    const binding = bindFreeformEditorDom({
+      root: document,
+      controller,
+      editable: true,
+      translate: (key, fallback) => resolveTranslation(de, key, fallback),
+    })
+    const before = controller.getSelectedElement()
+    const json = document.querySelector<HTMLTextAreaElement>('#freeform-element-json')!
+    const error = document.querySelector<HTMLElement>('#freeform-json-error')!
+    const expand = document.querySelector<HTMLButtonElement>('#freeform-json-expand')!
+
+    expect(document.querySelector<HTMLLabelElement>('label[for="freeform-element-json"]')).not.toBeNull()
+    expect(json.getAttribute('aria-describedby')).toBe('freeform-json-error')
+    json.value = '{'
+    document.querySelector<HTMLButtonElement>('#freeform-json-apply')!.click()
+    expect(json.getAttribute('aria-invalid')).toBe('true')
+    expect(error.textContent).toBe('Element-JSON muss gültiges JSON sein')
+    expect(controller.getSelectedElement()).toEqual(before)
+
+    json.value = JSON.stringify({ ...before, template: 'Gültig' })
+    document.querySelector<HTMLButtonElement>('#freeform-json-apply')!.click()
+    expect(json.getAttribute('aria-invalid')).toBeNull()
+    expect(error.textContent).toBe('')
+    expect(controller.getSelectedElement()).toMatchObject({ template: 'Gültig' })
+
+    json.value = '{'
+    document.querySelector<HTMLButtonElement>('#freeform-json-apply')!.click()
+    document.querySelector<HTMLButtonElement>('#freeform-json-revert')!.click()
+    expect(json.getAttribute('aria-invalid')).toBeNull()
+    expect(error.textContent).toBe('')
+
+    expect(expand.getAttribute('aria-expanded')).toBe('false')
+    expand.focus()
+    expand.click()
+    expect(expand.getAttribute('aria-expanded')).toBe('true')
+    expect(expand.textContent).toBe('Einklappen')
+    expect(document.activeElement).toBe(expand)
+    expand.click()
+    expect(expand.getAttribute('aria-expanded')).toBe('false')
+    expect(expand.textContent).toBe('Erweitern')
+    binding.destroy()
+  })
+
+  it('implements roving keyboard navigation for real field tabs', async () => {
+    await renderRealDesignerEditor()
+    const controller = makeController()
+    const binding = bindFreeformEditorDom({ root: document, controller, editable: true })
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-field-group-tab]'))
+
+    tabs[0].focus()
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+    expect(document.activeElement).toBe(tabs[2])
+    expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'false', 'true'])
+    expect(document.querySelector<HTMLElement>('#freeform-field-panel-extra')!.hidden).toBe(false)
+    tabs[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    expect(document.activeElement).toBe(tabs[0])
+    tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    expect(document.activeElement).toBe(tabs[2])
+    expect(tabs.map(tab => tab.tabIndex)).toEqual([-1, -1, 0])
+    binding.destroy()
+  })
+
   it('wires toolbar, inspector JSON, field chips, keyboard, and teardown', async () => {
     document.body.innerHTML = `
       <div id="freeform-designer-workspace" class="is-active">
@@ -369,6 +553,114 @@ describe('freeform editor DOM binding', () => {
 })
 
 describe('freeform editor responsive lifecycle', () => {
+  it('localizes the selected element name in the live selection summary', async () => {
+    await renderRealDesignerEditor()
+    const workspace = document.querySelector<HTMLElement>('#freeform-designer-workspace')!
+    Object.defineProperty(workspace, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ width: 901 }),
+    })
+    class ResizeObserverStub {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        this.callback([{ target, contentRect: { width: 901 } } as ResizeObserverEntry], this as unknown as ResizeObserver)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const interactable: ReturnType<InteractFactory> = {
+      draggable: vi.fn(() => interactable),
+      resizable: vi.fn(() => interactable),
+      unset: vi.fn(),
+    }
+    const editor = await initFreeformLabelDesignerEditor({
+      onChange: () => undefined,
+      presetsKey: 'localized-summary-presets',
+      settingsKey: 'localized-summary-working',
+      translate: (key, fallback) => resolveTranslation(de, key, fallback),
+      loadInteract: async () => vi.fn(() => interactable),
+    })
+
+    document.querySelector<HTMLButtonElement>('[data-designer-add="shape"]')!.click()
+    expect(document.querySelector('#freeform-selection-summary')?.textContent).toMatch(/^Formelement · [\d.]+ × [\d.]+ mm$/)
+    editor.destroy()
+  })
+
+  it('uses observed workspace width at 900/901 and disconnects without leaking interaction bindings', async () => {
+    const preview = await renderRealDesignerEditor()
+    const workspace = document.querySelector<HTMLElement>('#freeform-designer-workspace')!
+    let width = 900
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    Object.defineProperty(workspace, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ width }),
+    })
+    let notifyResize!: () => void
+    const disconnectSpy = vi.fn()
+    class ResizeObserverStub {
+      constructor(callback: ResizeObserverCallback) {
+        notifyResize = () => callback([{ contentRect: { width } } as ResizeObserverEntry], this as unknown as ResizeObserver)
+      }
+      observe() { notifyResize() }
+      unobserve() {}
+      disconnect = disconnectSpy
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    const interactable: ReturnType<InteractFactory> = {
+      draggable: vi.fn(() => interactable),
+      resizable: vi.fn(() => interactable),
+      unset: vi.fn(),
+    }
+    const loadInteract = vi.fn(async () => vi.fn(() => interactable))
+    const editor = await initFreeformLabelDesignerEditor({
+      onChange: () => undefined,
+      presetsKey: 'container-responsive-presets',
+      settingsKey: 'container-responsive-working',
+      loadInteract,
+    })
+    const element = document.createElement('div')
+    element.dataset.labelElementId = editor.getDesign().elements[0].id
+    element.dataset.labelElementType = editor.getDesign().elements[0].type
+    preview.append(element)
+
+    expect(workspace.dataset.editorEditable).toBe('false')
+    expect(document.querySelector<HTMLElement>('#freeform-mobile-notice')!.hidden).toBe(false)
+    for (const selector of ['.freeform-toolbar', '#freeform-element-inspector', '#freeform-field-dock']) {
+      expect(document.querySelector(selector)?.hasAttribute('inert')).toBe(true)
+    }
+    expect(loadInteract).not.toHaveBeenCalled()
+
+    width = 901
+    notifyResize()
+    await vi.waitFor(() => expect(loadInteract).toHaveBeenCalledOnce())
+    expect(workspace.dataset.editorEditable).toBe('true')
+    expect(document.querySelector('.freeform-toolbar')?.hasAttribute('inert')).toBe(false)
+    expect(element.tabIndex).toBe(0)
+
+    width = 371
+    notifyResize()
+    await vi.waitFor(() => expect(workspace.dataset.editorEditable).toBe('false'))
+    expect(window.innerWidth).toBe(901)
+    expect(element.hasAttribute('tabindex')).toBe(false)
+    expect(element.classList.contains('is-selected')).toBe(false)
+
+    width = 901
+    notifyResize()
+    await vi.waitFor(() => expect(workspace.dataset.editorEditable).toBe('true'))
+
+    width = 900
+    notifyResize()
+    await vi.waitFor(() => expect(interactable.unset).toHaveBeenCalled())
+    const callsBeforeDestroy = loadInteract.mock.calls.length
+    editor.destroy()
+    expect(disconnectSpy).toHaveBeenCalledOnce()
+    width = 901
+    notifyResize()
+    await Promise.resolve()
+    expect(loadInteract).toHaveBeenCalledTimes(callsBeforeDestroy)
+  })
+
   it('allows editing at 901px and blocks keyboard mutation at 900px', async () => {
     renderDesignerEditorShell()
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })

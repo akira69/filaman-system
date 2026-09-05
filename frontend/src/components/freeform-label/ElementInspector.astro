@@ -5,18 +5,18 @@
       <h2 id="freeform-inspector-title" data-i18n="labelDesigner.noSelection">No selection</h2>
     </div>
     <div class="freeform-inspector-actions">
-      <button type="button" data-designer-action="duplicate" data-i18n-title="labelDesigner.duplicate" title="Duplicate">Duplicate</button>
-      <button type="button" data-designer-action="delete" data-i18n-title="labelDesigner.deleteElement" title="Delete">Delete</button>
+      <button type="button" data-designer-action="duplicate" data-i18n="labelDesigner.duplicate" data-i18n-title="labelDesigner.duplicate" title="Duplicate">Duplicate</button>
+      <button type="button" class="freeform-danger-action" data-designer-action="delete" data-i18n="labelDesigner.deleteElement" data-i18n-title="labelDesigner.deleteElement" title="Delete element">Delete element</button>
     </div>
   </header>
 
   <div id="freeform-inspector-empty" class="freeform-inspector-empty" data-i18n="labelDesigner.selectElementHint">Select an element on the label to edit it.</div>
   <div id="freeform-inspector-fields" class="freeform-inspector-fields" hidden>
     <div class="freeform-geometry-grid">
-      <label>X (mm)<input class="fm-input" type="number" step="0.1" data-element-prop="x" /></label>
-      <label>Y (mm)<input class="fm-input" type="number" step="0.1" data-element-prop="y" /></label>
-      <label>W (mm)<input class="fm-input" type="number" step="0.1" data-element-prop="w" /></label>
-      <label>H (mm)<input class="fm-input" type="number" step="0.1" data-element-prop="h" /></label>
+      <label><span data-i18n="labelDesigner.xMm">X (mm)</span><input class="fm-input" type="number" step="0.1" data-element-prop="x" /></label>
+      <label><span data-i18n="labelDesigner.yMm">Y (mm)</span><input class="fm-input" type="number" step="0.1" data-element-prop="y" /></label>
+      <label><span data-i18n="labelDesigner.widthMm">Width (mm)</span><input class="fm-input" type="number" step="0.1" data-element-prop="w" /></label>
+      <label><span data-i18n="labelDesigner.heightMm">Height (mm)</span><input class="fm-input" type="number" step="0.1" data-element-prop="h" /></label>
     </div>
 
     <div data-element-section="text" hidden>
@@ -25,7 +25,7 @@
         <label><span data-i18n="labelDesigner.font">Font</span><select class="fm-input" data-element-prop="fontFamily"><option>Space Grotesk</option><option>Roboto Condensed</option><option>Fraunces</option><option>Space Mono</option></select></label>
         <label><span data-i18n="labelDesigner.fontSizeMm">Size (mm)</span><input class="fm-input" type="number" min="1" max="20" step="0.1" data-element-prop="fontSizeMm" /></label>
         <label><span data-i18n="labelDesigner.weight">Weight</span><select class="fm-input" data-element-prop="fontWeight"><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option></select></label>
-        <label><span data-i18n="labelDesigner.alignment">Alignment</span><select class="fm-input" data-element-prop="align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+        <label><span data-i18n="labelDesigner.alignment">Alignment</span><select class="fm-input" data-element-prop="align"><option value="left" data-i18n="labelDesigner.alignLeft">Left</option><option value="center" data-i18n="labelDesigner.alignCenter">Center</option><option value="right" data-i18n="labelDesigner.alignRight">Right</option></select></label>
       </div>
     </div>
 
@@ -39,7 +39,8 @@
     </div>
 
     <section class="freeform-json-section" aria-labelledby="freeform-json-title">
-      <div class="freeform-json-heading"><h3 id="freeform-json-title" data-i18n="labelDesigner.elementJson">Element JSON</h3><button id="freeform-json-expand" type="button" data-i18n="labelDesigner.expand">Expand</button></div>
+      <div class="freeform-json-heading"><h3 id="freeform-json-title" data-i18n="labelDesigner.elementJson">Element JSON</h3><button id="freeform-json-expand" type="button" aria-expanded="false" aria-controls="freeform-element-json" data-i18n="labelDesigner.expand">Expand</button></div>
+      <label for="freeform-element-json" class="visually-hidden" data-i18n="labelDesigner.elementJson">Element JSON</label>
       <textarea id="freeform-element-json" class="fm-input" rows="12" spellcheck="false" aria-describedby="freeform-json-error"></textarea>
       <p id="freeform-json-error" class="freeform-json-error" role="alert"></p>
       <div class="freeform-json-actions"><button id="freeform-json-revert" type="button" data-i18n="common.revert">Revert</button><button id="freeform-json-apply" type="button" class="preset-action-btn-primary" data-i18n="common.apply">Apply</button></div>
@@ -65,6 +66,9 @@
   #freeform-element-json { font-family: 'Space Mono', monospace; min-height: 240px; resize: vertical; width: 100%; }
   .freeform-json-section.is-expanded { background: var(--bg-elevated); inset: 12px; padding: 16px; position: fixed; z-index: 1000; }
   .freeform-json-section.is-expanded #freeform-element-json { height: calc(100vh - 150px); }
-  .freeform-json-error { color: var(--danger, #c0392b); font-size: 0.72rem; min-height: 1.2em; }
+  .freeform-json-error { color: var(--label-danger, #ff8a80); font-size: 0.72rem; min-height: 1.2em; }
   .freeform-upload-button input { display: none; }
+  .visually-hidden { border: 0; clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px; }
+  .freeform-element-inspector :is(button, select, input, textarea, .freeform-upload-button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .freeform-danger-action:hover, .freeform-danger-action:focus-visible { border-color: var(--label-danger, #ff8a80); color: var(--label-danger, #ff8a80); }
 </style>

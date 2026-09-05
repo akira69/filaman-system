@@ -39,14 +39,15 @@ describe('stripElementIds', () => {
 })
 
 describe('prepareLabelOutputClone', () => {
-  it('removes editor-only state and chrome while preserving rendered label elements', () => {
+  it.each([900, 901])('removes editor-only state and focus semantics at %ipx while preserving rendered label elements', width => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
     const root = document.createElement('section')
     root.id = 'label-root'
     root.className = 'label-preview is-selected is-designer-output-only'
     root.setAttribute('aria-hidden', 'true')
     root.setAttribute('data-label-interactive', '')
     root.innerHTML = `
-      <div id="content" class="is-selected" data-label-element-id="text" data-label-interaction-bound>Label</div>
+      <div id="content" class="is-selected" data-label-element-id="text" data-label-interaction-bound tabindex="0" role="button" aria-label="Text element">Label</div>
       <button data-editor-handle>Resize</button>
       <div data-label-editor-chrome>Toolbar</div>
     `
@@ -62,6 +63,10 @@ describe('prepareLabelOutputClone', () => {
     expect(root.querySelector('[data-label-element-id="text"]')?.textContent).toBe('Label')
     expect(root.querySelector('.is-selected')).toBeNull()
     expect(root.querySelector('[data-label-interaction-bound]')).toBeNull()
+    const outputElement = root.querySelector('[data-label-element-id="text"]')
+    expect(outputElement?.hasAttribute('tabindex')).toBe(false)
+    expect(outputElement?.hasAttribute('role')).toBe(false)
+    expect(outputElement?.hasAttribute('aria-label')).toBe(false)
   })
 })
 

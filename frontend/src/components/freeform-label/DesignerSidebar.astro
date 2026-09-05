@@ -1,4 +1,4 @@
-<div id="tab-panel-designer-v2" class="settings-section freeform-designer-sidebar" hidden>
+<div id="tab-panel-designer-v2" class="settings-section freeform-designer-sidebar" role="tabpanel" aria-labelledby="tab-btn-designer" hidden>
   <section class="freeform-sidebar-section" aria-labelledby="freeform-presets-heading">
     <h2 id="freeform-presets-heading" data-i18n="labelDesigner.presets">Label presets</h2>
     <label class="fm-label" for="freeform-preset-list" data-i18n="labelDesigner.savedPresets">Saved presets</label>
@@ -38,4 +38,6 @@
   .freeform-dimension-grid { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .freeform-dimension-grid label { display: grid; font-size: 0.75rem; gap: 4px; }
   .freeform-control-status, .freeform-selection-summary { color: var(--text-muted); font-size: 0.75rem; margin: 8px 0 0; min-height: 1.2em; }
+  .freeform-designer-sidebar :is(button, select, input):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .preset-action-btn-danger:hover, .preset-action-btn-danger:focus-visible { border-color: var(--label-danger, #ff8a80); color: var(--label-danger, #ff8a80); }
 </style>

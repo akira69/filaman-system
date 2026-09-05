@@ -3,37 +3,38 @@ import ElementInspector from './ElementInspector.astro'
 import FieldDock from './FieldDock.astro'
 import { designerIcon, type DesignerIconName } from '../../lib/freeform-label/icons'
 
-const addTools: Array<{ type: string; icon: DesignerIconName; label: string }> = [
-  { type: 'text', icon: 'text', label: 'Add text' },
-  { type: 'qr', icon: 'qr', label: 'Add QR code' },
-  { type: 'manufacturerLogo', icon: 'logo', label: 'Add manufacturer logo' },
-  { type: 'image', icon: 'image', label: 'Add image' },
-  { type: 'swatch', icon: 'swatch', label: 'Add color swatch' },
-  { type: 'shape', icon: 'shape', label: 'Add shape' },
+const addTools: Array<{ type: string; icon: DesignerIconName; label: string; i18n: string }> = [
+  { type: 'text', icon: 'text', label: 'Add text', i18n: 'labelDesigner.addText' },
+  { type: 'qr', icon: 'qr', label: 'Add QR code', i18n: 'labelDesigner.addQrCode' },
+  { type: 'manufacturerLogo', icon: 'logo', label: 'Add manufacturer logo', i18n: 'labelDesigner.addManufacturerLogo' },
+  { type: 'image', icon: 'image', label: 'Add image', i18n: 'labelDesigner.addImage' },
+  { type: 'swatch', icon: 'swatch', label: 'Add color swatch', i18n: 'labelDesigner.addColorSwatch' },
+  { type: 'shape', icon: 'shape', label: 'Add shape', i18n: 'labelDesigner.addShape' },
 ]
 ---
 
 <div id="freeform-designer-workspace" class="freeform-designer-workspace">
   <div class="freeform-workspace-main">
-    <div class="freeform-toolbar" role="toolbar" aria-label="Label designer tools">
+    <div class="freeform-toolbar" role="toolbar" aria-label="Label designer tools" data-i18n-aria-label="labelDesigner.toolbar">
       <div class="freeform-toolbar-group">
-        {addTools.map(tool => <button type="button" data-designer-add={tool.type} title={tool.label} aria-label={tool.label} set:html={designerIcon(tool.icon)} />)}
+        {addTools.map(tool => <button type="button" data-designer-add={tool.type} title={tool.label} aria-label={tool.label} data-i18n-title={tool.i18n} data-i18n-aria-label={tool.i18n} set:html={designerIcon(tool.icon)} />)}
       </div>
       <div class="freeform-toolbar-group">
-        <button type="button" data-designer-action="undo" title="Undo" aria-label="Undo" set:html={designerIcon('undo')} />
-        <button type="button" data-designer-action="redo" title="Redo" aria-label="Redo" set:html={designerIcon('redo')} />
+        <button type="button" data-designer-action="undo" title="Undo" aria-label="Undo" data-i18n-title="labelDesigner.undo" data-i18n-aria-label="labelDesigner.undo" set:html={designerIcon('undo')} />
+        <button type="button" data-designer-action="redo" title="Redo" aria-label="Redo" data-i18n-title="labelDesigner.redo" data-i18n-aria-label="labelDesigner.redo" set:html={designerIcon('redo')} />
       </div>
       <div class="freeform-toolbar-group">
-        <button type="button" data-designer-action="back" title="Move backward" aria-label="Move backward" set:html={designerIcon('back')} />
-        <button type="button" data-designer-action="forward" title="Move forward" aria-label="Move forward" set:html={designerIcon('forward')} />
-        <button type="button" data-designer-action="duplicate" title="Duplicate" aria-label="Duplicate" set:html={designerIcon('duplicate')} />
-        <button type="button" data-designer-action="delete" title="Delete" aria-label="Delete" set:html={designerIcon('delete')} />
+        <button type="button" data-designer-action="back" title="Move backward" aria-label="Move backward" data-i18n-title="labelDesigner.moveBackward" data-i18n-aria-label="labelDesigner.moveBackward" set:html={designerIcon('back')} />
+        <button type="button" data-designer-action="forward" title="Move forward" aria-label="Move forward" data-i18n-title="labelDesigner.moveForward" data-i18n-aria-label="labelDesigner.moveForward" set:html={designerIcon('forward')} />
+        <button type="button" data-designer-action="duplicate" title="Duplicate" aria-label="Duplicate" data-i18n-title="labelDesigner.duplicate" data-i18n-aria-label="labelDesigner.duplicate" set:html={designerIcon('duplicate')} />
+        <button type="button" data-designer-action="delete" title="Delete element" aria-label="Delete element" data-i18n-title="labelDesigner.deleteElement" data-i18n-aria-label="labelDesigner.deleteElement" set:html={designerIcon('delete')} />
       </div>
     </div>
 
     <div class="freeform-canvas-region">
-      <div id="freeform-mobile-notice" class="freeform-mobile-notice" role="status" hidden data-i18n="labelDesigner.desktopRequired">Editing requires a wider workspace. Preview and output remain available.</div>
-      <div id="freeform-canvas-host" class="freeform-canvas-host" tabindex="0">
+      <div id="freeform-mobile-notice" class="freeform-mobile-notice" role="status" aria-live="polite" hidden data-i18n="labelDesigner.desktopRequired">Editing requires a wider workspace. Preview and output remain available.</div>
+      <p id="freeform-canvas-instructions" class="visually-hidden" data-i18n="labelDesigner.canvasInstructions">Label canvas. Focus an element to select it; use arrow keys to move it.</p>
+      <div id="freeform-canvas-host" class="freeform-canvas-host" role="region" tabindex="0" aria-labelledby="freeform-canvas-instructions">
         <slot />
       </div>
     </div>
@@ -43,29 +44,30 @@ const addTools: Array<{ type: string; icon: DesignerIconName; label: string }> =
 </div>
 
 <style>
-  .freeform-designer-workspace, .freeform-workspace-main, .freeform-canvas-region, .freeform-canvas-host { display: contents; }
+  .freeform-designer-workspace, .freeform-workspace-main, .freeform-canvas-region { display: contents; }
   .freeform-toolbar, .freeform-designer-workspace :global(.freeform-element-inspector), .freeform-designer-workspace :global(.freeform-field-dock) { display: none; }
   .freeform-designer-workspace.is-active { background: var(--bg); display: grid; grid-template-columns: minmax(0, 1fr) auto; height: 100%; min-height: 0; width: 100%; }
   .freeform-designer-workspace.is-active .freeform-workspace-main { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
-  .freeform-designer-workspace.is-active .freeform-toolbar { align-items: center; background: var(--bg-elevated); border-bottom: 1px solid var(--border); display: flex; gap: 12px; padding: 7px 10px; }
+  .freeform-designer-workspace.is-active .freeform-toolbar { align-items: center; background: var(--bg-elevated); border-bottom: 1px solid var(--border); display: flex; flex-wrap: nowrap; gap: 12px; overflow-x: auto; padding: 7px 10px; }
   .freeform-designer-workspace.is-active :global(.freeform-element-inspector) { display: block; }
   .freeform-designer-workspace.is-active :global(.freeform-field-dock) { display: block; }
-  .freeform-toolbar-group { display: flex; gap: 4px; }
+  .freeform-toolbar-group { display: flex; flex-shrink: 0; gap: 4px; }
   .freeform-toolbar-group + .freeform-toolbar-group { border-left: 1px solid var(--border); padding-left: 12px; }
   .freeform-toolbar button { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text); display: inline-flex; height: 32px; justify-content: center; padding: 0; width: 32px; }
   .freeform-toolbar button:hover, .freeform-toolbar button:focus-visible { background: var(--bg-soft); border-color: var(--border); }
   .freeform-toolbar button :global(svg) { height: 16px; width: 16px; }
-  .freeform-designer-workspace.is-active .freeform-canvas-region { display: grid; min-height: 240px; overflow: auto; padding: 20px; place-items: center; }
+  .freeform-designer-workspace.is-active .freeform-canvas-region { display: grid; min-height: 240px; min-width: 320px; overflow: auto; padding: 20px; place-items: center; }
   .freeform-designer-workspace.is-active :global(.is-designer-output-only) { left: -100000px; pointer-events: none; position: fixed; top: 0; }
-  .freeform-canvas-host { outline: none; position: relative; }
-  .freeform-canvas-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
-  .freeform-canvas-host :global([data-label-element-id].is-selected) { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+  .freeform-canvas-host { display: block; flex: none; outline: none; position: relative; }
+  .freeform-canvas-host:focus-visible, .freeform-canvas-host :global([data-label-element-id]:focus-visible) { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .freeform-canvas-host :global([data-label-element-id].is-selected) { outline: 2px solid var(--accent); outline-offset: 1px; }
   .freeform-mobile-notice { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-size: 0.78rem; margin-bottom: 12px; padding: 8px 10px; }
+  .visually-hidden { border: 0; clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px; }
 
-  @media (max-width: 900px) {
-    .freeform-designer-workspace.is-active { display: block; overflow: auto; }
-    .freeform-toolbar, .freeform-designer-workspace :global(.freeform-element-inspector), .freeform-designer-workspace :global(.freeform-field-dock) { display: none; }
-    .freeform-canvas-region { display: block; padding: 12px; }
-    .freeform-mobile-notice:not([hidden]) { display: block; }
-  }
+  .freeform-designer-workspace.is-active[data-editor-editable='false'] { display: block; overflow: auto; }
+  .freeform-designer-workspace[data-editor-editable='false'] .freeform-toolbar,
+  .freeform-designer-workspace[data-editor-editable='false'] :global(.freeform-element-inspector),
+  .freeform-designer-workspace[data-editor-editable='false'] :global(.freeform-field-dock) { display: none; }
+  .freeform-designer-workspace[data-editor-editable='false'] .freeform-canvas-region { display: block; padding: 12px; }
+  .freeform-designer-workspace[data-editor-editable='false'] .freeform-mobile-notice:not([hidden]) { display: block; }
 </style>
