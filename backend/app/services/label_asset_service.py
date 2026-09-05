@@ -40,6 +40,30 @@ class CanonicalLabelImage:
     sha256: str
 
 
+def extract_label_asset_ids(data: dict) -> set[str]:
+    """Extract uploaded-image IDs only from the normalized v2 preset shape."""
+    if data.get("version") != 2:
+        return set()
+    design = data.get("design")
+    if not isinstance(design, dict) or design.get("version") != 2:
+        raise LabelAssetValidationError("The v2 label design is malformed")
+    elements = design.get("elements")
+    if not isinstance(elements, list):
+        raise LabelAssetValidationError("The v2 label element list is malformed")
+
+    asset_ids: set[str] = set()
+    for element in elements:
+        if not isinstance(element, dict):
+            raise LabelAssetValidationError("The v2 label element list is malformed")
+        if element.get("type") != "image":
+            continue
+        asset_id = element.get("assetId")
+        if not isinstance(asset_id, str) or not asset_id.strip():
+            raise LabelAssetValidationError("An uploaded-image element has no asset ID")
+        asset_ids.add(asset_id)
+    return asset_ids
+
+
 def _inspect_image(content: bytes) -> tuple[str, int, int, int]:
     try:
         with warnings.catch_warnings():
