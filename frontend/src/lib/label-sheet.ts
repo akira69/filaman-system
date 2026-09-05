@@ -11,8 +11,12 @@ import {
 export const LABEL_SHEET_SETTINGS_KEY = 'filaman-label-sheet-settings-v1'
 export const LABEL_SHEET_PRESETS_KEY = 'filaman-label-sheet-presets-v1'
 export const LABEL_OUTPUT_MODE_KEY = 'filaman-label-output-mode-v1'
+export const LABEL_SHEET_SOURCE_KEY = 'filaman-label-sheet-source-v1'
 
 export type LabelOutputMode = 'individual' | 'sheet'
+export type LabelSheetSource =
+  | { type: 'standard'; presetName?: never }
+  | { type: 'designer'; presetName: string }
 
 export interface LabelSheetSettings {
   paperSize: 'a4' | 'letter' | 'custom'
@@ -69,6 +73,9 @@ export interface LabelSheetControls {
   getOutputMode: () => LabelOutputMode
   getSettings: () => LabelSheetSettings
   setOutputMode: (mode: LabelOutputMode) => void
+  getSource: () => LabelSheetSource
+  setSource: (source: LabelSheetSource) => void
+  setDesignerPresets: (names: string[], selectedName?: string) => void
 }
 
 export interface LabelSheetPreviewOptions {
@@ -95,6 +102,13 @@ const LARGE_JOB_LABEL_LIMIT = 500
 const LARGE_JOB_PAGE_LIMIT = 50
 const originalPositions = new WeakMap<HTMLElement, { parent: Node; nextSibling: Node | null }>()
 const confirmedLargeJobs = new Set<string>()
+
+function createSelectOption(label: string, value: string) {
+  const option = document.createElement('option')
+  option.textContent = label
+  option.value = value
+  return option
+}
 
 const DEFAULT_SETTINGS: LabelSheetSettings = {
   paperSize: 'a4',
@@ -378,6 +392,11 @@ export function bindLabelSheetControls(
   getTranslation: (key: string, fallback: string) => string = (_key, fallback) => fallback,
 ): LabelSheetControls {
   const outputMode = getSelect('output-mode')
+  const sourceInputs = Array.from(document.querySelectorAll<HTMLInputElement>(
+    'input[name="label-sheet-source"]',
+  ))
+  const designerPreset = getSelect('sheet-designer-preset')
+  const editDesigner = getButton('sheet-edit-designer')
   const panel = document.getElementById('label-sheet-settings') as HTMLElement | null
   const presetSelect = getSelect('sheet-preset')
   const presetName = getInput('sheet-preset-name')
@@ -392,6 +411,53 @@ export function bindLabelSheetControls(
   let customPresets = readStoredPresets()
   let selectedPresetId = CUSTOM_PRESET_ID
   let presetMutationInFlight = false
+
+  const readStoredSource = (): LabelSheetSource => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(LABEL_SHEET_SOURCE_KEY) ?? '') as Partial<LabelSheetSource>
+      if (parsed.type === 'designer') {
+        return { type: 'designer', presetName: typeof parsed.presetName === 'string' ? parsed.presetName : '' }
+      }
+    } catch {
+      // Use Standard Label when storage is blocked or malformed.
+    }
+    return { type: 'standard' }
+  }
+
+  const getSource = (): LabelSheetSource => {
+    const type = sourceInputs.find(input => input.checked)?.value
+    return type === 'designer'
+      ? { type: 'designer', presetName: designerPreset?.value ?? '' }
+      : { type: 'standard' }
+  }
+
+  const syncSourceControls = (persist = true) => {
+    const source = getSource()
+    if (designerPreset) designerPreset.disabled = source.type !== 'designer'
+    if (editDesigner) editDesigner.disabled = source.type !== 'designer' || !source.presetName
+    if (persist) {
+      try {
+        localStorage.setItem(LABEL_SHEET_SOURCE_KEY, JSON.stringify(source))
+      } catch {
+        // Sheet rendering still works when browser storage is unavailable.
+      }
+    }
+  }
+
+  const setSource = (source: LabelSheetSource) => {
+    sourceInputs.forEach(input => { input.checked = input.value === source.type })
+    if (source.type === 'designer' && designerPreset) designerPreset.value = source.presetName
+    syncSourceControls()
+    onChange()
+  }
+
+  const setDesignerPresets = (names: string[], selectedName?: string) => {
+    if (!designerPreset) return
+    const previous = selectedName ?? designerPreset.value
+    designerPreset.replaceChildren(...names.map(name => createSelectOption(name, name)))
+    designerPreset.value = names.includes(previous) ? previous : names[0] ?? ''
+    syncSourceControls()
+  }
 
   const findPreset = (id: string) => [...BUILT_IN_SHEET_PRESETS, ...customPresets].find(preset => preset.id === id)
 
@@ -408,18 +474,18 @@ export function bindLabelSheetControls(
     const previousValue = selectedPresetId
     presetSelect.replaceChildren()
 
-    const customOption = new Option(getTranslation('labelPrint.currentPaperSetup', 'Current setup'), CUSTOM_PRESET_ID)
+    const customOption = createSelectOption(getTranslation('labelPrint.currentPaperSetup', 'Current setup'), CUSTOM_PRESET_ID)
     presetSelect.appendChild(customOption)
 
     const builtInGroup = document.createElement('optgroup')
     builtInGroup.label = getTranslation('labelPrint.builtInPaperPresets', 'Built-in presets')
-    BUILT_IN_SHEET_PRESETS.forEach(preset => builtInGroup.appendChild(new Option(preset.name, preset.id)))
+    BUILT_IN_SHEET_PRESETS.forEach(preset => builtInGroup.appendChild(createSelectOption(preset.name, preset.id)))
     presetSelect.appendChild(builtInGroup)
 
     if (customPresets.length > 0) {
       const savedGroup = document.createElement('optgroup')
       savedGroup.label = getTranslation('labelPrint.savedPaperPresets', 'Saved presets')
-      customPresets.forEach(preset => savedGroup.appendChild(new Option(preset.name, preset.id)))
+      customPresets.forEach(preset => savedGroup.appendChild(createSelectOption(preset.name, preset.id)))
       presetSelect.appendChild(savedGroup)
     }
 
@@ -492,9 +558,13 @@ export function bindLabelSheetControls(
   }
 
   if (outputMode) outputMode.value = storedOutputMode
+  const storedSource = readStoredSource()
+  sourceInputs.forEach(input => { input.checked = input.value === storedSource.type })
+  if (storedSource.type === 'designer' && designerPreset) designerPreset.value = storedSource.presetName
   setFormValues(applySheetCapacityLimits(settings))
   renderPresetOptions()
   syncVisibility()
+  syncSourceControls(false)
 
   const handleChange = () => {
     const next = readFormSettings()
@@ -586,6 +656,22 @@ export function bindLabelSheetControls(
     syncVisibility()
     onChange()
   })
+  sourceInputs.forEach(input => input.addEventListener('change', () => {
+    syncSourceControls()
+    onChange()
+  }))
+  designerPreset?.addEventListener('change', () => {
+    syncSourceControls()
+    onChange()
+  })
+  editDesigner?.addEventListener('click', () => {
+    const source = getSource()
+    if (source.type !== 'designer' || !source.presetName) return
+    editDesigner.dispatchEvent(new CustomEvent('label-designer-edit', {
+      bubbles: true,
+      detail: { presetName: source.presetName },
+    }))
+  })
   document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-label-sheet-control]').forEach(control => {
     control.addEventListener('change', handleChange)
     if (control instanceof HTMLInputElement && (control.type === 'number' || control.type === 'range')) {
@@ -602,6 +688,9 @@ export function bindLabelSheetControls(
       syncVisibility()
       onChange()
     },
+    getSource,
+    setSource,
+    setDesignerPresets,
   }
 }
 

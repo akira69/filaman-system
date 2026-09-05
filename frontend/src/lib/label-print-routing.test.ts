@@ -6,9 +6,12 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import LabelDesignerEditor from '../components/LabelDesignerEditor.astro'
+import LabelSheetOutputSettings from '../components/LabelSheetOutputSettings.astro'
 import PrintActionFooter from '../components/PrintActionFooter.astro'
+import PrintSidebar from '../components/PrintSidebar.astro'
 
 import {
+  bindLabelSheetControls,
   renderLabelSheetPreview,
   syncLabelSheetIndividualExportState,
   type LabelSheetControls,
@@ -186,5 +189,49 @@ describe('label designer template fields', () => {
       expect(input).toBeInstanceOf(HTMLTextAreaElement)
       expect(Number(input!.getAttribute('rows'))).toBeGreaterThanOrEqual(5)
     }
+  })
+})
+
+describe('first-class print workspace navigation', () => {
+  it('renders Standard, Designer, and Label Sheets as accessible tabs', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(PrintSidebar, {
+      props: { backLabel: 'Back' },
+    })
+
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-workspace-mode]'))
+    expect(tabs.map(tab => tab.dataset.workspaceMode)).toEqual(['standard', 'designer', 'sheets'])
+    expect(document.querySelector('[role="tablist"]')).not.toBeNull()
+  })
+
+  it('renders an explicit Standard or Designed Label source selector in sheets mode', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(LabelSheetOutputSettings)
+
+    expect(document.querySelector('#tab-panel-sheets')).not.toBeNull()
+    expect(Array.from(document.querySelectorAll<HTMLInputElement>('[name="label-sheet-source"]')).map(input => input.value)).toEqual(['standard', 'designer'])
+    expect(document.querySelector<HTMLSelectElement>('#output-mode')?.hidden).toBe(true)
+  })
+
+  it('persists the selected sheet label source and designed preset', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(LabelSheetOutputSettings)
+    const changed: string[] = []
+    const controls = bindLabelSheetControls(() => changed.push('changed'))
+    const designer = document.querySelector<HTMLInputElement>('[name="label-sheet-source"][value="designer"]')!
+    const preset = document.querySelector<HTMLSelectElement>('#sheet-designer-preset')!
+    const option = document.createElement('option')
+    option.textContent = 'Compact'
+    option.value = 'Compact'
+    preset.append(option)
+
+    designer.click()
+    preset.value = 'Compact'
+    preset.dispatchEvent(new Event('change', { bubbles: true }))
+
+    expect(controls.getSource()).toEqual({ type: 'designer', presetName: 'Compact' })
+    expect(preset.disabled).toBe(false)
+    expect(JSON.parse(localStorage.getItem('filaman-label-sheet-source-v1')!)).toEqual({ type: 'designer', presetName: 'Compact' })
+    expect(changed.length).toBeGreaterThan(0)
   })
 })

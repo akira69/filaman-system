@@ -663,6 +663,78 @@ export function applyBatchLabelPreviewZoom(previewRoot: HTMLElement, zoomPercent
   })
 }
 
+export type PrintWorkspaceMode = 'standard' | 'designer' | 'sheets'
+
+interface PrintWorkspaceTabsOptions {
+  buttons: Iterable<HTMLButtonElement>
+  panels: Record<PrintWorkspaceMode, HTMLElement>
+  outputButtons?: {
+    print: HTMLButtonElement
+    pdf: HTMLButtonElement
+    png: HTMLButtonElement
+    aml: HTMLButtonElement
+  }
+  resetButton?: HTMLElement | null
+  sidebar?: HTMLElement | null
+  designerWorkspace?: HTMLElement | null
+  storageKey: string
+  initialMode?: PrintWorkspaceMode
+  onChange: (mode: PrintWorkspaceMode) => void
+}
+
+export function readPrintWorkspaceMode(
+  storageKey: string,
+  fallback: PrintWorkspaceMode = 'standard',
+): PrintWorkspaceMode {
+  const stored = readStorageValue(storageKey)
+  return stored === 'standard' || stored === 'designer' || stored === 'sheets'
+    ? stored
+    : fallback
+}
+
+export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
+  let activeMode = options.initialMode ?? readPrintWorkspaceMode(options.storageKey)
+  const buttons = Array.from(options.buttons)
+
+  const activate = (mode: PrintWorkspaceMode) => {
+    activeMode = mode
+    buttons.forEach(button => {
+      const active = button.dataset.workspaceMode === mode
+      button.classList.toggle('active', active)
+      button.setAttribute('aria-selected', String(active))
+      button.tabIndex = active ? 0 : -1
+    })
+    for (const [panelMode, panel] of Object.entries(options.panels)) {
+      panel.hidden = panelMode !== mode
+    }
+    const sheetMode = mode === 'sheets'
+    if (options.outputButtons) {
+      options.outputButtons.png.hidden = sheetMode
+      options.outputButtons.aml.hidden = sheetMode
+      options.outputButtons.pdf.hidden = false
+      options.outputButtons.print.hidden = false
+    }
+    if (options.resetButton) options.resetButton.hidden = mode !== 'standard'
+    options.sidebar?.classList.toggle('sidebar-wide', mode === 'designer')
+    options.designerWorkspace?.classList.toggle('is-active', mode === 'designer')
+    writeStorageValue(options.storageKey, mode)
+    options.onChange(mode)
+  }
+
+  buttons.forEach(button => {
+    button.setAttribute('role', 'tab')
+    button.addEventListener('click', () => {
+      const mode = button.dataset.workspaceMode
+      activate(mode === 'designer' || mode === 'sheets' ? mode : 'standard')
+    })
+  })
+
+  return {
+    activate,
+    getActiveMode: () => activeMode,
+  }
+}
+
 export type PrintDesignerTab = 'print' | 'designer'
 
 interface PrintDesignerTabsOptions {
