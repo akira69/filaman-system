@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   DESIGNER_DEFAULTS,
+  getDesignerLabelDimensions,
   renderDesignerLabel,
 } from './label-designer'
 import { renderStandardLabel } from './label-standard'
@@ -35,6 +36,14 @@ function expectNoBrowserPrintCss() {
 }
 
 describe('label renderers', () => {
+  it('reads physical dimensions from a v2 freeform design', () => {
+    expect(getDesignerLabelDimensions({
+      version: 2,
+      label: { widthMm: 72, heightMm: 36, marginMm: 1, border: false },
+      elements: [],
+    })).toEqual({ widthMm: 72, heightMm: 36 })
+  })
+
   it('does not add browser print CSS when rendering a standard label', async () => {
     await renderStandardLabel({
       element: document.querySelector<HTMLElement>('#label')!,

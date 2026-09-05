@@ -1,8 +1,8 @@
 ---
 import Layout from '../layouts/Layout.astro'
 import BatchLabelPrintStyles from './BatchLabelPrintStyles.astro'
+import DesignerSidebar from './freeform-label/DesignerSidebar.astro'
 import DesignerWorkspace from './freeform-label/DesignerWorkspace.astro'
-import LabelDesignerEditor from './LabelDesignerEditor.astro'
 import LabelPrintBaseStyles from './LabelPrintBaseStyles.astro'
 import LabelSheetOutputSettings from './LabelSheetOutputSettings.astro'
 import PrintActionFooter from './PrintActionFooter.astro'
@@ -69,7 +69,7 @@ const {
         extraFieldsMode={extraFieldsMode}
       />
 
-      <LabelDesignerEditor />
+      <DesignerSidebar />
       <LabelSheetOutputSettings />
 
       <PrintActionFooter

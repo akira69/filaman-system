@@ -25,11 +25,15 @@ import {
   createPreviewRenderCoordinator,
   getLabelOutputControls,
   getLabelSettingsControls,
+  getPrintWorkspaceOutputItems,
+  getPrintWorkspacePreviewItems,
   getStandardLabelSettings,
   readVersionedLabelSettings,
   readPrintWorkspaceMode,
+  resolvePrintWorkspace,
   resetLabelSettings,
   restoreLabelSettings,
+  syncDesignerRepresentativeElements,
   type LabelPdfFactoryOverride,
 } from './label-print-page'
 import type { LabelPdfDocument, LabelPdfPage } from './label-export'
@@ -150,6 +154,88 @@ describe('print workspace modes', () => {
     expect(document.querySelector<HTMLButtonElement>('#png')!.hidden).toBe(false)
     expect(changes).toEqual(['sheets', 'designer'])
     expect(binding.getActiveMode()).toBe('designer')
+  })
+
+  it.each([
+    { route: 'single spool', entities: [11] },
+    { route: 'batch spools', entities: [11, 12, 13] },
+    { route: 'single filament', entities: [21] },
+    { route: 'batch filaments', entities: [21, 22, 23] },
+  ])('$route uses the shared mode, source, representative, and output contract', ({ entities }) => {
+    expect(resolvePrintWorkspace('standard', { type: 'designer', presetName: 'Saved' }))
+      .toEqual({ mode: 'standard', source: 'standard', outputMode: 'individual' })
+    expect(resolvePrintWorkspace('designer', { type: 'standard' }))
+      .toEqual({ mode: 'designer', source: 'designer', outputMode: 'individual' })
+    expect(resolvePrintWorkspace('sheets', { type: 'designer', presetName: 'Saved' }))
+      .toEqual({ mode: 'sheets', source: 'designer', outputMode: 'sheet' })
+    expect(resolvePrintWorkspace('sheets', { type: 'standard' }))
+      .toEqual({ mode: 'sheets', source: 'standard', outputMode: 'sheet' })
+
+    expect(getPrintWorkspacePreviewItems('designer', entities)).toEqual([entities[0]])
+    expect(getPrintWorkspacePreviewItems('standard', entities)).toEqual(entities)
+    expect(getPrintWorkspacePreviewItems('sheets', entities)).toEqual(entities)
+    expect(getPrintWorkspaceOutputItems(entities)).toEqual(entities)
+  })
+
+  it('keeps only the representative batch label in the editable workspace', () => {
+    document.body.innerHTML = `
+      <div id="wrapper-1" class="label-wrapper"></div>
+      <div id="wrapper-2" class="label-wrapper"></div>
+      <div id="wrapper-3" class="label-wrapper"></div>
+    `
+    const wrappers = Array.from(document.querySelectorAll<HTMLElement>('.label-wrapper'))
+
+    syncDesignerRepresentativeElements('designer', wrappers)
+
+    expect(wrappers.map(wrapper => ({
+      representative: wrapper.classList.contains('is-designer-representative'),
+      outputOnly: wrapper.classList.contains('is-designer-output-only'),
+      ariaHidden: wrapper.getAttribute('aria-hidden'),
+    }))).toEqual([
+      { representative: true, outputOnly: false, ariaHidden: null },
+      { representative: false, outputOnly: true, ariaHidden: 'true' },
+      { representative: false, outputOnly: true, ariaHidden: 'true' },
+    ])
+
+    syncDesignerRepresentativeElements('sheets', wrappers)
+    expect(wrappers.every(wrapper => !wrapper.classList.contains('is-designer-output-only'))).toBe(true)
+    expect(wrappers.every(wrapper => !wrapper.hasAttribute('aria-hidden'))).toBe(true)
+  })
+
+  it('synchronizes the hidden sheet output mode before notifying a route', () => {
+    document.body.innerHTML = `
+      <button data-workspace-mode="standard"></button>
+      <button data-workspace-mode="designer"></button>
+      <button data-workspace-mode="sheets"></button>
+      <section id="standard"></section>
+      <section id="designer"></section>
+      <section id="sheets"></section>
+    `
+    const calls: string[] = []
+    const sheetControls = {
+      setOutputMode: (mode: 'individual' | 'sheet') => calls.push(`output:${mode}`),
+    }
+    const binding = bindPrintWorkspaceTabs({
+      buttons: document.querySelectorAll('[data-workspace-mode]'),
+      panels: {
+        standard: document.querySelector('#standard')!,
+        designer: document.querySelector('#designer')!,
+        sheets: document.querySelector('#sheets')!,
+      },
+      sheetControls,
+      storageKey: 'workspace-mode',
+      onChange: mode => calls.push(`change:${mode}`),
+    })
+
+    binding.activate('sheets')
+    binding.activate('designer')
+
+    expect(calls).toEqual([
+      'output:sheet',
+      'change:sheets',
+      'output:individual',
+      'change:designer',
+    ])
   })
 })
 

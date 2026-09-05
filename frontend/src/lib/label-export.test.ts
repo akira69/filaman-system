@@ -121,7 +121,8 @@ describe('label capture scheduling', () => {
   it('captures an off-screen clone without mutating the visible preview', async () => {
     const label = document.createElement('div')
     label.id = 'label-preview'
-    label.className = 'label-preview'
+    label.className = 'label-preview is-selected'
+    label.setAttribute('data-label-interactive', '')
     label.style.transform = 'scale(1.25)'
     label.style.transformOrigin = 'center center'
     label.style.borderColor = 'red'
@@ -129,8 +130,13 @@ describe('label capture scheduling', () => {
     label.style.boxShadow = '0 4px 12px black'
     const child = document.createElement('span')
     child.id = 'label-child'
+    child.className = 'is-selected'
+    child.setAttribute('data-label-interaction-bound', '')
     child.textContent = 'Visible label'
     label.appendChild(child)
+    const handle = document.createElement('button')
+    handle.setAttribute('data-editor-handle', '')
+    label.appendChild(handle)
     document.body.appendChild(label)
 
     let captureSource: HTMLElement | undefined
@@ -140,6 +146,10 @@ describe('label capture scheduling', () => {
       expect(element.isConnected).toBe(true)
       expect(element.id).toBe('')
       expect(element.querySelector('[id]')).toBeNull()
+      expect(element.querySelector('.is-selected')).toBeNull()
+      expect(element.querySelector('[data-label-interactive]')).toBeNull()
+      expect(element.querySelector('[data-label-interaction-bound]')).toBeNull()
+      expect(element.querySelector('[data-editor-handle]')).toBeNull()
       expect(element.style.position).toBe('')
       expect(element.style.left).toBe('')
       expect(element.parentElement?.style.position).toBe('fixed')
@@ -161,6 +171,8 @@ describe('label capture scheduling', () => {
     expect(label.style.borderColor).toBe('red')
     expect(label.style.borderRadius).toBe('12px')
     expect(label.style.boxShadow).toBe('0 4px 12px black')
+    expect(label.classList.contains('is-selected')).toBe(true)
+    expect(label.querySelector('[data-editor-handle]')).toBe(handle)
   })
 
   it('completes when the PNG renderer needs a visual frame after Print backgrounds the source tab', async () => {

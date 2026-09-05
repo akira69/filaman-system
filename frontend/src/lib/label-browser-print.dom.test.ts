@@ -55,10 +55,11 @@ function makeIndividualPage(id = 'wrapper-1') {
   wrapper.style.width = '720px'
   wrapper.style.height = '450px'
   wrapper.innerHTML = `
-    <div class="label-preview" id="${id}-label"
+    <div class="label-preview" id="${id}-label" data-label-interactive
       style="transform: scale(1.5); transform-origin: top left; box-shadow: 0 4px 8px black; border: 1px dashed gray">
-      <div class="designer-element" id="${id}-designer"
-        style="position:absolute; transform:rotate(12deg)">Text</div>
+      <div class="designer-element is-selected" id="${id}-designer"
+        data-label-interaction-bound style="position:absolute; transform:rotate(12deg)">Text</div>
+      <button data-editor-handle>Resize</button>
     </div>
   `
   return wrapper
@@ -203,6 +204,10 @@ describe('printLabelBrowserJob', () => {
     )!
     expect(host.contains(source)).toBe(false)
     expect(host.querySelector('[id]')).toBeNull()
+    expect(host.querySelector('[data-label-interactive]')).toBeNull()
+    expect(host.querySelector('[data-label-interaction-bound]')).toBeNull()
+    expect(host.querySelector('[data-editor-handle]')).toBeNull()
+    expect(host.querySelector('.is-selected')).toBeNull()
     expect(clone.style.transform).toBe('none')
     expect(clone.style.width).toBe('')
     expect(clone.style.height).toBe('')

@@ -3,9 +3,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createDefaultLabelDesign } from './defaults'
+import type { InteractFactory } from './interaction-adapter'
 import {
   bindFreeformEditorDom,
   createFreeformEditorController,
+  getFreeformLabelPresetNames,
+  loadFreeformLabelDesign,
+  loadFreeformLabelPresetDesign,
+  persistFreeformLabelDesign,
   type LabelAssetClient,
 } from './editor-controller'
 
@@ -59,6 +64,16 @@ describe('freeform editor element operations', () => {
     expect(controller.getSelectedElement()?.x).toBe(selected.x)
     controller.redo()
     expect(controller.getSelectedElement()?.x).toBe(0)
+  })
+
+  it('updates label geometry and re-bounds existing elements', () => {
+    const controller = makeController()
+
+    controller.updateLabel({ widthMm: 30, heightMm: 20, marginMm: 2, border: true })
+
+    const design = controller.getState().design
+    expect(design.label).toEqual({ widthMm: 30, heightMm: 20, marginMm: 2, border: true })
+    expect(design.elements.every(element => element.x + element.w <= 30 && element.y + element.h <= 20)).toBe(true)
   })
 })
 
@@ -233,5 +248,99 @@ describe('freeform editor DOM binding', () => {
     binding.destroy()
     document.querySelector<HTMLButtonElement>('[data-designer-add="shape"]')!.click()
     expect(controller.getState().destroyed).toBe(true)
+  })
+
+  it('binds interactions when a batch representative appears after initialization', async () => {
+    document.body.innerHTML = '<div id="freeform-canvas-host"></div>'
+    const controller = makeController({
+      render: async design => {
+        const canvas = document.createElement('div')
+        canvas.className = 'label-preview'
+        for (const element of design.elements) {
+          const node = document.createElement('div')
+          node.dataset.labelElementId = element.id
+          canvas.append(node)
+        }
+        document.querySelector('#freeform-canvas-host')!.replaceChildren(canvas)
+      },
+    })
+    const interactable: ReturnType<InteractFactory> = {
+      draggable: vi.fn(() => interactable),
+      resizable: vi.fn(() => interactable),
+      unset: vi.fn(),
+    }
+    const loadInteract = vi.fn(async () => vi.fn(() => interactable))
+    const binding = bindFreeformEditorDom({
+      root: document,
+      controller,
+      editable: true,
+      loadInteract,
+    })
+
+    await binding.refresh()
+    const last = controller.getState().design.elements.at(-1)!
+    document.querySelector<HTMLElement>(`[data-label-element-id="${last.id}"]`)!
+      .click()
+
+    expect(loadInteract).toHaveBeenCalled()
+    expect(controller.getState().selectedId).toBe(last.id)
+    binding.destroy()
+  })
+})
+
+describe('freeform editor working storage', () => {
+  it('prefers the v2 working design and falls back to a hydrated preset cache', () => {
+    const cached = createDefaultLabelDesign('filament', () => `cached-${Math.random()}`)
+    localStorage.setItem('preset-cache', JSON.stringify({
+      version: 2,
+      presets: [{ name: 'Default', data: { version: 2, design: cached } }],
+    }))
+
+    expect(loadFreeformLabelDesign({
+      settingsKey: 'working',
+      presetsKey: 'preset-cache',
+      kind: 'filament',
+    })).toEqual(cached)
+
+    const working = { ...cached, label: { ...cached.label, widthMm: 72 } }
+    persistFreeformLabelDesign('working', working)
+    expect(loadFreeformLabelDesign({
+      settingsKey: 'working',
+      presetsKey: 'preset-cache',
+      kind: 'filament',
+    }).label.widthMm).toBe(72)
+  })
+
+  it('loads a named v2 preset without replacing the active working design', () => {
+    const compact = createDefaultLabelDesign('spool', () => `compact-${Math.random()}`)
+    const wide = {
+      ...compact,
+      label: { ...compact.label, widthMm: 90 },
+    }
+    localStorage.setItem('preset-cache', JSON.stringify({
+      version: 2,
+      presets: [
+        { name: 'Compact', data: { version: 2, design: compact } },
+        { name: 'Wide', data: { version: 2, design: wide } },
+      ],
+    }))
+    persistFreeformLabelDesign('working', compact)
+
+    expect(getFreeformLabelPresetNames('preset-cache')).toEqual(['Compact', 'Wide'])
+    expect(loadFreeformLabelPresetDesign({
+      presetsKey: 'preset-cache',
+      presetName: 'Wide',
+      kind: 'spool',
+    })?.label.widthMm).toBe(90)
+    expect(loadFreeformLabelPresetDesign({
+      presetsKey: 'preset-cache',
+      presetName: 'Missing',
+      kind: 'spool',
+    })).toBeNull()
+    expect(loadFreeformLabelDesign({
+      settingsKey: 'working',
+      presetsKey: 'preset-cache',
+      kind: 'spool',
+    }).label.widthMm).toBe(compact.label.widthMm)
   })
 })

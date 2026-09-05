@@ -25,6 +25,7 @@ import {
   syncLabelSheetIndividualExportState,
   syncLabelSheetPreview,
   type LabelSheetControls,
+  type LabelSheetSource,
 } from './label-sheet'
 import { bindFixedPreviewToolbar } from './label-preview-dom'
 import {
@@ -664,6 +665,49 @@ export function applyBatchLabelPreviewZoom(previewRoot: HTMLElement, zoomPercent
 }
 
 export type PrintWorkspaceMode = 'standard' | 'designer' | 'sheets'
+export type PrintLabelSource = 'standard' | 'designer'
+
+export interface ResolvedPrintWorkspace {
+  mode: PrintWorkspaceMode
+  source: PrintLabelSource
+  outputMode: 'individual' | 'sheet'
+}
+
+export function resolvePrintWorkspace(
+  mode: PrintWorkspaceMode,
+  sheetSource: LabelSheetSource,
+): ResolvedPrintWorkspace {
+  return {
+    mode,
+    source: mode === 'sheets' ? sheetSource.type : mode,
+    outputMode: mode === 'sheets' ? 'sheet' : 'individual',
+  }
+}
+
+export function getPrintWorkspacePreviewItems<T>(
+  mode: PrintWorkspaceMode,
+  items: readonly T[],
+): T[] {
+  return mode === 'designer' ? items.slice(0, 1) : [...items]
+}
+
+export function getPrintWorkspaceOutputItems<T>(items: readonly T[]): T[] {
+  return [...items]
+}
+
+export function syncDesignerRepresentativeElements(
+  mode: PrintWorkspaceMode,
+  elements: readonly HTMLElement[],
+) {
+  elements.forEach((element, index) => {
+    const representative = mode === 'designer' && index === 0
+    const outputOnly = mode === 'designer' && index > 0
+    element.classList.toggle('is-designer-representative', representative)
+    element.classList.toggle('is-designer-output-only', outputOnly)
+    if (outputOnly) element.setAttribute('aria-hidden', 'true')
+    else element.removeAttribute('aria-hidden')
+  })
+}
 
 interface PrintWorkspaceTabsOptions {
   buttons: Iterable<HTMLButtonElement>
@@ -677,6 +721,7 @@ interface PrintWorkspaceTabsOptions {
   resetButton?: HTMLElement | null
   sidebar?: HTMLElement | null
   designerWorkspace?: HTMLElement | null
+  sheetControls?: Pick<LabelSheetControls, 'setOutputMode'>
   storageKey: string
   initialMode?: PrintWorkspaceMode
   onChange: (mode: PrintWorkspaceMode) => void
@@ -718,6 +763,7 @@ export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
     options.sidebar?.classList.toggle('sidebar-wide', mode === 'designer')
     options.designerWorkspace?.classList.toggle('is-active', mode === 'designer')
     writeStorageValue(options.storageKey, mode)
+    options.sheetControls?.setOutputMode(mode === 'sheets' ? 'sheet' : 'individual')
     options.onChange(mode)
   }
 

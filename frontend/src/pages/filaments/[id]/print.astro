@@ -21,11 +21,17 @@ export function getStaticPaths() {
 </LabelPrintPageShell>
 
 <script>
-  import { initLabelDesignerEditor } from '../../../lib/label-designer-editor'
+  import { labelAssetContentUrl } from '../../../lib/freeform-label/assets'
+  import {
+    getFreeformLabelPresetNames,
+    initFreeformLabelDesignerEditor,
+    loadFreeformLabelDesign,
+    loadFreeformLabelPresetDesign,
+    persistFreeformLabelDesign,
+  } from '../../../lib/freeform-label/editor-controller'
   import {
     buildSpoolDataFromFlatLabel,
     getDesignerLabelDimensions,
-    loadDesignerSettingsFromStorage,
     renderDesignerLabel,
   } from '../../../lib/label-designer'
   import { captureLabelElement } from '../../../lib/label-export'
@@ -49,22 +55,24 @@ export function getStaticPaths() {
     bindLabelPreviewZoom,
     bindLabelSettingsEvents,
     bindPrintPageSidebarCollapse,
-    bindPrintDesignerTabs,
+    bindPrintWorkspaceTabs,
     appendLabelSettingsCheckbox,
     buildLabelExportBaseName,
     captureLabelSettings,
     createPreviewRenderCoordinator,
     getLabelOutputControls,
     getLabelSettingsControls,
+    getPrintWorkspaceOutputItems,
     getStandardLabelSettings,
     readVersionedLabelSettings,
-    readPrintDesignerTab,
+    readPrintWorkspaceMode,
     removeStorageValue,
     resetLabelSettings,
     restoreLabelSettings,
+    resolvePrintWorkspace,
     safeSetLocalStorage,
     type LabelSettingsState,
-    type PrintDesignerTab,
+    type PrintWorkspaceMode,
   } from '../../../lib/label-print-page'
   import {
     dedupeLabelExtraFields,
@@ -160,61 +168,89 @@ export function getStaticPaths() {
   const previewRoot = document.querySelector<HTMLElement>('.preview-scroll-area')!
   await hydrateLabelPresetStorage()
   let syncOutputPreview: () => void = () => undefined
-  const sheetControls = bindLabelSheetControls(() => syncOutputPreview())
+  let refreshWorkspace: () => void = () => syncOutputPreview()
+  const sheetControls = bindLabelSheetControls(() => refreshWorkspace())
 
   // --- Tab switching ---
   const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
   const tabPanelPrint = document.getElementById('tab-panel-print') as HTMLElement | null
-  const tabPanelDesigner = document.getElementById('tab-panel-designer') as HTMLElement | null
+  const tabPanelDesigner = document.getElementById('tab-panel-designer-v2') as HTMLElement | null
+  const tabPanelSheets = document.getElementById('tab-panel-sheets') as HTMLElement | null
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null
-  let activePreviewTab: PrintDesignerTab = readPrintDesignerTab(ACTIVE_TAB_KEY)
+  let activeMode: PrintWorkspaceMode = readPrintWorkspaceMode(ACTIVE_TAB_KEY)
+  let designerEditor: Awaited<ReturnType<typeof initFreeformLabelDesignerEditor>> | null = null
   let previewRenderVersion = 0
   const previewRenders = createPreviewRenderCoordinator()
 
-  function beginPreviewRender(tab: 'print' | 'designer') {
-    activePreviewTab = tab
+  function beginPreviewRender(mode: PrintWorkspaceMode) {
+    activeMode = mode
     const token = ++previewRenderVersion
-    return () => activePreviewTab !== tab || token !== previewRenderVersion
+    return () => activeMode !== mode || token !== previewRenderVersion
   }
 
-  function renderActiveTab(tab: PrintDesignerTab) {
-    if (!tabPanelPrint || !tabPanelDesigner || !labelPreview) return
-    if (tab === 'designer') {
-      const isStale = beginPreviewRender('designer')
-      labelPreview.innerHTML = ''
-      labelPreview.style.border = ''
-      labelPreview.style.padding = ''
-      updateDesignerPreview(isStale)
-    } else {
-      const isStale = beginPreviewRender('print')
-      labelPreview.innerHTML = ''
-      labelPreview.style.border = 'none'
-      labelPreview.style.padding = ''
-      updatePreview(isStale)
-    }
+  function getWorkspaceSource() {
+    return resolvePrintWorkspace(activeMode, sheetControls.getSource()).source
   }
+
+  function getDesignerDesign() {
+    const source = sheetControls.getSource()
+    if (activeMode === 'sheets' && source.type === 'designer' && source.presetName) {
+      return loadFreeformLabelPresetDesign({
+        presetsKey: DESIGNER_PRESETS_KEY,
+        presetName: source.presetName,
+        kind: 'filament',
+      }) ?? loadFreeformLabelDesign({
+        settingsKey: DESIGNER_SETTINGS_KEY,
+        presetsKey: DESIGNER_PRESETS_KEY,
+        kind: 'filament',
+      })
+    }
+    return loadFreeformLabelDesign({
+      settingsKey: DESIGNER_SETTINGS_KEY,
+      presetsKey: DESIGNER_PRESETS_KEY,
+      kind: 'filament',
+    })
+  }
+
+  function renderActiveMode(mode: PrintWorkspaceMode) {
+    if (!tabPanelPrint || !tabPanelDesigner || !tabPanelSheets || !labelPreview) return
+    const isStale = beginPreviewRender(mode)
+    labelPreview.innerHTML = ''
+    labelPreview.style.border = mode === 'designer' ? '' : 'none'
+    labelPreview.style.padding = ''
+    if (getWorkspaceSource() === 'designer') void updateDesignerPreview(isStale)
+    else void updatePreview(isStale)
+  }
+  refreshWorkspace = () => renderActiveMode(activeMode)
 
   function getActiveLabelDimensions() {
-    if (activePreviewTab === 'designer') {
-      return getDesignerLabelDimensions(loadDesignerSettingsFromStorage({
-        presetsKey: DESIGNER_PRESETS_KEY,
-        settingsKey: DESIGNER_SETTINGS_KEY,
-      }))
-    }
+    if (getWorkspaceSource() === 'designer') return getDesignerLabelDimensions(getDesignerDesign())
     return getStandardLabelDimensions(getStandardSettings())
   }
 
-  const tabControls = bindPrintDesignerTabs({
+  const tabControls = bindPrintWorkspaceTabs({
     buttons: tabBtns,
-    printPanel: tabPanelPrint!,
-    designerPanel: tabPanelDesigner!,
+    panels: {
+      standard: tabPanelPrint!,
+      designer: tabPanelDesigner!,
+      sheets: tabPanelSheets!,
+    },
+    outputButtons: {
+      print: outputControls.printButton,
+      pdf: outputControls.pdfButton,
+      png: outputControls.pngButton,
+      aml: outputControls.amlButton,
+    },
     resetButton: resetBtn,
     sidebar: document.querySelector<HTMLElement>('.print-sidebar'),
+    designerWorkspace: document.getElementById('freeform-designer-workspace'),
+    sheetControls,
     storageKey: ACTIVE_TAB_KEY,
-    initialTab: activePreviewTab,
-    onChange: tab => {
-      activePreviewTab = tab
-      renderActiveTab(tab)
+    initialMode: activeMode,
+    onChange: mode => {
+      activeMode = mode
+      if (mode === 'designer' && designerEditor) void designerEditor.refresh()
+      else renderActiveMode(mode)
     },
   })
 
@@ -225,13 +261,14 @@ export function getStaticPaths() {
     return extraFields.filter(ef => !isBuiltInLabelField(ef.source ?? 'filament', ef.key, ef.label))
   }
 
-  const designerEditor = await initLabelDesignerEditor({
+  document.addEventListener('freeform-label-presets-changed', event => {
+    const names = (event as CustomEvent<{ presets?: string[] }>).detail?.presets
+    if (Array.isArray(names)) sheetControls.setDesignerPresets(names)
+  })
+
+  designerEditor = await initFreeformLabelDesignerEditor({
     extraFields: getDesignerExtraFields(),
     entityType: 'filament',
-    getFilamentColorHex: () => labelData.hex_code,
-    getFilamentColorHexes: () => labelData.color_hexes,
-    getFilamentMultiColorStyle: () => labelData.multi_color_style,
-    safeSetLocalStorage,
     translate,
     onChange: () => updateDesignerPreview(),
     presetsKey: DESIGNER_PRESETS_KEY,
@@ -240,6 +277,17 @@ export function getStaticPaths() {
     crossPresetsKey: SPOOL_LABEL_PRESETS_KEY,
     ownPresetsLabel: translate('filaments.dsPresetsOwnGroup', 'Filament presets'),
     crossPresetsLabel: translate('filaments.dsPresetsCrossGroupSpool', 'Spool presets'),
+  })
+  sheetControls.setDesignerPresets(getFreeformLabelPresetNames(DESIGNER_PRESETS_KEY))
+  document.addEventListener('label-designer-edit', event => {
+    const presetName = (event as CustomEvent<{ presetName?: string }>).detail?.presetName
+    const design = presetName
+      ? loadFreeformLabelPresetDesign({ presetsKey: DESIGNER_PRESETS_KEY, presetName, kind: 'filament' })
+      : null
+    if (!design) return
+    persistFreeformLabelDesign(DESIGNER_SETTINGS_KEY, design)
+    designerEditor?.loadSettings()
+    tabControls.activate('designer')
   })
 
   // ─── Preview zoom ─────────────────────────────────────────────────────────
@@ -387,13 +435,13 @@ export function getStaticPaths() {
   }
 
   function updatePreview(isStale = () => false) {
-    if (activePreviewTab !== 'print') return Promise.resolve()
+    if (getWorkspaceSource() !== 'standard') return Promise.resolve()
     return previewRenders.run(() => renderStandardPreview(isStale))
   }
 
   async function renderStandardPreview(isStale = () => false) {
-    if (activePreviewTab !== 'print') return
-    if (isStale() || activePreviewTab !== 'print') return
+    if (getWorkspaceSource() !== 'standard') return
+    if (isStale() || getWorkspaceSource() !== 'standard') return
 
     labelPreview.style.border = 'none'
     labelPreview.style.padding = ''
@@ -402,9 +450,9 @@ export function getStaticPaths() {
       data: buildStandardData(),
       settings: getStandardSettings(),
       logoUrl: labelLogoLoaded ? labelLogoUrl : null,
-      isStale: () => isStale() || activePreviewTab !== 'print',
+      isStale: () => isStale() || getWorkspaceSource() !== 'standard',
     })
-    if (isStale() || activePreviewTab !== 'print') return
+    if (isStale() || getWorkspaceSource() !== 'standard') return
     saveSettings()
     syncOutputPreview()
   }
@@ -421,34 +469,33 @@ export function getStaticPaths() {
   // ─── Designer preview ─────────────────────────────────────────────────────
 
   function updateDesignerPreview(isStale = () => false) {
-    if (activePreviewTab !== 'designer') return Promise.resolve()
+    if (getWorkspaceSource() !== 'designer') return Promise.resolve()
     return previewRenders.run(() => renderDesignerPreview(isStale))
   }
 
   async function renderDesignerPreview(isStale = () => false) {
-    if (activePreviewTab !== 'designer') return
-    if (isStale() || activePreviewTab !== 'designer') return
+    if (getWorkspaceSource() !== 'designer') return
+    if (isStale() || getWorkspaceSource() !== 'designer') return
 
     await renderDesignerLabel({
       element: labelPreview,
       previewBorder: false,
-      settings: loadDesignerSettingsFromStorage({
-        presetsKey: DESIGNER_PRESETS_KEY,
-        settingsKey: DESIGNER_SETTINGS_KEY,
-      }),
+      design: getDesignerDesign(),
       data: buildSpoolData(),
       logoUrl: labelLogoLoaded ? labelLogoUrl : null,
-      isStale: () => isStale() || activePreviewTab !== 'designer',
+      resolveAssetUrl: labelAssetContentUrl,
+      interactive: activeMode === 'designer',
+      isStale: () => isStale() || getWorkspaceSource() !== 'designer',
       entityPath: 'filaments',
     })
-    if (isStale() || activePreviewTab !== 'designer') return
+    if (isStale() || getWorkspaceSource() !== 'designer') return
     syncOutputPreview()
   }
 
   // ─── Export ───────────────────────────────────────────────────────────────
 
   function buildExportBaseName() {
-    const mode = activePreviewTab === 'designer' ? 'designer' : 'classic'
+    const mode = getWorkspaceSource() === 'designer' ? 'designer' : 'classic'
     return buildLabelExportBaseName([
       'filament-label',
       labelData.manufacturer,
@@ -538,13 +585,13 @@ export function getStaticPaths() {
     }
 
     await loadLabelLogo()
-    tabControls.activate(readPrintDesignerTab(ACTIVE_TAB_KEY))
+    tabControls.activate(readPrintWorkspaceMode(ACTIVE_TAB_KEY))
   })()
 
   bindLabelOutputs({
     controls: outputControls,
     collection: {
-      getItems: () => [labelPreview],
+      getItems: () => getPrintWorkspaceOutputItems([labelPreview]),
       prepare: () => previewRenders.settle(),
       capture: labelElement => captureLabelElement(labelElement, {
         pixelRatio: LABEL_EXPORT_PIXEL_RATIO,
