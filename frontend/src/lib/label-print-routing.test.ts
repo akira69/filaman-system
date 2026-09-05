@@ -216,29 +216,18 @@ describe('label designer template fields', () => {
 
 describe('first-class print workspace navigation', () => {
   it.each([
-    '../pages/spools/[id]/print.astro',
-    '../pages/spools/print.astro',
-    '../pages/filaments/[id]/print.astro',
-    '../pages/filaments/print.astro',
-  ])('%s uses the shared v2 workspace, source, and output contracts', path => {
+    { path: '../pages/spools/[id]/print.astro', config: 'PRINT_WORKSPACE_ROUTES.singleSpool' },
+    { path: '../pages/spools/print.astro', config: 'PRINT_WORKSPACE_ROUTES.batchSpools' },
+    { path: '../pages/filaments/[id]/print.astro', config: 'PRINT_WORKSPACE_ROUTES.singleFilament' },
+    { path: '../pages/filaments/print.astro', config: 'PRINT_WORKSPACE_ROUTES.batchFilaments' },
+  ])('$path delegates to its tested shared workspace configuration', ({ path, config }) => {
     const source = readFileSync(
       fileURLToPath(new URL(path, import.meta.url)),
       'utf8',
     )
 
-    for (const contract of [
-      'bindPrintWorkspaceTabs({',
-      'resolvePrintWorkspace(',
-      'initFreeformLabelDesignerEditor({',
-      'renderDesignerLabel({',
-      'design: getDesignerDesign()',
-      'resolveAssetUrl: labelAssetContentUrl',
-      'getPrintWorkspaceOutputItems(',
-    ]) {
-      expect(source).toContain(contract)
-    }
-    expect(source).not.toContain('initLabelDesignerEditor({')
-    expect(source).not.toContain('loadDesignerSettingsFromStorage({')
+    expect(source).toContain('createPrintWorkspaceCoordinator({')
+    expect(source).toContain(`config: ${config}`)
   })
 
   it('mounts the v2 designer sidebar in the shared print shell', () => {

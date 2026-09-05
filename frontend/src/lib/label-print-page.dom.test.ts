@@ -22,15 +22,14 @@ import {
   bindPrintPdfPreference,
   bindPrintWorkspaceTabs,
   captureLabelSettings,
+  createPrintWorkspaceCoordinator,
   createPreviewRenderCoordinator,
   getLabelOutputControls,
   getLabelSettingsControls,
-  getPrintWorkspaceOutputItems,
-  getPrintWorkspacePreviewItems,
   getStandardLabelSettings,
+  PRINT_WORKSPACE_ROUTES,
   readVersionedLabelSettings,
   readPrintWorkspaceMode,
-  resolvePrintWorkspace,
   resetLabelSettings,
   restoreLabelSettings,
   syncDesignerRepresentativeElements,
@@ -42,8 +41,10 @@ import {
   type TemporaryPdfPreviewController,
 } from './label-pdf-preview'
 import {
+  bindLabelSheetControls,
   syncLabelSheetIndividualExportState,
   type LabelSheetControls,
+  type LabelSheetSource,
 } from './label-sheet'
 import {
   cleanupLabelBrowserPrint,
@@ -157,24 +158,45 @@ describe('print workspace modes', () => {
   })
 
   it.each([
-    { route: 'single spool', entities: [11] },
-    { route: 'batch spools', entities: [11, 12, 13] },
-    { route: 'single filament', entities: [21] },
-    { route: 'batch filaments', entities: [21, 22, 23] },
-  ])('$route uses the shared mode, source, representative, and output contract', ({ entities }) => {
-    expect(resolvePrintWorkspace('standard', { type: 'designer', presetName: 'Saved' }))
-      .toEqual({ mode: 'standard', source: 'standard', outputMode: 'individual' })
-    expect(resolvePrintWorkspace('designer', { type: 'standard' }))
-      .toEqual({ mode: 'designer', source: 'designer', outputMode: 'individual' })
-    expect(resolvePrintWorkspace('sheets', { type: 'designer', presetName: 'Saved' }))
-      .toEqual({ mode: 'sheets', source: 'designer', outputMode: 'sheet' })
-    expect(resolvePrintWorkspace('sheets', { type: 'standard' }))
-      .toEqual({ mode: 'sheets', source: 'standard', outputMode: 'sheet' })
+    { route: 'single spool', config: PRINT_WORKSPACE_ROUTES.singleSpool, entities: [11] },
+    { route: 'batch spools', config: PRINT_WORKSPACE_ROUTES.batchSpools, entities: [11, 12, 13] },
+    { route: 'single filament', config: PRINT_WORKSPACE_ROUTES.singleFilament, entities: [21] },
+    { route: 'batch filaments', config: PRINT_WORKSPACE_ROUTES.batchFilaments, entities: [21, 22, 23] },
+  ])('$route executes the shared mode, source, representative, copies, and callback contract', ({ config, entities }) => {
+    let source: LabelSheetSource = { type: 'standard' }
+    const changes: string[] = []
+    const coordinator = createPrintWorkspaceCoordinator({
+      config,
+      initialMode: 'standard',
+      getItems: () => entities,
+      getSheetSource: () => source,
+      getSheetCopies: () => 2,
+      onModeChange: state => changes.push(`${state.mode}:${state.source}`),
+    })
 
-    expect(getPrintWorkspacePreviewItems('designer', entities)).toEqual([entities[0]])
-    expect(getPrintWorkspacePreviewItems('standard', entities)).toEqual(entities)
-    expect(getPrintWorkspacePreviewItems('sheets', entities)).toEqual(entities)
-    expect(getPrintWorkspaceOutputItems(entities)).toEqual(entities)
+    const designer = coordinator.activate('designer')
+    expect(designer.representativeItem).toBe(entities[0])
+    expect(designer.previewItems).toEqual([entities[0]])
+    expect(designer.outputItems).toEqual(entities)
+
+    const standardSheets = coordinator.activate('sheets')
+    expect(standardSheets.sheetPlan.source).toEqual({ type: 'standard' })
+    expect(standardSheets.sheetPlan.outputItems).toEqual([...entities, ...entities])
+
+    source = { type: 'designer', presetName: 'Saved' }
+    const sheets = coordinator.activate('sheets')
+    expect(sheets.source).toBe('designer')
+    expect(sheets.sheetPlan).toEqual({
+      source: { type: 'designer', presetName: 'Saved' },
+      items: entities,
+      copies: 2,
+      outputItems: [...entities, ...entities],
+    })
+    expect(changes).toEqual([
+      'designer:designer',
+      'sheets:standard',
+      'sheets:designer',
+    ])
   })
 
   it('keeps only the representative batch label in the editable workspace', () => {
@@ -236,6 +258,39 @@ describe('print workspace modes', () => {
       'output:individual',
       'change:designer',
     ])
+  })
+
+  it('renders once when workspace activation changes the sheet output mode', () => {
+    document.body.innerHTML = `
+      <button data-workspace-mode="standard"></button>
+      <button data-workspace-mode="designer"></button>
+      <button data-workspace-mode="sheets"></button>
+      <section id="standard"></section>
+      <section id="designer"></section>
+      <section id="sheets"></section>
+      <select id="output-mode">
+        <option value="individual">Individual</option>
+        <option value="sheet">Sheet</option>
+      </select>
+    `
+    const render = vi.fn()
+    const sheetControls = bindLabelSheetControls(render)
+    const binding = bindPrintWorkspaceTabs({
+      buttons: document.querySelectorAll('[data-workspace-mode]'),
+      panels: {
+        standard: document.querySelector('#standard')!,
+        designer: document.querySelector('#designer')!,
+        sheets: document.querySelector('#sheets')!,
+      },
+      sheetControls,
+      storageKey: 'workspace-mode',
+      onChange: render,
+    })
+
+    binding.activate('sheets')
+
+    expect(sheetControls.getOutputMode()).toBe('sheet')
+    expect(render).toHaveBeenCalledOnce()
   })
 })
 

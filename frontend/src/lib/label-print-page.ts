@@ -673,6 +673,41 @@ export interface ResolvedPrintWorkspace {
   outputMode: 'individual' | 'sheet'
 }
 
+export interface PrintWorkspaceRouteConfig {
+  id: 'single-spool' | 'batch-spools' | 'single-filament' | 'batch-filaments'
+  entityType: 'spool' | 'filament'
+  batch: boolean
+}
+
+export const PRINT_WORKSPACE_ROUTES = {
+  singleSpool: { id: 'single-spool', entityType: 'spool', batch: false },
+  batchSpools: { id: 'batch-spools', entityType: 'spool', batch: true },
+  singleFilament: { id: 'single-filament', entityType: 'filament', batch: false },
+  batchFilaments: { id: 'batch-filaments', entityType: 'filament', batch: true },
+} as const satisfies Record<string, PrintWorkspaceRouteConfig>
+
+export interface PrintWorkspaceSnapshot<T> extends ResolvedPrintWorkspace {
+  config: PrintWorkspaceRouteConfig
+  representativeItem: T | undefined
+  previewItems: T[]
+  outputItems: T[]
+  sheetPlan: {
+    source: LabelSheetSource
+    items: T[]
+    copies: number
+    outputItems: T[]
+  }
+}
+
+interface PrintWorkspaceCoordinatorOptions<T> {
+  config: PrintWorkspaceRouteConfig
+  initialMode: PrintWorkspaceMode
+  getItems: () => readonly T[]
+  getSheetSource: () => LabelSheetSource
+  getSheetCopies: () => number
+  onModeChange: (state: PrintWorkspaceSnapshot<T>) => void
+}
+
 export function resolvePrintWorkspace(
   mode: PrintWorkspaceMode,
   sheetSource: LabelSheetSource,
@@ -693,6 +728,46 @@ export function getPrintWorkspacePreviewItems<T>(
 
 export function getPrintWorkspaceOutputItems<T>(items: readonly T[]): T[] {
   return [...items]
+}
+
+export function createPrintWorkspaceCoordinator<T>(
+  options: PrintWorkspaceCoordinatorOptions<T>,
+) {
+  let activeMode = options.initialMode
+
+  const getState = (mode = activeMode): PrintWorkspaceSnapshot<T> => {
+    const items = getPrintWorkspaceOutputItems(options.getItems())
+    const source = options.getSheetSource()
+    const resolved = resolvePrintWorkspace(mode, source)
+    const copies = Math.max(1, Math.floor(Number(options.getSheetCopies()) || 1))
+    return {
+      ...resolved,
+      config: options.config,
+      representativeItem: items[0],
+      previewItems: getPrintWorkspacePreviewItems(mode, items),
+      outputItems: items,
+      sheetPlan: {
+        source,
+        items: [...items],
+        copies,
+        outputItems: Array.from({ length: copies }, () => items).flat(),
+      },
+    }
+  }
+
+  return {
+    activate(mode: PrintWorkspaceMode) {
+      activeMode = mode
+      const state = getState()
+      options.onModeChange(state)
+      return state
+    },
+    getState,
+    getActiveMode: () => activeMode,
+    getRepresentativeItem: () => getState().representativeItem,
+    getPreviewItems: () => getState().previewItems,
+    getOutputItems: () => getState().outputItems,
+  }
 }
 
 export function syncDesignerRepresentativeElements(
@@ -763,7 +838,10 @@ export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
     options.sidebar?.classList.toggle('sidebar-wide', mode === 'designer')
     options.designerWorkspace?.classList.toggle('is-active', mode === 'designer')
     writeStorageValue(options.storageKey, mode)
-    options.sheetControls?.setOutputMode(mode === 'sheets' ? 'sheet' : 'individual')
+    options.sheetControls?.setOutputMode(
+      mode === 'sheets' ? 'sheet' : 'individual',
+      { notify: false },
+    )
     options.onChange(mode)
   }
 
