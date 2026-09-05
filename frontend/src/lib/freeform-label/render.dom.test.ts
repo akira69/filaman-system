@@ -111,6 +111,32 @@ describe('freeform label rendering', () => {
     expect(root.querySelector('[data-label-element-id]')).toBeNull()
   })
 
+  it('does not resolve an empty image asset id', async () => {
+    const root = document.querySelector<HTMLElement>('#label')!
+    let resolveCount = 0
+
+    await renderFreeformLabel({
+      element: root,
+      design: {
+        ...design,
+        elements: [{
+          ...design.elements.find(element => element.type === 'image')!,
+          assetId: '',
+        }],
+      },
+      data,
+      resolveAssetUrl: assetId => {
+        resolveCount += 1
+        return `/api/v1/me/label-assets/${assetId}/content`
+      },
+      interactive: true,
+    })
+
+    expect(resolveCount).toBe(0)
+    expect(root.querySelector('[data-label-element-type="image"]')).not.toBeNull()
+    expect(root.querySelector('img')).toBeNull()
+  })
+
   it('draws the FilaMan mark in the centre for logo QR elements', async () => {
     const root = document.querySelector<HTMLElement>('#label')!
     const fillTextCalls: unknown[][] = []

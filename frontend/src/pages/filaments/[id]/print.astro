@@ -179,6 +179,8 @@ export function getStaticPaths() {
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null
   let activeMode: PrintWorkspaceMode = readPrintWorkspaceMode(ACTIVE_TAB_KEY)
   let designerEditor: Awaited<ReturnType<typeof initFreeformLabelDesignerEditor>> | null = null
+  let labelLogoUrl: string | null = null
+  let labelLogoLoaded = false
   let previewRenderVersion = 0
   const previewRenders = createPreviewRenderCoordinator()
   const workspace = createPrintWorkspaceCoordinator({
@@ -320,10 +322,6 @@ export function getStaticPaths() {
       labelPreview.style.transformOrigin = 'center center'
     },
   })
-
-  // Label logo state
-  let labelLogoUrl: string | null = null
-  let labelLogoLoaded = false
 
   async function loadLabelLogo() {
     if (!labelData.mfr_id) return

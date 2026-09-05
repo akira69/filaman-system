@@ -234,6 +234,20 @@ describe('first-class print workspace navigation', () => {
     expect(source).toContain(`config: ${config}`)
   })
 
+  it.each([
+    '../pages/spools/[id]/print.astro',
+    '../pages/filaments/[id]/print.astro',
+  ])('%s initializes logo state before the editor can render restored designs', path => {
+    const source = readFileSync(
+      fileURLToPath(new URL(path, import.meta.url)),
+      'utf8',
+    )
+
+    expect(source.indexOf('let labelLogoLoaded = false')).toBeLessThan(
+      source.indexOf('designerEditor = await initFreeformLabelDesignerEditor({'),
+    )
+  })
+
   it('mounts the v2 designer sidebar in the shared print shell', () => {
     const shellPath = '../components/LabelPrintPageShell.astro'
     const source = readFileSync(
