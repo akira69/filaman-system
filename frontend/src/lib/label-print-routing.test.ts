@@ -379,9 +379,12 @@ describe('compact responsive print layout', () => {
     const workspace = readFileSync(`${componentsDirectory}freeform-label/DesignerWorkspace.astro`, 'utf8')
 
     expect(base).toMatch(/\.fm-input\s*\{[^}]*font-size:\s*0\.8rem/s)
-    expect(workspace).toMatch(/\.freeform-toolbar\s*button\s*\{[^}]*height:\s*32px[^}]*width:\s*32px/s)
+    expect(workspace).toMatch(/\.freeform-designer-workspace\.is-active\s+\.freeform-toolbar\s*\{[^}]*overflow-x:\s*auto/s)
+    expect(workspace).toMatch(/\.freeform-toolbar\s*button\s*\{[^}]*height:\s*32px[^}]*width:\s*auto/s)
     expect(workspace).toMatch(/\.freeform-toolbar\s*button\s*:global\(svg\)\s*\{[^}]*height:\s*16px[^}]*width:\s*16px/s)
+    expect(workspace).toMatch(/\.freeform-tool-label\s*\{[^}]*display:\s*inline[^}]*white-space:\s*nowrap/s)
     expect(workspace).toMatch(/\.freeform-toolbar-group\s*\{[^}]*flex-shrink:\s*0/s)
     expect(workspace).toMatch(/\.freeform-canvas-region[^}]*min-width:\s*320px[^}]*overflow:\s*auto/s)
+    expect(workspace).not.toMatch(/@container\s+freeform-tools/)
   })
 })
