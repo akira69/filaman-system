@@ -1,6 +1,20 @@
 {
   "versions": [
     {
+      "version": "UNRELEASED",
+      "date": "",
+      "changes": {
+        "de": [
+          { "type": "feature", "text": "Der Etiketten-Designer bietet jetzt eine freie, millimetergenaue Arbeitsfläche für Spulen- und Filamentetiketten. Texte, Datenfelder, QR-Codes, Formen, Herstellerlogos und eigene Bilder lassen sich platzieren und gestalten; Vorlagen funktionieren beim Einzel- und Stapeldruck sowie bei Druck-, PDF-, PNG- und AML-Ausgaben. Etikettenbogen-Vorlagen können ihre Inhalte außerdem direkt aus einer freien Vorlage übernehmen. (Beigetragen von akira69)" },
+          { "type": "warning", "text": "Bestehende Designer-Vorlagen werden beim Öffnen automatisch in das neue Format umgewandelt. Diese Kompatibilitätsfunktion bleibt für drei Monate nach dieser Veröffentlichung erhalten. Wer Versionen überspringt, sollte innerhalb dieses Zeitraums einmal auf diese Version aktualisieren und die Etikettenansichten öffnen, damit auch ältere oder nur im Browser gespeicherte Vorlagen übernommen werden. (Beigetragen von akira69)" }
+        ],
+        "en": [
+          { "type": "feature", "text": "The label designer now provides a freeform, millimetre-accurate canvas for spool and filament labels. Text, data fields, QR codes, shapes, manufacturer logos, and uploaded images can be positioned and styled; presets work in single and batch printing and across Print, PDF, PNG, and AML outputs. Label-sheet presets can also source their content directly from a freeform preset. (Contributed by akira69)" },
+          { "type": "warning", "text": "Existing designer presets are converted to the new format automatically when opened. This compatibility path will remain available for three months after this release. Users who skip releases should upgrade to this version and open the label views during that window so older presets, including browser-only presets, are migrated. (Contributed by akira69)" }
+        ]
+      }
+    },
+    {
       "version": "1.3.5",
       "date": "",
       "changes": {
