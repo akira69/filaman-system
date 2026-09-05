@@ -53,16 +53,16 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
   .freeform-designer-workspace, .freeform-workspace-main, .freeform-canvas-region { display: contents; }
   .freeform-toolbar, .freeform-designer-workspace :global(.freeform-element-inspector), .freeform-designer-workspace :global(.freeform-field-dock) { display: none; }
   .freeform-designer-workspace.is-active { background: var(--bg); display: grid; grid-template-columns: minmax(0, 1fr) auto; height: 100%; min-height: 0; width: 100%; }
-  .freeform-designer-workspace.is-active .freeform-workspace-main { container-name: freeform-tools; container-type: inline-size; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
-  .freeform-designer-workspace.is-active .freeform-toolbar { align-items: center; background: var(--bg-elevated); border-bottom: 1px solid var(--border); display: flex; flex-wrap: nowrap; gap: 12px; overflow-x: auto; padding: 7px 10px; }
+  .freeform-designer-workspace.is-active .freeform-workspace-main { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
+  .freeform-designer-workspace.is-active .freeform-toolbar { align-items: center; background: var(--bg-elevated); border-bottom: 1px solid var(--border); display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; padding: 7px 8px; }
   .freeform-designer-workspace.is-active :global(.freeform-element-inspector) { display: block; }
   .freeform-designer-workspace.is-active :global(.freeform-field-dock) { display: block; }
-  .freeform-toolbar-group { display: flex; flex-shrink: 0; gap: 4px; }
-  .freeform-toolbar-group + .freeform-toolbar-group { border-left: 1px solid var(--border); padding-left: 12px; }
-  .freeform-toolbar button { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text); display: inline-flex; flex: none; gap: 5px; height: 32px; justify-content: center; padding: 0; width: 32px; }
+  .freeform-toolbar-group { display: flex; flex-shrink: 0; gap: 2px; }
+  .freeform-toolbar-group + .freeform-toolbar-group { border-left: 1px solid var(--border); padding-left: 8px; }
+  .freeform-toolbar button { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text); display: inline-flex; flex: none; gap: 4px; height: 32px; justify-content: center; padding: 0 4px; width: auto; }
   .freeform-toolbar button:hover, .freeform-toolbar button:focus-visible { background: var(--bg-soft); border-color: var(--border); }
   .freeform-toolbar button :global(svg) { height: 16px; width: 16px; }
-  .freeform-tool-label { display: none; font-size: 0.68rem; line-height: 1; white-space: nowrap; }
+  .freeform-tool-label { display: inline; font-size: 0.68rem; line-height: 1; white-space: nowrap; }
   .freeform-designer-workspace.is-active .freeform-canvas-region { display: grid; min-height: 240px; min-width: 320px; overflow: auto; padding: 20px; place-items: center; }
   .freeform-designer-workspace.is-active :global(.is-designer-output-only) { left: -100000px; pointer-events: none; position: fixed; top: 0; }
   .freeform-canvas-host { display: block; flex: none; outline: none; position: relative; }
@@ -77,9 +77,4 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
   .freeform-designer-workspace[data-editor-editable='false'] :global(.freeform-field-dock) { display: none; }
   .freeform-designer-workspace[data-editor-editable='false'] .freeform-canvas-region { display: block; padding: 12px; }
   .freeform-designer-workspace[data-editor-editable='false'] .freeform-mobile-notice:not([hidden]) { display: block; }
-
-  @container freeform-tools (min-width: 880px) {
-    .freeform-toolbar button { padding: 0 5px; width: auto; }
-    .freeform-tool-label { display: inline; }
-  }
 </style>
