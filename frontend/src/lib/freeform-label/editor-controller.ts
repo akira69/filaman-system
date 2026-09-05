@@ -905,7 +905,11 @@ async function persistStoredPresetMutation(
     return false
   }
   if (!writeStoredPresets(storageKey, presets)) return false
-  if (await mutateDatabase()) return true
+  try {
+    if (await mutateDatabase()) return true
+  } catch {
+    // Treat an unexpected request rejection like a reported database failure.
+  }
   try {
     if (previous === null) localStorage.removeItem(storageKey)
     else localStorage.setItem(storageKey, previous)
@@ -957,8 +961,15 @@ export async function initFreeformLabelDesignerEditor(
   const border = document.getElementById('freeform-label-border') as HTMLInputElement | null
   const presetSelect = document.getElementById('freeform-preset-list') as HTMLSelectElement | null
   const presetName = document.getElementById('freeform-preset-name') as HTMLInputElement | null
+  const presetLoad = document.getElementById('freeform-preset-load') as HTMLButtonElement | null
+  const presetSave = document.getElementById('freeform-preset-save') as HTMLButtonElement | null
+  const presetDelete = document.getElementById('freeform-preset-delete') as HTMLButtonElement | null
   const presetStatus = document.getElementById('freeform-preset-status')
+  const mobileNotice = document.getElementById('freeform-mobile-notice')
   const cleanups: Array<() => void> = []
+  let editorEditable = window.innerWidth > 900
+  let pendingPresetMutations = 0
+  let presetMutationTail: Promise<void> = Promise.resolve()
 
   const listen = <T extends Event>(target: EventTarget | null, event: string, listener: (event: T) => void) => {
     if (!target) return
@@ -968,6 +979,25 @@ export async function initFreeformLabelDesignerEditor(
   }
   const setStatus = (message: string) => {
     if (presetStatus) presetStatus.textContent = message
+  }
+  const syncSidebarMutationControls = () => {
+    for (const control of [width, height, margin, border, presetName, presetLoad]) {
+      if (control) control.disabled = !editorEditable
+    }
+    if (presetSave) presetSave.disabled = !editorEditable || pendingPresetMutations > 0
+    if (presetDelete) presetDelete.disabled = !editorEditable || pendingPresetMutations > 0
+  }
+  const enqueuePresetMutation = async <T>(operation: () => Promise<T>): Promise<T> => {
+    pendingPresetMutations += 1
+    syncSidebarMutationControls()
+    const queued = presetMutationTail.then(operation)
+    presetMutationTail = queued.then(() => undefined, () => undefined)
+    try {
+      return await queued
+    } finally {
+      pendingPresetMutations -= 1
+      syncSidebarMutationControls()
+    }
   }
   const syncGeometry = () => {
     const label = controller.getState().design.label
@@ -1044,6 +1074,10 @@ export async function initFreeformLabelDesignerEditor(
     void domBinding?.refresh()
   }
   const updateGeometry = () => {
+    if (!editorEditable) {
+      syncGeometry()
+      return
+    }
     controller.updateLabel({
       widthMm: Number(width?.value),
       heightMm: Number(height?.value),
@@ -1056,7 +1090,8 @@ export async function initFreeformLabelDesignerEditor(
   }
 
   for (const control of [width, height, margin, border]) listen(control, 'change', updateGeometry)
-  listen<MouseEvent>(document.getElementById('freeform-preset-load'), 'click', () => {
+  listen<MouseEvent>(presetLoad, 'click', () => {
+    if (!editorEditable) return
     const preset = selectedPreset()
     if (!preset) return
     controller.reset(preset.data.design)
@@ -1068,61 +1103,66 @@ export async function initFreeformLabelDesignerEditor(
     void domBinding?.refresh()
     setStatus(options.translate?.('labelDesigner.presetLoaded', 'Preset loaded.') ?? 'Preset loaded.')
   })
-  listen<MouseEvent>(document.getElementById('freeform-preset-save'), 'click', async () => {
+  listen<MouseEvent>(presetSave, 'click', () => {
+    if (!editorEditable) return
     const name = presetName?.value.trim() ?? ''
     if (!name) {
       setStatus(options.translate?.('labelDesigner.presetNameRequired', 'Enter a preset name.') ?? 'Enter a preset name.')
       presetName?.focus()
       return
     }
-    const presets = readStoredPresets(options.presetsKey)
-    const index = presets.findIndex(candidate => candidate.name === name)
-    const existing = index >= 0 ? presets[index] : null
-    const data: LabelDesignerPresetData = {
-      version: 2,
-      design: controller.getState().design,
-    }
-    if (existing && 'legacy_v1' in existing.data) data.legacy_v1 = clone(existing.data.legacy_v1)
-    const preset: StoredPreset = {
-      name,
-      data,
-      settings: existing?.settings,
-    }
-    if (index >= 0) presets[index] = preset
-    else presets.push(preset)
-    const saved = await persistStoredPresetMutation(
-      options.presetsKey,
-      presets,
-      () => saveLabelPreset(options.presetsKey, preset),
-    )
-    refreshPresetList(saved ? name : undefined)
-    setStatus(saved
-      ? (options.translate?.('labelDesigner.presetSaved', 'Preset saved.') ?? 'Preset saved.')
-      : (options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.'))
+    const design = controller.getState().design
+    void enqueuePresetMutation(async () => {
+      const presets = readStoredPresets(options.presetsKey)
+      const index = presets.findIndex(candidate => candidate.name === name)
+      const existing = index >= 0 ? presets[index] : null
+      const data: LabelDesignerPresetData = { version: 2, design }
+      if (existing && 'legacy_v1' in existing.data) data.legacy_v1 = clone(existing.data.legacy_v1)
+      const preset: StoredPreset = { name, data, settings: existing?.settings }
+      if (index >= 0) presets[index] = preset
+      else presets.push(preset)
+      return persistStoredPresetMutation(
+        options.presetsKey,
+        presets,
+        () => saveLabelPreset(options.presetsKey, preset),
+      )
+    }).then(saved => {
+      refreshPresetList(saved ? name : undefined)
+      setStatus(saved
+        ? (options.translate?.('labelDesigner.presetSaved', 'Preset saved.') ?? 'Preset saved.')
+        : (options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.'))
+    }, () => {
+      refreshPresetList()
+      setStatus(options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.')
+    })
   })
-  listen<MouseEvent>(document.getElementById('freeform-preset-delete'), 'click', async () => {
+  listen<MouseEvent>(presetDelete, 'click', () => {
+    if (!editorEditable) return
     const value = presetSelect?.value ?? ''
     if (!value.startsWith('own:')) return
     const name = value.slice(4)
-    const deleted = await persistStoredPresetMutation(
+    void enqueuePresetMutation(() => persistStoredPresetMutation(
       options.presetsKey,
       readStoredPresets(options.presetsKey).filter(preset => preset.name !== name),
       () => deleteLabelPreset(options.presetsKey, name),
-    )
-    refreshPresetList()
-    setStatus(deleted
-      ? (options.translate?.('labelDesigner.presetDeleted', 'Preset deleted.') ?? 'Preset deleted.')
-      : (options.translate?.('labelDesigner.presetDeleteFailed', 'Preset delete failed.') ?? 'Preset delete failed.'))
+    )).then(deleted => {
+      refreshPresetList()
+      setStatus(deleted
+        ? (options.translate?.('labelDesigner.presetDeleted', 'Preset deleted.') ?? 'Preset deleted.')
+        : (options.translate?.('labelDesigner.presetDeleteFailed', 'Preset delete failed.') ?? 'Preset delete failed.'))
+    }, () => {
+      refreshPresetList()
+      setStatus(options.translate?.('labelDesigner.presetDeleteFailed', 'Preset delete failed.') ?? 'Preset delete failed.')
+    })
   })
 
-  const mobileNotice = document.getElementById('freeform-mobile-notice')
-  let editorEditable = window.innerWidth > 900
   const syncMobileState = () => {
     const nextEditable = window.innerWidth > 900
     if (mobileNotice) mobileNotice.hidden = nextEditable
-    if (nextEditable === editorEditable) return
+    const changed = nextEditable !== editorEditable
     editorEditable = nextEditable
-    void domBinding?.setEditable(nextEditable)
+    syncSidebarMutationControls()
+    if (changed) void domBinding?.setEditable(nextEditable)
   }
   listen(window, 'resize', syncMobileState)
   renderExtraFields()

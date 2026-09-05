@@ -50,7 +50,21 @@ function renderDesignerEditorShell() {
     <button id="freeform-preset-save">Save</button>
     <button id="freeform-preset-delete">Delete preset</button>
     <p id="freeform-preset-status"></p>
+    <input id="freeform-label-width" type="number" />
+    <input id="freeform-label-height" type="number" />
+    <input id="freeform-label-margin" type="number" />
+    <input id="freeform-label-border" type="checkbox" />
   `
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }
 
 beforeEach(() => {
@@ -384,6 +398,49 @@ describe('freeform editor responsive lifecycle', () => {
     expect(editor.getDesign().elements).toHaveLength(narrowCount - 1)
     editor.destroy()
   })
+
+  it('blocks every sidebar mutation at 900px and restores geometry editing at 901px', async () => {
+    renderDesignerEditorShell()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    const editor = await initFreeformLabelDesignerEditor({
+      onChange: () => undefined,
+      presetsKey: 'responsive-sidebar-presets',
+      settingsKey: 'responsive-sidebar-working',
+    })
+    const initial = editor.getDesign().label
+    const width = document.querySelector<HTMLInputElement>('#freeform-label-width')!
+    const sidebarMutationControlIds = [
+      'freeform-label-width',
+      'freeform-label-height',
+      'freeform-label-margin',
+      'freeform-label-border',
+      'freeform-preset-name',
+      'freeform-preset-load',
+      'freeform-preset-save',
+      'freeform-preset-delete',
+    ]
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+    window.dispatchEvent(new Event('resize'))
+
+    for (const id of sidebarMutationControlIds) {
+      expect(document.getElementById(id)).toHaveProperty('disabled', true)
+    }
+    width.value = String(initial.widthMm + 10)
+    width.dispatchEvent(new Event('change'))
+    expect(editor.getDesign().label).toEqual(initial)
+    expect(width.value).toBe(String(initial.widthMm))
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    window.dispatchEvent(new Event('resize'))
+    for (const id of sidebarMutationControlIds) {
+      expect(document.getElementById(id)).toHaveProperty('disabled', false)
+    }
+    width.value = String(initial.widthMm + 10)
+    width.dispatchEvent(new Event('change'))
+    expect(editor.getDesign().label.widthMm).toBe(initial.widthMm + 10)
+    editor.destroy()
+  })
 })
 
 describe('freeform editor working storage', () => {
@@ -527,6 +584,70 @@ describe('freeform editor database-owned presets', () => {
         settings: { width: 64, height: 32 },
       }),
     )
+    editor.destroy()
+  })
+
+  it('serializes overlapping saves so an older rejection cannot erase a later success', async () => {
+    renderDesignerEditorShell()
+    const first = deferred<boolean>()
+    const second = deferred<boolean>()
+    vi.mocked(saveLabelPreset)
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+    const editor = await initFreeformLabelDesignerEditor({
+      onChange: () => undefined,
+      presetsKey: 'serialized-save-presets',
+      settingsKey: 'serialized-save-working',
+    })
+    const name = document.querySelector<HTMLInputElement>('#freeform-preset-name')!
+    const save = document.querySelector<HTMLButtonElement>('#freeform-preset-save')!
+
+    name.value = 'Older'
+    save.dispatchEvent(new MouseEvent('click'))
+    name.value = 'Later'
+    // Exercise the queue's defense against a programmatic/re-entrant event.
+    save.disabled = false
+    save.dispatchEvent(new MouseEvent('click'))
+
+    await vi.waitFor(() => expect(saveLabelPreset).toHaveBeenCalledTimes(1))
+    expect(save.disabled).toBe(true)
+    first.reject(new Error('older request failed'))
+    await vi.waitFor(() => expect(saveLabelPreset).toHaveBeenCalledTimes(2))
+    second.resolve(true)
+    await vi.waitFor(() => expect(save.disabled).toBe(false))
+
+    expect(getFreeformLabelPresetNames('serialized-save-presets')).toEqual(['Later'])
+    editor.destroy()
+  })
+
+  it('serializes an overlapping save and delete and rolls back against the latest cache', async () => {
+    seedPreset()
+    const saveResult = deferred<boolean>()
+    const deleteResult = deferred<boolean>()
+    vi.mocked(saveLabelPreset).mockImplementationOnce(() => saveResult.promise)
+    vi.mocked(deleteLabelPreset).mockImplementationOnce(() => deleteResult.promise)
+    const editor = await initPresetEditor()
+    const name = document.querySelector<HTMLInputElement>('#freeform-preset-name')!
+    const save = document.querySelector<HTMLButtonElement>('#freeform-preset-save')!
+    const remove = document.querySelector<HTMLButtonElement>('#freeform-preset-delete')!
+
+    name.value = 'Newer'
+    save.dispatchEvent(new MouseEvent('click'))
+    // Exercise serialization beneath the disabled-control UI guard.
+    remove.disabled = false
+    remove.dispatchEvent(new MouseEvent('click'))
+
+    await vi.waitFor(() => expect(saveLabelPreset).toHaveBeenCalledTimes(1))
+    expect(deleteLabelPreset).not.toHaveBeenCalled()
+    expect(save.disabled).toBe(true)
+    expect(remove.disabled).toBe(true)
+    saveResult.resolve(true)
+    await vi.waitFor(() => expect(deleteLabelPreset).toHaveBeenCalledTimes(1))
+    deleteResult.resolve(false)
+    await vi.waitFor(() => expect(remove.disabled).toBe(false))
+
+    expect(save.disabled).toBe(false)
+    expect(getFreeformLabelPresetNames('database-presets')).toEqual(['Existing', 'Newer'])
     editor.destroy()
   })
 })
