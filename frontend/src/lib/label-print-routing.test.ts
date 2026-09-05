@@ -248,6 +248,29 @@ describe('first-class print workspace navigation', () => {
     )
   })
 
+  it.each([
+    ['../pages/spools/[id]/print.astro', 'onChange: () => updateDesignerPreview(),', false],
+    ['../pages/filaments/[id]/print.astro', 'onChange: () => updateDesignerPreview(),', false],
+    ['../pages/spools/print.astro', 'onChange: queueRenderAll,', true],
+    ['../pages/filaments/print.astro', 'onChange: queueRenderAll,', true],
+  ] as const)('%s delegates a settling designer render promise before interaction binding', (path, callback, batch) => {
+    const source = readFileSync(
+      fileURLToPath(new URL(path, import.meta.url)),
+      'utf8',
+    )
+
+    expect(source).toContain(callback)
+    if (batch) {
+      expect(source).toMatch(/function queueRenderAll\(\)\s*\{\s*return renderAll\(\)\s*\}/)
+      expect(source.indexOf("const countEl = document.getElementById('label-count')!")).toBeLessThan(
+        source.indexOf('designerEditor = await initFreeformLabelDesignerEditor({'),
+      )
+      expect(source.indexOf('const ids =')).toBeLessThan(
+        source.indexOf('designerEditor = await initFreeformLabelDesignerEditor({'),
+      )
+    }
+  })
+
   it('mounts the v2 designer sidebar in the shared print shell', () => {
     const shellPath = '../components/LabelPrintPageShell.astro'
     const source = readFileSync(
