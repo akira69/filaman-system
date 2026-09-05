@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import DBSession, PrincipalDep
@@ -14,6 +14,11 @@ from app.models.label_preset import (
     LABEL_PRESET_NAME_MAX_LENGTH,
     label_preset_name_key,
     normalize_label_preset_name,
+)
+from app.services.label_asset_service import (
+    LabelAssetValidationError,
+    extract_label_asset_ids,
+    set_label_preset_asset_references,
 )
 
 router = APIRouter(prefix="/me/label-presets", tags=["me"])
@@ -183,6 +188,13 @@ async def upsert_label_preset(
     """Create or update one named preset without replacing its siblings."""
     user_id = _require_user_id(principal)
     _validate_presets([body])
+    try:
+        asset_ids = extract_label_asset_ids(body.data)
+    except LabelAssetValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "invalid_label_asset", "message": str(exc)},
+        ) from exc
     await _lock_user_presets(db, user_id)
 
     name_key = label_preset_name_key(body.name)
@@ -254,6 +266,16 @@ async def upsert_label_preset(
     else:
         preset.data = body.data
 
+    try:
+        await db.flush()
+        await set_label_preset_asset_references(db, preset, asset_ids)
+    except LabelAssetValidationError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "invalid_label_asset", "message": str(exc)},
+        ) from exc
+
     await _commit_presets(db)
     await db.refresh(preset)
     return preset
@@ -280,13 +302,16 @@ async def delete_label_preset(
         ) from exc
     await _lock_user_presets(db, user_id)
     name_key = label_preset_name_key(normalized_name)
-    await db.execute(
-        delete(LabelPreset).where(
+    preset = await db.scalar(
+        select(LabelPreset).where(
             LabelPreset.user_id == user_id,
             LabelPreset.preset_type == preset_type,
             LabelPreset.name_key == name_key,
         )
     )
+    if preset is not None:
+        await set_label_preset_asset_references(db, preset, set())
+        await db.delete(preset)
     await _commit_presets(db)
 
 
@@ -303,6 +328,13 @@ async def migrate_label_presets(
         grouped.setdefault(preset.preset_type, []).append(preset)
     for presets in grouped.values():
         _validate_presets(presets, reject_duplicates=False)
+    try:
+        preset_asset_ids = [extract_label_asset_ids(preset.data) for preset in body.presets]
+    except LabelAssetValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "invalid_label_asset", "message": str(exc)},
+        ) from exc
 
     await _lock_user_presets(db, user_id)
     existing_result = await db.execute(
@@ -314,7 +346,7 @@ async def migrate_label_presets(
     counts: dict[str, int] = {}
     for preset_type, _name_key in existing:
         counts[preset_type] = counts.get(preset_type, 0) + 1
-    for preset in body.presets:
+    for preset, asset_ids in zip(body.presets, preset_asset_ids, strict=True):
         name_key = label_preset_name_key(preset.name)
         key = (preset.preset_type, name_key)
         if key in existing:
@@ -327,15 +359,23 @@ async def migrate_label_presets(
                     "message": f"At most {MAX_PRESETS_PER_TYPE} presets are allowed per type",
                 },
             )
-        db.add(
-            LabelPreset(
-                user_id=user_id,
-                preset_type=preset.preset_type,
-                name=preset.name,
-                name_key=name_key,
-                data=preset.data,
-            )
+        new_preset = LabelPreset(
+            user_id=user_id,
+            preset_type=preset.preset_type,
+            name=preset.name,
+            name_key=name_key,
+            data=preset.data,
         )
+        db.add(new_preset)
+        await db.flush()
+        try:
+            await set_label_preset_asset_references(db, new_preset, asset_ids)
+        except LabelAssetValidationError as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={"code": "invalid_label_asset", "message": str(exc)},
+            ) from exc
         existing.add(key)
         counts[preset.preset_type] = counts.get(preset.preset_type, 0) + 1
 

@@ -1,5 +1,7 @@
 """Admin-Endpoints fuer System, Plugin-Management und Killswitch."""
 
+import base64
+import binascii
 import importlib
 import logging
 import os
@@ -15,7 +17,7 @@ import httpx
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import DateTime, delete, select, text
+from sqlalchemy import DateTime, LargeBinary, delete, select, text
 from sqlalchemy.inspection import inspect as sa_inspect
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
@@ -34,7 +36,9 @@ from app.models import (
     FilamentPrinterProfile,
     FilamentRating,
     InstalledPlugin,
+    LabelAsset,
     LabelPreset,
+    LabelPresetAsset,
     Location,
     Manufacturer,
     OAuthIdentity,
@@ -66,6 +70,7 @@ from app.services.filamentdb_import_service import (
     FilamentDBImportError,
     FilamentDBImportService,
 )
+from app.services.label_asset_service import canonicalize_label_image
 from app.services.plugin_service import PluginInstallError, PluginInstallService
 
 logger = logging.getLogger(__name__)
@@ -1262,10 +1267,45 @@ def _serialize_row(row: Any) -> dict[str, Any]:
 
         if isinstance(value, datetime):
             result[col.name] = value.isoformat()
+        elif isinstance(value, bytes):
+            result[col.name] = base64.b64encode(value).decode("ascii")
         else:
             result[col.name] = value
 
     return result
+
+
+def _deserialize_row(
+    model: type[Any], table_name: str, row_data: dict[str, Any]
+) -> dict[str, Any]:
+    mapper = sa_inspect(model)
+    col_to_attr = {attr.columns[0].name: attr.key for attr in mapper.column_attrs}
+    columns = {attr.columns[0].name: attr.columns[0] for attr in mapper.column_attrs}
+    attr_data: dict[str, Any] = {}
+    for col_name, value in row_data.items():
+        attr_name = col_to_attr.get(col_name, col_name)
+        column_type = getattr(columns.get(col_name), "type", None)
+        if isinstance(value, str) and isinstance(column_type, LargeBinary):
+            try:
+                attr_data[attr_name] = base64.b64decode(value, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise ValueError(
+                    f"Invalid base64 data for {table_name}.{col_name}"
+                ) from exc
+            continue
+        is_datetime_column = isinstance(column_type, DateTime) or isinstance(
+            getattr(column_type, "impl", None), DateTime
+        )
+        if isinstance(value, str) and is_datetime_column:
+            try:
+                attr_data[attr_name] = datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                )
+            except (ValueError, AttributeError):
+                attr_data[attr_name] = value
+        else:
+            attr_data[attr_name] = value
+    return attr_data
 
 
 async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
@@ -1287,7 +1327,9 @@ async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
         ("oauth_identities", OAuthIdentity),
         ("user_api_keys", UserApiKey),
         ("user_sessions", UserSession),
+        ("label_assets", LabelAsset),
         ("label_presets", LabelPreset),
+        ("label_preset_assets", LabelPresetAsset),
         ("oidc_settings", OIDCSettings),
         ("oidc_auth_states", OIDCAuthState),
         # Devices
@@ -1541,7 +1583,9 @@ async def _delete_all_data(db: DBSession) -> dict[str, int]:
         ("user_sessions", UserSession),
         ("user_api_keys", UserApiKey),
         ("oauth_identities", OAuthIdentity),
+        ("label_preset_assets", LabelPresetAsset),
         ("label_presets", LabelPreset),
+        ("label_assets", LabelAsset),
         ("role_permissions", RolePermission),
         ("user_permissions", UserPermission),
         ("user_roles", UserRole),
@@ -1622,26 +1666,8 @@ async def _import_inventory_data(
     for table_name, model in tables_order:
         rows = data.get(table_name, [])
         if rows:
-            mapper = sa_inspect(model)
-            col_to_attr = {
-                attr.columns[0].name: attr.key for attr in mapper.column_attrs
-            }
-
             for row_data in rows:
-                attr_data = {}
-                for col_name, value in row_data.items():
-                    attr_name = col_to_attr.get(col_name, col_name)
-
-                    if isinstance(value, str) and "T" in value:
-                        try:
-                            attr_data[attr_name] = datetime.fromisoformat(
-                                value.replace("Z", "+00:00")
-                            )
-                        except (ValueError, AttributeError):
-                            attr_data[attr_name] = value
-                    else:
-                        attr_data[attr_name] = value
-
+                attr_data = _deserialize_row(model, table_name, row_data)
                 db.add(model(**attr_data))
 
             await db.flush()
@@ -1673,7 +1699,9 @@ async def _import_all_data(
         ("oauth_identities", OAuthIdentity),
         ("user_api_keys", UserApiKey),
         ("user_sessions", UserSession),
+        ("label_assets", LabelAsset),
         ("label_presets", LabelPreset),
+        ("label_preset_assets", LabelPresetAsset),
         ("oidc_settings", OIDCSettings),
         ("oidc_auth_states", OIDCAuthState),
         ("devices", Device),
@@ -1699,37 +1727,33 @@ async def _import_all_data(
     for table_name, model in tables_order:
         rows = data.get(table_name, [])
         if rows:
-            mapper = sa_inspect(model)
-            col_to_attr = {
-                attr.columns[0].name: attr.key for attr in mapper.column_attrs
-            }
-            columns = {
-                attr.columns[0].name: attr.columns[0] for attr in mapper.column_attrs
-            }
-
             for row_data in rows:
-                attr_data = {}
-                for col_name, value in row_data.items():
-                    attr_name = col_to_attr.get(col_name, col_name)
-
-                    column = columns.get(col_name)
-                    column_type = getattr(column, "type", None)
-                    is_datetime_column = isinstance(
-                        column_type, DateTime
-                    ) or isinstance(getattr(column_type, "impl", None), DateTime)
-                    if isinstance(value, str) and is_datetime_column:
-                        try:
-                            attr_data[attr_name] = datetime.fromisoformat(
-                                value.replace("Z", "+00:00")
-                            )
-                        except (ValueError, AttributeError):
-                            attr_data[attr_name] = value
-                    else:
-                        attr_data[attr_name] = value
+                attr_data = _deserialize_row(model, table_name, row_data)
 
                 if model is LabelPreset and isinstance(attr_data.get("name"), str):
                     attr_data["name"] = normalize_label_preset_name(attr_data["name"])
                     attr_data["name_key"] = label_preset_name_key(attr_data["name"])
+                elif model is LabelAsset:
+                    canonical = canonicalize_label_image(attr_data.get("content", b""))
+                    if (
+                        canonical.content != attr_data.get("content")
+                        or canonical.sha256 != attr_data.get("sha256")
+                        or canonical.byte_size != attr_data.get("byte_size")
+                        or canonical.width != attr_data.get("width")
+                        or canonical.height != attr_data.get("height")
+                        or attr_data.get("media_type") != "image/png"
+                    ):
+                        raise ValueError("Invalid canonical label image in backup")
+                elif model is LabelPresetAsset:
+                    preset = await db.get(LabelPreset, attr_data.get("preset_id"))
+                    asset = await db.get(LabelAsset, attr_data.get("asset_id"))
+                    if (
+                        preset is None
+                        or asset is None
+                        or preset.user_id != attr_data.get("user_id")
+                        or asset.user_id != attr_data.get("user_id")
+                    ):
+                        raise ValueError("Invalid label image reference in backup")
 
                 db.add(model(**attr_data))
 
