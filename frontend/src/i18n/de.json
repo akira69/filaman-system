@@ -1474,6 +1474,7 @@
     "spoolProfileLoaded": "Spulenprofil-Daten geladen"
   },
   "labelDesigner": {
+    "standardPresets": "Standardvorlagen",
     "toolbar": "Werkzeuge des Etikettendesigners",
     "addText": "Text hinzufügen",
     "addQrCode": "QR-Code hinzufügen",

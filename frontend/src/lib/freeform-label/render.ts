@@ -1,3 +1,4 @@
+import { fitLabelText } from './text-fit'
 import {
   buildFilamentSwatchBackground,
   getFilamentSwatchColors,
@@ -72,8 +73,8 @@ function renderText(node: HTMLElement, element: Extract<LabelDesignElement, { ty
   node.style.textAlign = element.align
   node.style.color = element.color
   node.style.lineHeight = '1.15'
-  node.style.whiteSpace = element.wrap ? 'normal' : 'nowrap'
-  node.style.overflowWrap = element.wrap ? 'anywhere' : 'normal'
+  node.style.whiteSpace = element.wrap && !element.fitToWidth ? 'normal' : 'nowrap'
+  node.style.overflowWrap = element.wrap && !element.fitToWidth ? 'anywhere' : 'normal'
   node.appendChild(parseTemplate(element.template, data))
 }
 
@@ -128,6 +129,7 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
   if (options.isStale?.()) return
 
   const nodes: HTMLElement[] = []
+  const fittingText: HTMLElement[] = []
   const ordered = [...design.elements].sort((left, right) => left.z - right.z)
   for (const element of ordered) {
     if (options.isStale?.()) return
@@ -136,6 +138,7 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
     switch (element.type) {
       case 'text':
         renderText(node, element, options.data)
+        if (element.fitToWidth) fittingText.push(node)
         break
       case 'qr':
         await renderQr(node, element, options.data, options.entityPath ?? 'spools')
@@ -173,6 +176,8 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
     }
     nodes.push(node)
   }
+  if (options.isStale?.()) return
+  await fitLabelText(fittingText)
   if (options.isStale?.()) return
   options.element.replaceChildren(...nodes)
   applyRootStyles(options.element, design, options)

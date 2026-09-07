@@ -73,6 +73,7 @@ function normalizeTextElement(
     align: choiceOr(raw.align, ['left', 'center', 'right'] as const, 'left'),
     color: colorOr(raw.color, '#000000'),
     wrap: booleanOr(raw.wrap, true),
+    ...(typeof raw.fitToWidth === 'boolean' ? { fitToWidth: raw.fitToWidth } : {}),
   }
 }
 

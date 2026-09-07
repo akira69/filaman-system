@@ -1,3 +1,4 @@
+import { getStandardLabelPresets } from './standard-presets'
 import { createDefaultLabelDesign } from './defaults'
 import { createLabelAssetClient } from './assets'
 import { createLabelHistory } from './history'
@@ -1004,7 +1005,10 @@ function readStoredPresets(storageKey: string): StoredPreset[] {
 }
 
 export function getFreeformLabelPresetNames(storageKey: string) {
-  return readStoredPresets(storageKey).map(preset => preset.name)
+  return [...new Set([
+    ...readStoredPresets(storageKey).map(preset => preset.name),
+    ...getStandardLabelPresets().map(preset => preset.name),
+  ])]
 }
 
 export function loadFreeformLabelPresetDesign(options: {
@@ -1014,6 +1018,7 @@ export function loadFreeformLabelPresetDesign(options: {
 }): LabelDesignV2 | null {
   const preset = readStoredPresets(options.presetsKey)
     .find(candidate => candidate.name === options.presetName)
+    ?? getStandardLabelPresets().find(candidate => candidate.name === options.presetName)
   return preset ? normalizeLabelDesign(preset.data.design) : null
 }
 
@@ -1142,7 +1147,7 @@ export async function initFreeformLabelDesignerEditor(
       if (control) control.disabled = !editorEditable
     }
     if (presetSave) presetSave.disabled = !editorEditable || pendingPresetMutations > 0
-    if (presetDelete) presetDelete.disabled = !editorEditable || pendingPresetMutations > 0
+    if (presetDelete) presetDelete.disabled = !editorEditable || pendingPresetMutations > 0 || !presetSelect?.value.startsWith('own:')
   }
   const enqueuePresetMutation = async <T>(operation: () => Promise<T>): Promise<T> => {
     pendingPresetMutations += 1
@@ -1213,10 +1218,12 @@ export async function initFreeformLabelDesignerEditor(
       'cross',
       cross,
     )
+    appendGroup(options.translate?.('labelDesigner.standardPresets', 'Standard presets') ?? 'Standard presets', 'builtin', getStandardLabelPresets())
     presetSelect.replaceChildren(...groups)
     const preferred = selectName ? `own:${selectName}` : presetSelect.options[0]?.value
     if (preferred) presetSelect.value = preferred
-    const names = own.map(preset => preset.name)
+    syncSidebarMutationControls()
+    const names = getFreeformLabelPresetNames(options.presetsKey)
     document.dispatchEvent(new CustomEvent('freeform-label-presets-changed', {
       detail: { presets: names },
     }))
@@ -1224,6 +1231,7 @@ export async function initFreeformLabelDesignerEditor(
   const selectedPreset = () => {
     const [source, ...nameParts] = (presetSelect?.value ?? '').split(':')
     const name = nameParts.join(':')
+    if (source === 'builtin') return getStandardLabelPresets().find(preset => preset.name === name) ?? null
     const storageKey = source === 'cross' ? options.crossPresetsKey : options.presetsKey
     return storageKey
       ? readStoredPresets(storageKey).find(preset => preset.name === name) ?? null
@@ -1257,6 +1265,7 @@ export async function initFreeformLabelDesignerEditor(
   }
 
   for (const control of [width, height, margin, border]) listen(control, 'change', updateGeometry)
+  listen(presetSelect, 'change', syncSidebarMutationControls)
   listen<MouseEvent>(presetLoad, 'click', () => {
     if (!editorEditable) return
     const preset = selectedPreset()
