@@ -1491,6 +1491,7 @@
     "spoolProfileLoaded": "Spool profile data loaded"
   },
   "labelDesigner": {
+    "standardPresets": "Standard presets",
     "toolbar": "Label designer tools",
     "addText": "Add text",
     "addQrCode": "Add QR code",

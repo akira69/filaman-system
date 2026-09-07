@@ -47,6 +47,8 @@ export interface LabelTextElement extends LabelElementBase {
   align: 'left' | 'center' | 'right'
   color: string
   wrap: boolean
+  /** Shrink single-line preset text to its available width. */
+  fitToWidth?: boolean
 }
 
 export interface LabelQrElement extends LabelElementBase {

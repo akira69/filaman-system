@@ -8,6 +8,7 @@ import DesignerWorkspace from '../../components/freeform-label/DesignerWorkspace
 import PrintSidebar from '../../components/PrintSidebar.astro'
 import de from '../../i18n/de.json'
 import { createDefaultLabelDesign } from './defaults'
+import { getStandardLabelPresets } from './standard-presets'
 import type { InteractFactory } from './interaction-adapter'
 import { deleteLabelPreset, saveLabelPreset } from '../label-preset-storage'
 import {
@@ -823,7 +824,7 @@ describe('freeform editor responsive lifecycle', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
     window.dispatchEvent(new Event('resize'))
     for (const id of sidebarMutationControlIds) {
-      expect(document.getElementById(id)).toHaveProperty('disabled', false)
+      expect(document.getElementById(id)).toHaveProperty('disabled', id === 'freeform-preset-delete')
     }
     width.value = String(initial.widthMm + 10)
     width.dispatchEvent(new Event('change'))
@@ -833,6 +834,38 @@ describe('freeform editor responsive lifecycle', () => {
 })
 
 describe('freeform editor working storage', () => {
+  it.each(['spool', 'filament'] as const)('loads bundled standards for %s on a fresh installation without storing account presets', async entityType => {
+    renderDesignerEditorShell()
+    const editor = await initFreeformLabelDesignerEditor({
+      settingsKey: 'standard-working', presetsKey: 'standard-presets',
+      entityType, onChange: async () => {},
+    })
+    const select = document.querySelector<HTMLSelectElement>('#freeform-preset-list')!
+    const standards = Array.from(select.options).filter(option => option.value.startsWith('builtin:'))
+    expect(standards).toHaveLength(8)
+    expect(getFreeformLabelPresetNames('standard-presets')).toContain('Slim (40 × 12 mm)')
+    expect(loadFreeformLabelPresetDesign({ presetsKey: 'standard-presets', presetName: 'Slim (40 × 12 mm)', kind: 'filament' })?.label).toMatchObject({ widthMm: 40, heightMm: 12 })
+    for (const option of standards) {
+      select.value = option.value
+      select.dispatchEvent(new Event('change'))
+      expect(document.querySelector<HTMLButtonElement>('#freeform-preset-delete')!.disabled).toBe(true)
+      document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
+      const design = editor.getDesign()
+      expect(design.elements.some(element => element.type === 'qr' && element.linkMode === 'spool')).toBe(true)
+      expect(design.elements.some(element => element.type === 'text' && element.template.includes('{filament.type}'))).toBe(true)
+      document.querySelector<HTMLButtonElement>('#freeform-preset-delete')!.click()
+      expect(select.options.length).toBe(8)
+      expect(localStorage.getItem('standard-presets')).toBeNull()
+    }
+    const originalWidth = editor.getDesign().label.widthMm
+    const width = document.querySelector<HTMLInputElement>('#freeform-label-width')!
+    width.value = '75'
+    width.dispatchEvent(new Event('change'))
+    document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
+    expect(editor.getDesign().label.widthMm).toBe(originalWidth)
+    editor.destroy()
+  })
+
   it('prefers the v2 working design and falls back to a hydrated preset cache', () => {
     const cached = createDefaultLabelDesign('filament', () => `cached-${Math.random()}`)
     localStorage.setItem('preset-cache', JSON.stringify({
@@ -870,7 +903,7 @@ describe('freeform editor working storage', () => {
     }))
     persistFreeformLabelDesign('working', compact)
 
-    expect(getFreeformLabelPresetNames('preset-cache')).toEqual(['Compact', 'Wide'])
+    expect(getFreeformLabelPresetNames('preset-cache').filter(name => !getStandardLabelPresets().some(preset => preset.name === name))).toEqual(['Compact', 'Wide'])
     expect(loadFreeformLabelPresetDesign({
       presetsKey: 'preset-cache',
       presetName: 'Wide',
@@ -929,7 +962,7 @@ describe('freeform editor database-owned presets', () => {
     })
 
     expect(JSON.parse(localStorage.getItem('database-presets')!)).toEqual(cache)
-    expect(getFreeformLabelPresetNames('database-presets')).toEqual(['Existing'])
+    expect(getFreeformLabelPresetNames('database-presets').filter(name => !getStandardLabelPresets().some(preset => preset.name === name))).toEqual(['Existing'])
     expect(saveLabelPreset).toHaveBeenCalledWith(
       'database-presets',
       expect.objectContaining({ name: 'Phantom' }),
@@ -948,7 +981,7 @@ describe('freeform editor database-owned presets', () => {
     })
 
     expect(JSON.parse(localStorage.getItem('database-presets')!)).toEqual(cache)
-    expect(getFreeformLabelPresetNames('database-presets')).toEqual(['Existing'])
+    expect(getFreeformLabelPresetNames('database-presets').filter(name => !getStandardLabelPresets().some(preset => preset.name === name))).toEqual(['Existing'])
     expect(deleteLabelPreset).toHaveBeenCalledWith('database-presets', 'Existing')
     editor.destroy()
   })
@@ -1005,7 +1038,7 @@ describe('freeform editor database-owned presets', () => {
     second.resolve(true)
     await vi.waitFor(() => expect(save.disabled).toBe(false))
 
-    expect(getFreeformLabelPresetNames('serialized-save-presets')).toEqual(['Later'])
+    expect(getFreeformLabelPresetNames('serialized-save-presets').filter(name => !getStandardLabelPresets().some(preset => preset.name === name))).toEqual(['Later'])
     editor.destroy()
   })
 
@@ -1036,7 +1069,7 @@ describe('freeform editor database-owned presets', () => {
     await vi.waitFor(() => expect(remove.disabled).toBe(false))
 
     expect(save.disabled).toBe(false)
-    expect(getFreeformLabelPresetNames('database-presets')).toEqual(['Existing', 'Newer'])
+    expect(getFreeformLabelPresetNames('database-presets').filter(name => !getStandardLabelPresets().some(preset => preset.name === name))).toEqual(['Existing', 'Newer'])
     editor.destroy()
   })
 })
