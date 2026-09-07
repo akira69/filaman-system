@@ -41,6 +41,8 @@ describe('v1 label designer migration', () => {
       '{filament.type}\n{id}',
     ])
     expect(preset.design.elements.find(element => element.type === 'shape')?.h).toBe(0.3)
+    expect(preset.design.elements.find(element => element.id === 'title')).toMatchObject({ fitToWidth: true })
+    expect(normalizeDesignerPresetData(preset, 'spool').design.elements.find(element => element.id === 'title')).toMatchObject({ fitToWidth: true })
     expect(legacy).toEqual(source)
   })
 
@@ -71,5 +73,15 @@ describe('v1 label designer migration', () => {
     }, 'spool')
 
     expect(preset.design.elements).toEqual([])
+  })
+
+  it.each([
+    { version: 3, design: { version: 3, elements: [] } },
+    { version: 2, design: { version: 3, elements: [] } },
+    { version: 2 },
+  ])('rejects unsupported envelopes without interpreting them as legacy settings', raw => {
+    const original = structuredClone(raw)
+    expect(() => normalizeDesignerPresetData(raw, 'spool')).toThrow(/unsupported/i)
+    expect(raw).toEqual(original)
   })
 })

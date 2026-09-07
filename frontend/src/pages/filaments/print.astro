@@ -22,12 +22,10 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   import { bindLabelSheetControls, createLabelSheetPdf } from '../../lib/label-sheet'
   import { labelAssetContentUrl } from '../../lib/freeform-label/assets'
   import {
-    getFreeformLabelPresetNames,
-    initFreeformLabelDesignerEditor,
-    loadFreeformLabelDesign,
-    loadFreeformLabelPresetDesign,
-    persistFreeformLabelDesign,
-  } from '../../lib/freeform-label/editor-controller'
+    bindLabelPrintWorkspaceTabs,
+    getPrintDesignerDesign,
+    initPrintDesignerEditor,
+  } from '../../lib/label-print-workspace'
   import {
     buildSpoolDataFromFlatLabel,
     getDesignerLabelDimensions,
@@ -62,7 +60,6 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     getLabelSettingsControls,
     getStandardLabelSettings,
     makeBatchLabelHtml,
-    bindPrintWorkspaceTabs,
     PRINT_WORKSPACE_ROUTES,
     prefetchEntityLogos,
     readPrintWorkspaceMode,
@@ -100,10 +97,6 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   bindPrintPageSidebarCollapse()
   const settingsControls = getLabelSettingsControls()
   const outputControls = getLabelOutputControls()
-  const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
-  const tabPanelPrint    = document.getElementById('tab-panel-print') as HTMLElement
-  const tabPanelDesigner = document.getElementById('tab-panel-designer-v2') as HTMLElement
-  const tabPanelSheets   = document.getElementById('tab-panel-sheets') as HTMLElement
   const resetBtn         = document.getElementById('btn-reset') as HTMLButtonElement | null
   const previewContainer = document.getElementById('preview-container') as HTMLElement
   const previewLabelsHost = document.getElementById('freeform-canvas-host') as HTMLElement
@@ -132,7 +125,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   type FilamentLabelEntity = ApiFilament
   const logoCache: Record<number, string | null> = {}
   let activeMode: PrintWorkspaceMode = readPrintWorkspaceMode('filaman-label-active-tab')
-  let designerEditor: Awaited<ReturnType<typeof initFreeformLabelDesignerEditor>> | null = null
+  let designerEditor: Awaited<ReturnType<typeof initPrintDesignerEditor>> | null = null
   let renderVersion = 0
   const previewRenders = createPreviewRenderCoordinator()
   const workspace = createPrintWorkspaceCoordinator({
@@ -140,7 +133,6 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     initialMode: activeMode,
     getItems: () => filaments,
     getSheetSource: sheetControls.getSource,
-    getSheetCopies: () => sheetControls.getSettings().copies,
     onModeChange: state => {
       activeMode = state.mode
       if (state.mode === 'designer' && designerEditor) void designerEditor.refresh()
@@ -365,26 +357,16 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   }
 
   function getWorkspaceSource() {
-    return workspace.getState().source
+    return workspace.getSource()
   }
 
   function getDesignerDesign() {
-    const source = workspace.getState().sheetPlan.source
-    if (workspace.getActiveMode() === 'sheets' && source.type === 'designer' && source.presetName) {
-      return loadFreeformLabelPresetDesign({
-        presetsKey: DESIGNER_PRESETS_KEY,
-        presetName: source.presetName,
-        kind: 'filament',
-      }) ?? loadFreeformLabelDesign({
-        settingsKey: DESIGNER_SETTINGS_KEY,
-        presetsKey: DESIGNER_PRESETS_KEY,
-        kind: 'filament',
-      })
-    }
-    return loadFreeformLabelDesign({
+    return getPrintDesignerDesign({
       settingsKey: DESIGNER_SETTINGS_KEY,
       presetsKey: DESIGNER_PRESETS_KEY,
       kind: 'filament',
+      mode: workspace.getActiveMode(),
+      sheetSource: sheetControls.getSource(),
     })
   }
 
@@ -392,12 +374,13 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     container: HTMLElement,
     filament: ApiFilament,
     interactive: boolean,
+    design: ReturnType<typeof getDesignerDesign>,
     isStale = () => false,
   ) {
     await renderDesignerLabel({
       element: container,
       previewBorder: false,
-      design: getDesignerDesign(),
+      design,
       data: labelAdapter.buildDesignerData(filament),
       logoUrl: getCachedEntityLogoUrl(labelAdapter, logoCache, filament),
       resolveAssetUrl: labelAssetContentUrl,
@@ -407,25 +390,27 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     })
   }
 
-  function renderAll(mode: PrintWorkspaceMode = activeMode) {
-    return previewRenders.run(() => renderAllNow(mode))
+  function renderAll(mode: PrintWorkspaceMode = activeMode, output = false) {
+    return previewRenders.run(() => renderAllNow(mode, output))
   }
 
-  async function renderAllNow(mode: PrintWorkspaceMode) {
+  async function renderAllNow(mode: PrintWorkspaceMode, output: boolean) {
     const token = ++renderVersion
     const isStale = () => token !== renderVersion || activeMode !== mode
     const workspaceState = workspace.getState(mode)
     const source = workspaceState.source
     const representative = workspaceState.representativeItem
+    const design = source === 'designer' ? getDesignerDesign() : null
+    const items = output ? workspaceState.outputItems : workspaceState.previewItems
     const CHUNK = 6
-    for (let i = 0; i < filaments.length; i += CHUNK) {
+    for (let i = 0; i < items.length; i += CHUNK) {
       if (isStale()) return
-      const chunk = filaments.slice(i, i + CHUNK)
+      const chunk = items.slice(i, i + CHUNK)
       await Promise.all(chunk.map(filament => {
         const el = findBatchLabelElement(labelAdapter, filament)
         if (!el) return Promise.resolve()
         return source === 'designer'
-          ? renderDesignerLabelForFilament(el, filament, mode === 'designer' && filament === representative, isStale)
+          ? renderDesignerLabelForFilament(el, filament, mode === 'designer' && filament === representative, design!, isStale)
           : renderLabel(el, filament, isStale)
       }))
       if (isStale()) return
@@ -534,12 +519,9 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     updateLabelCount()
   }
 
-  document.addEventListener('freeform-label-presets-changed', event => {
-    const names = (event as CustomEvent<{ presets?: string[] }>).detail?.presets
-    if (Array.isArray(names)) sheetControls.setDesignerPresets(names)
-  })
-
-  designerEditor = await initFreeformLabelDesignerEditor({
+  designerEditor = await initPrintDesignerEditor({
+    sheetControls,
+    activateDesigner: () => tabControls.activate('designer'),
     extraFields: [],
     entityType: labelAdapter.entityType,
     batchMode: true,
@@ -552,45 +534,23 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     ownPresetsLabel: (t('filaments.dsPresetsOwnGroup') || 'Filament presets'),
     crossPresetsLabel: (t('filaments.dsPresetsCrossGroupSpool') || 'Spool presets'),
   })
-  sheetControls.setDesignerPresets(getFreeformLabelPresetNames(DESIGNER_PRESETS_KEY))
 
-  const tabControls = bindPrintWorkspaceTabs({
-    buttons: tabBtns,
-    panels: {
-      standard: tabPanelPrint,
-      designer: tabPanelDesigner,
-      sheets: tabPanelSheets,
-    },
-    outputButtons: {
-      print: outputControls.printButton,
-      pdf: outputControls.pdfButton,
-      png: outputControls.pngButton,
-      aml: outputControls.amlButton,
-    },
-    resetButton: resetBtn,
-    sidebar: document.querySelector<HTMLElement>('.print-sidebar'),
-    designerWorkspace: document.getElementById('freeform-designer-workspace'),
+  const tabControls = bindLabelPrintWorkspaceTabs({
+    outputControls,
     sheetControls,
     storageKey: 'filaman-label-active-tab',
     initialMode: activeMode,
     onChange: mode => workspace.activate(mode),
-  })
-  document.addEventListener('label-designer-edit', event => {
-    const presetName = (event as CustomEvent<{ presetName?: string }>).detail?.presetName
-    const design = presetName
-      ? loadFreeformLabelPresetDesign({ presetsKey: DESIGNER_PRESETS_KEY, presetName, kind: 'filament' })
-      : null
-    if (!design) return
-    persistFreeformLabelDesign(DESIGNER_SETTINGS_KEY, design)
-    designerEditor?.loadSettings()
-    tabControls.activate('designer')
   })
 
   bindLabelOutputs({
     controls: outputControls,
     collection: {
       getItems: workspace.getOutputItems,
-      prepare: () => previewRenders.settle(),
+      prepare: async () => {
+        await previewRenders.settle()
+        if (activeMode === 'designer') await renderAll(activeMode, true)
+      },
       capture: captureLabel,
       getDimensions: getActiveLabelDimensions,
       browserPrint: {

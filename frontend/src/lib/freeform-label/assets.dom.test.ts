@@ -3,6 +3,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { createLabelAssetClient } from './assets'
+import { getAbortSignal } from '../abort'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -48,6 +49,19 @@ it('uploads multipart data with CSRF and deletes owned assets', async () => {
   const uploadOptions = fetchMock.mock.calls[0][1] as RequestInit
   expect(uploadOptions.body).toBeInstanceOf(FormData)
   expect(uploadOptions.headers).toEqual({ 'X-CSRF-Token': 'test-token' })
+  expect(uploadOptions.signal).toBe(getAbortSignal())
   expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/me/label-assets/asset-2')
   expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('DELETE')
+})
+
+it('preserves actionable asset errors from the server', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+    detail: { code: 'asset_quota_exceeded', message: 'Delete an unused image before uploading another.' },
+  }), { status: 413 })))
+
+  await expect(createLabelAssetClient().upload(new File(['image'], 'new.png'))).rejects.toMatchObject({
+    status: 413,
+    code: 'asset_quota_exceeded',
+    message: 'Delete an unused image before uploading another.',
+  })
 })

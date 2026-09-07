@@ -24,12 +24,10 @@ export function getStaticPaths() {
 <script>
   import { labelAssetContentUrl } from '../../../lib/freeform-label/assets'
   import {
-    getFreeformLabelPresetNames,
-    initFreeformLabelDesignerEditor,
-    loadFreeformLabelDesign,
-    loadFreeformLabelPresetDesign,
-    persistFreeformLabelDesign,
-  } from '../../../lib/freeform-label/editor-controller'
+    bindLabelPrintWorkspaceTabs,
+    getPrintDesignerDesign,
+    initPrintDesignerEditor,
+  } from '../../../lib/label-print-workspace'
   import {
     buildSpoolDesignerDataFromLabelData,
     getDesignerLabelDimensions,
@@ -50,7 +48,6 @@ export function getStaticPaths() {
     bindLabelPreviewZoom,
     bindLabelSettingsEvents,
     bindPrintPageSidebarCollapse,
-    bindPrintWorkspaceTabs,
     appendLabelSettingsCheckbox,
     buildLabelExportBaseName,
     captureLabelSettings,
@@ -200,13 +197,12 @@ export function getStaticPaths() {
   const DESIGNER_SETTINGS_KEY = 'filaman-spool-label-designer-v1'
 
   // --- Tab switching ---
-  const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
   const tabPanelPrint = document.getElementById('tab-panel-print') as HTMLElement | null
   const tabPanelDesigner = document.getElementById('tab-panel-designer-v2') as HTMLElement | null
   const tabPanelSheets = document.getElementById('tab-panel-sheets') as HTMLElement | null
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null
   let activeMode: PrintWorkspaceMode = readPrintWorkspaceMode(ACTIVE_MODE_KEY)
-  let designerEditor: Awaited<ReturnType<typeof initFreeformLabelDesignerEditor>> | null = null
+  let designerEditor: Awaited<ReturnType<typeof initPrintDesignerEditor>> | null = null
   let labelLogoUrl: string | null = null
   let labelLogoLoaded = false
   let previewRenderVersion = 0
@@ -216,7 +212,6 @@ export function getStaticPaths() {
     initialMode: activeMode,
     getItems: () => [labelPreview],
     getSheetSource: sheetControls.getSource,
-    getSheetCopies: () => sheetControls.getSettings().copies,
     onModeChange: state => {
       activeMode = state.mode
       if (state.mode === 'designer' && designerEditor) void designerEditor.refresh()
@@ -231,26 +226,16 @@ export function getStaticPaths() {
   }
 
   function getWorkspaceSource() {
-    return workspace.getState().source
+    return workspace.getSource()
   }
 
   function getDesignerDesign() {
-    const source = workspace.getState().sheetPlan.source
-    if (workspace.getActiveMode() === 'sheets' && source.type === 'designer' && source.presetName) {
-      return loadFreeformLabelPresetDesign({
-        presetsKey: DESIGNER_PRESETS_KEY,
-        presetName: source.presetName,
-        kind: 'spool',
-      }) ?? loadFreeformLabelDesign({
-        settingsKey: DESIGNER_SETTINGS_KEY,
-        presetsKey: DESIGNER_PRESETS_KEY,
-        kind: 'spool',
-      })
-    }
-    return loadFreeformLabelDesign({
+    return getPrintDesignerDesign({
       settingsKey: DESIGNER_SETTINGS_KEY,
       presetsKey: DESIGNER_PRESETS_KEY,
       kind: 'spool',
+      mode: workspace.getActiveMode(),
+      sheetSource: sheetControls.getSource(),
     })
   }
 
@@ -270,22 +255,8 @@ export function getStaticPaths() {
     return getStandardLabelDimensions(getStandardSettings())
   }
 
-  const tabControls = bindPrintWorkspaceTabs({
-    buttons: tabBtns,
-    panels: {
-      standard: tabPanelPrint!,
-      designer: tabPanelDesigner!,
-      sheets: tabPanelSheets!,
-    },
-    outputButtons: {
-      print: outputControls.printButton,
-      pdf: outputControls.pdfButton,
-      png: outputControls.pngButton,
-      aml: outputControls.amlButton,
-    },
-    resetButton: resetBtn,
-    sidebar: document.querySelector<HTMLElement>('.print-sidebar'),
-    designerWorkspace: document.getElementById('freeform-designer-workspace'),
+  const tabControls = bindLabelPrintWorkspaceTabs({
+    outputControls,
     sheetControls,
     storageKey: ACTIVE_MODE_KEY,
     initialMode: activeMode,
@@ -298,12 +269,9 @@ export function getStaticPaths() {
     return extraFields.filter(ef => !isBuiltInLabelField(ef.source ?? 'spool', ef.key, ef.label))
   }
 
-  document.addEventListener('freeform-label-presets-changed', event => {
-    const names = (event as CustomEvent<{ presets?: string[] }>).detail?.presets
-    if (Array.isArray(names)) sheetControls.setDesignerPresets(names)
-  })
-
-  designerEditor = await initFreeformLabelDesignerEditor({
+  designerEditor = await initPrintDesignerEditor({
+    sheetControls,
+    activateDesigner: () => tabControls.activate('designer'),
     extraFields: getDesignerExtraFields(),
     entityType: 'spool',
     translate,
@@ -314,17 +282,6 @@ export function getStaticPaths() {
     crossPresetsKey: FILAMENT_LABEL_PRESETS_KEY,
     ownPresetsLabel: translate('spools.dsPresetsOwnGroup', 'Spool presets'),
     crossPresetsLabel: translate('spools.dsPresetsCrossGroupFilament', 'Filament presets'),
-  })
-  sheetControls.setDesignerPresets(getFreeformLabelPresetNames(DESIGNER_PRESETS_KEY))
-  document.addEventListener('label-designer-edit', event => {
-    const presetName = (event as CustomEvent<{ presetName?: string }>).detail?.presetName
-    const design = presetName
-      ? loadFreeformLabelPresetDesign({ presetsKey: DESIGNER_PRESETS_KEY, presetName, kind: 'spool' })
-      : null
-    if (!design) return
-    persistFreeformLabelDesign(DESIGNER_SETTINGS_KEY, design)
-    designerEditor?.loadSettings()
-    tabControls.activate('designer')
   })
 
   // ─── Preview zoom ─────────────────────────────────────────────────────────

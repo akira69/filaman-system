@@ -166,6 +166,7 @@ export function migrateV1PresetData(
       z: elements.length, template: title.template, fontFamily: 'Space Grotesk',
       fontSizeMm: title.sizeMm, fontWeight: 700, italic: false, underline: false,
       align: title.align, color: '#000000', wrap: !title.fitToWidth,
+      fitToWidth: title.fitToWidth,
     })
     cursorY += h
     if (title.dividerBelow) addDivider()
@@ -230,6 +231,9 @@ export function normalizeDesignerPresetData(
     }
     if ('legacy_v1' in data) normalized.legacy_v1 = clone(data.legacy_v1)
     return normalized
+  }
+  if (('version' in data && data.version !== 1) || 'design' in data) {
+    throw new Error('Unsupported label preset version; the original preset has been preserved')
   }
   return migrateV1PresetData(rawData, kind, createId)
 }

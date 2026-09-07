@@ -1,0 +1,132 @@
+// @vitest-environment happy-dom
+
+import { experimental_AstroContainer as AstroContainer } from 'astro/container'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import ElementInspector from '../../components/freeform-label/ElementInspector.astro'
+import { createDefaultLabelDesign } from './defaults'
+import { bindFreeformEditorDom } from './editor-dom'
+import { createFreeformEditorController } from './editor-state'
+
+let binding: ReturnType<typeof bindFreeformEditorDom> | undefined
+
+afterEach(() => {
+  binding?.destroy()
+  binding = undefined
+  document.body.innerHTML = ''
+})
+
+async function bindPicker() {
+  const container = await AstroContainer.create()
+  document.body.innerHTML = await container.renderToString(ElementInspector)
+  const controller = createFreeformEditorController({ initialDesign: createDefaultLabelDesign('spool') })
+  binding = bindFreeformEditorDom({ controller })
+  await binding.ready
+  const actions = [...document.querySelectorAll<HTMLButtonElement>('[data-element-align]')]
+  const vertical = [...document.querySelectorAll<HTMLButtonElement>('[data-element-vertical-align]')]
+  return { controller, binding, actions, vertical }
+}
+
+describe('text alignment picker', () => {
+  it('offers three named icon actions with localized tooltips and selection state', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(ElementInspector)
+    const picker = document.querySelector('[role="group"][aria-labelledby="freeform-alignment-label"]')
+    const actions = [...(picker?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+
+    expect(actions.map(action => [action.dataset.elementAlign, action.getAttribute('aria-label'), action.title])).toEqual([
+      ['left', 'Left', 'Left'],
+      ['center', 'Center', 'Center'],
+      ['right', 'Right', 'Right'],
+    ])
+    for (const action of actions) {
+      expect(action.type).toBe('button')
+      expect(action.getAttribute('aria-pressed')).toBe('false')
+      expect(action.disabled).toBe(true)
+      expect(action.querySelector('svg[aria-hidden="true"] path')).not.toBeNull()
+      expect(action.dataset.i18nAriaLabel).toMatch(/^labelDesigner\.align(Left|Center|Right)$/)
+      expect(action.dataset.i18nTitle).toBe(action.dataset.i18nAriaLabel)
+    }
+    expect(document.getElementById('freeform-alignment-label')?.textContent?.trim()).toBe('Alignment')
+  })
+
+  it('updates horizontal alignment and pressed state together and restores them on undo', async () => {
+    const { controller, binding, actions } = await bindPicker()
+    expect(actions.map(action => action.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false'])
+    for (const [index, align] of [[1, 'center'], [2, 'right'], [0, 'left']] as const) {
+      actions[index].click()
+      expect(controller.getSelectedElement()).toMatchObject({ align })
+      expect(actions.map(action => action.getAttribute('aria-pressed'))).toEqual(
+        index === 0 ? ['true', 'false', 'false'] : index === 1 ? ['false', 'true', 'false'] : ['false', 'false', 'true'],
+      )
+    }
+    controller.undo()
+    binding.sync()
+    expect(controller.getSelectedElement()).toMatchObject({ align: 'right' })
+    expect(actions.map(action => action.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true'])
+  })
+
+  it('disables text layout actions and rejects dispatched changes in read-only and nontext selections', async () => {
+    const { controller, binding, actions, vertical } = await bindPicker()
+    const wrap = document.querySelector<HTMLInputElement>('[data-element-prop="wrap"]')!
+    expect(wrap).not.toBeNull()
+    const original = controller.getDesign()
+    await binding.setEditable(false)
+    for (const action of [...actions, ...vertical]) {
+      expect(action.disabled).toBe(true)
+      action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    }
+    expect(wrap.disabled).toBe(true)
+    wrap.checked = false
+    wrap.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(controller.getDesign()).toEqual(original)
+    await binding.setEditable(true)
+    controller.select(original.elements.find(element => element.type === 'qr')!.id)
+    binding.sync()
+    for (const action of [...actions, ...vertical]) {
+      expect(action.disabled).toBe(true)
+      expect(action.getAttribute('aria-pressed')).toBe('false')
+      action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    }
+    wrap.checked = false
+    wrap.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(controller.getDesign()).toEqual(original)
+  })
+
+  it('exposes and applies vertical placement with top as the legacy default and undo synchronization', async () => {
+    const { controller, binding, vertical } = await bindPicker()
+    expect(vertical.map(action => [action.dataset.elementVerticalAlign, action.getAttribute('aria-label'), action.title])).toEqual([
+      ['top', 'Top', 'Top'], ['middle', 'Middle', 'Middle'], ['bottom', 'Bottom', 'Bottom'],
+    ])
+    expect(vertical.map(action => action.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false'])
+    for (const [index, verticalAlign] of [[1, 'middle'], [2, 'bottom'], [0, 'top']] as const) {
+      vertical[index].click()
+      expect(controller.getSelectedElement()).toMatchObject({ verticalAlign })
+      expect(vertical.map(action => action.getAttribute('aria-pressed'))).toEqual(
+        index === 0 ? ['true', 'false', 'false'] : index === 1 ? ['false', 'true', 'false'] : ['false', 'false', 'true'],
+      )
+      expect(vertical[index].dataset.i18nAriaLabel).toBe(vertical[index].dataset.i18nTitle)
+    }
+    controller.undo()
+    binding.sync()
+    expect(controller.getSelectedElement()).toMatchObject({ verticalAlign: 'bottom' })
+    expect(vertical.map(action => action.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true'])
+  })
+
+  it('toggles persisted word wrapping and overrides legacy shrink-to-fit when wrapping is enabled', async () => {
+    const { controller, binding } = await bindPicker()
+    const wrap = document.querySelector<HTMLInputElement>('input[type="checkbox"][data-element-prop="wrap"]')
+    expect(wrap).not.toBeNull()
+    expect(wrap?.checked).toBe(true)
+    wrap!.click()
+    expect(controller.getSelectedElement()).toMatchObject({ wrap: false })
+    controller.updateSelected({ fitToWidth: true })
+    binding.sync()
+    wrap!.click()
+    expect(controller.getSelectedElement()).toMatchObject({ wrap: true, fitToWidth: false })
+    controller.undo()
+    binding.sync()
+    expect(wrap?.checked).toBe(false)
+    expect(controller.getSelectedElement()).toMatchObject({ wrap: false, fitToWidth: true })
+  })
+})

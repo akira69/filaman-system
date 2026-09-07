@@ -476,6 +476,7 @@ class TestLabelAssetBackups:
         )
 
         restored = await db_session.get(LabelAsset, asset.id)
+        await db_session.refresh(restored, ["content"])
         assert imported["label_assets"] == 1
         assert imported["label_preset_assets"] == 1
         assert restored.content == asset.content
