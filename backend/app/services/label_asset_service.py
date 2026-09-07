@@ -3,14 +3,18 @@ import io
 import warnings
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from uuid import uuid4
 
 from PIL import Image, ImageOps, UnidentifiedImageError
-from sqlalchemy import delete, exists, func, select
+from sqlalchemy import delete, exists, func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.models.label_asset import LabelAsset, LabelPresetAsset
 from app.models.label_preset import LabelPreset
+from app.models.user import User
 
 MAX_INPUT_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_CANONICAL_IMAGE_BYTES = 5 * 1024 * 1024
@@ -40,7 +44,7 @@ class CanonicalLabelImage:
     sha256: str
 
 
-def extract_label_asset_ids(data: dict) -> set[str]:
+def extract_label_asset_ids(data: dict[str, Any]) -> set[str]:
     """Extract uploaded-image IDs only from the normalized v2 preset shape."""
     if data.get("version") != 2:
         return set()
@@ -144,7 +148,15 @@ async def create_label_asset(
     display_name: str,
     content: bytes,
 ) -> tuple[LabelAsset, bool]:
-    canonical = canonicalize_label_image(content)
+    canonical = await run_in_threadpool(canonicalize_label_image, content)
+    # Lock before reading quotas: UPDATE also acquires SQLite's writer lock,
+    # while PostgreSQL/MySQL serialize only uploads for this user.
+    await db.execute(
+        update(User)
+        .where(User.id == user_id)
+        .values(id=User.id, updated_at=User.updated_at)
+    )
+    await cleanup_orphaned_label_assets(db, user_id=user_id)
     existing = await db.scalar(
         select(LabelAsset).where(
             LabelAsset.user_id == user_id,
@@ -194,10 +206,13 @@ async def set_label_preset_asset_references(
         owned_assets = list(
             (
                 await db.execute(
-                    select(LabelAsset).where(
+                    select(LabelAsset)
+                    .where(
                         LabelAsset.user_id == preset.user_id,
                         LabelAsset.id.in_(requested),
                     )
+                    .order_by(LabelAsset.id)
+                    .with_for_update()
                 )
             ).scalars()
         )
@@ -266,20 +281,35 @@ async def set_label_preset_asset_references(
 async def cleanup_orphaned_label_assets(
     db: AsyncSession,
     *,
+    user_id: int | None = None,
     now: datetime | None = None,
 ) -> int:
     cutoff = (now or datetime.now(UTC)) - ORPHAN_GRACE_PERIOD
     orphan_ids = list(
         (
             await db.execute(
-                select(LabelAsset.id).where(
+                select(LabelAsset.id)
+                .where(
+                    LabelAsset.user_id == user_id if user_id is not None else True,
                     LabelAsset.orphaned_at.is_not(None),
                     LabelAsset.orphaned_at <= cutoff,
                     ~exists().where(LabelPresetAsset.asset_id == LabelAsset.id),
                 )
+                .order_by(LabelAsset.id)
+                .with_for_update()
             )
         ).scalars()
     )
-    if orphan_ids:
-        await db.execute(delete(LabelAsset).where(LabelAsset.id.in_(orphan_ids)))
-    return len(orphan_ids)
+    if not orphan_ids:
+        return 0
+    # SQLite ignores FOR UPDATE. Recheck eligibility in the write itself so a
+    # preset saved after the candidate read cannot lose its image to a cascade.
+    result = await db.execute(
+        delete(LabelAsset).where(
+            LabelAsset.id.in_(orphan_ids),
+            LabelAsset.orphaned_at.is_not(None),
+            LabelAsset.orphaned_at <= cutoff,
+            ~exists().where(LabelPresetAsset.asset_id == LabelAsset.id),
+        )
+    )
+    return cast(CursorResult[Any], result).rowcount

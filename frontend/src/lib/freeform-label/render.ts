@@ -1,12 +1,15 @@
-import { fitLabelText } from './text-fit'
 import {
   buildFilamentSwatchBackground,
   getFilamentSwatchColors,
-  parseTemplate,
   type SpoolData,
 } from '../label-template'
 import { decorateQrCenter, ensureQrCodeLoaded, getQrCodeConstructor } from '../qr-code'
 import { normalizeLabelDesign } from './normalize'
+import { prepareCroppedImage } from './cropped-image'
+import { getQrModuleCount } from './qr-readability'
+import { fitLabelText } from './text-fit'
+import { renderSelectableTemplate } from './template-selection'
+import { t } from '../i18n'
 import type { LabelDesignElement, LabelDesignV2 } from './types'
 
 export interface RenderFreeformLabelOptions {
@@ -46,6 +49,51 @@ function createImage(src: string, alt: string) {
   return image
 }
 
+function appendCroppedImage(
+  container: HTMLElement,
+  image: HTMLImageElement,
+  element: Extract<LabelDesignElement, { type: 'image' }>,
+) {
+  if (!element.crop) {
+    container.appendChild(image)
+    return
+  }
+  const { x, y, w, h } = element.crop
+  container.style.containerType = 'size'
+  const viewport = document.createElement('div')
+  viewport.dataset.labelImageCropViewport = ''
+  viewport.style.width = 'min(100cqw, calc(100cqh * var(--label-image-crop-aspect)))'
+  viewport.style.position = 'absolute'
+  viewport.style.left = '50%'
+  viewport.style.top = '50%'
+  viewport.style.transform = 'translate(-50%, -50%)'
+  viewport.style.overflow = 'hidden'
+  viewport.style.visibility = 'hidden'
+  image.style.position = 'absolute'
+  image.style.maxWidth = 'none'
+  image.style.maxHeight = 'none'
+  image.style.width = `${100 / w}%`
+  image.style.height = `${100 / h}%`
+  image.style.left = `${-100 * x / w}%`
+  image.style.top = `${-100 * y / h}%`
+  image.dataset.labelImageCropAspectFactor = String(w / h)
+  viewport.appendChild(image)
+  prepareCroppedImage(image)
+  container.appendChild(viewport)
+}
+
+function showImagePlaceholder(node: HTMLElement, assetId: string) {
+  const message = t(assetId ? 'labelDesigner.imageLoadFailed' : 'labelDesigner.chooseImage')
+  const color = assetId ? '#b91c1c' : '#64748b'
+  node.dataset.labelOutputError = `${message} (${assetId || node.dataset.labelElementId})`
+  node.textContent = message
+  node.style.color = color
+  node.style.border = `0.2mm dashed ${color}`
+  node.style.fontSize = '2.5mm'
+  node.setAttribute('role', 'img')
+  node.setAttribute('aria-label', node.dataset.labelOutputError)
+}
+
 function buildQrUrl(
   linkMode: 'spool' | 'url',
   templateBase: string,
@@ -75,7 +123,14 @@ function renderText(node: HTMLElement, element: Extract<LabelDesignElement, { ty
   node.style.lineHeight = '1.15'
   node.style.whiteSpace = element.wrap && !element.fitToWidth ? 'normal' : 'nowrap'
   node.style.overflowWrap = element.wrap && !element.fitToWidth ? 'anywhere' : 'normal'
-  node.appendChild(parseTemplate(element.template, data))
+  node.style.display = 'flex'
+  node.style.flexDirection = 'column'
+  node.style.justifyContent = element.verticalAlign === 'middle' ? 'center' : element.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start'
+  const content = document.createElement('div')
+  content.style.width = '100%'
+  content.style.flexShrink = '0'
+  content.appendChild(renderSelectableTemplate(element.template, data))
+  node.appendChild(content)
 }
 
 async function renderQr(
@@ -88,7 +143,7 @@ async function renderQr(
   if (!QRCode) throw new Error('QRCode is not available')
   const entityId = entityPath === 'filaments' ? data['filament.id'] : data.id
   const qrPx = Math.min(1024, Math.max(256, Math.round(element.w * (600 / 25.4))))
-  new QRCode(node, {
+  const qrCode = new QRCode(node, {
     text: buildQrUrl(element.linkMode, element.urlTemplate, entityId, entityPath),
     width: qrPx,
     height: qrPx,
@@ -96,6 +151,8 @@ async function renderQr(
     colorLight: '#ffffff',
     correctLevel: QRCode.CorrectLevel.H,
   })
+  const moduleCount = getQrModuleCount(qrCode)
+  if (moduleCount !== undefined) node.dataset.qrModuleCount = String(moduleCount)
   const canvas = node.querySelector<HTMLCanvasElement>('canvas')
   if (canvas && element.mode !== 'simple') {
     await decorateQrCenter(canvas, qrPx, element.mode === 'colorLogo')
@@ -113,13 +170,29 @@ function applyRootStyles(root: HTMLElement, design: LabelDesignV2, options: Rend
   root.style.padding = '0'
   root.style.position = 'relative'
   root.style.boxSizing = 'border-box'
-  root.style.overflow = 'hidden'
+  root.style.overflow = options.interactive ? 'visible' : 'hidden'
   root.style.background = '#ffffff'
   root.style.border = options.previewBorder === false ? 'none' : '1px dashed #ccc'
   root.style.setProperty('--print-label-padding', '0mm')
   root.style.setProperty('--inner-border-style', design.label.border ? '0.3mm solid black' : 'none')
   root.style.setProperty('--inner-border-inset', `${design.label.marginMm}mm`)
   root.toggleAttribute('data-label-interactive', options.interactive === true)
+}
+
+function createMarginGuide(design: LabelDesignV2) {
+  const guide = document.createElement('div')
+  guide.dataset.labelEditorChrome = ''
+  guide.dataset.labelMarginGuide = ''
+  guide.setAttribute('aria-hidden', 'true')
+  Object.assign(guide.style, {
+    position: 'absolute',
+    inset: `${design.label.marginMm}mm`,
+    pointerEvents: 'none',
+    border: '1px dashed rgba(150, 150, 150, 0.7)',
+    boxShadow: '0 0 0 100vmax rgba(128, 128, 128, 0.25)',
+    zIndex: String(Math.max(0, ...design.elements.map(element => element.z)) + 1),
+  })
+  return guide
 }
 
 export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
@@ -130,8 +203,7 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
 
   const nodes: HTMLElement[] = []
   const fittingText: HTMLElement[] = []
-  const ordered = [...design.elements].sort((left, right) => left.z - right.z)
-  for (const element of ordered) {
+  for (const element of design.elements) {
     if (options.isStale?.()) return
     const node = document.createElement('div')
     applyGeometry(node, element)
@@ -148,9 +220,20 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
         break
       case 'image': {
         const assetId = element.assetId.trim()
-        const src = assetId ? await options.resolveAssetUrl?.(assetId) : null
+        let src: string | null | undefined
+        try {
+          src = assetId ? await options.resolveAssetUrl?.(assetId) : null
+        } catch {
+          src = null
+        }
         if (options.isStale?.()) return
-        if (src) node.appendChild(createImage(src, ''))
+        if (src) {
+          const image = createImage(src, '')
+          image.addEventListener('error', () => showImagePlaceholder(node, assetId), { once: true })
+          appendCroppedImage(node, image, element)
+        } else {
+          showImagePlaceholder(node, assetId)
+        }
         break
       }
       case 'swatch': {
@@ -167,18 +250,31 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
         break
       }
       case 'shape':
+        if (element.shape === 'line') {
+          node.style.overflow = 'visible'
+          const line = document.createElement('div')
+          line.style.position = 'absolute'
+          line.style.top = '50%'
+          line.style.transform = 'translateY(-50%)'
+          line.style.width = '100%'
+          line.style.borderTop = element.stroke && element.strokeWidthMm > 0
+            ? `${element.strokeWidthMm}mm solid ${element.stroke}`
+            : 'none'
+          node.appendChild(line)
+          break
+        }
         node.style.backgroundColor = element.fill || 'transparent'
         node.style.border = element.stroke && element.strokeWidthMm > 0
           ? `${element.strokeWidthMm}mm solid ${element.stroke}`
           : 'none'
-        node.style.borderRadius = `${element.radiusMm}mm`
+        node.style.borderRadius = element.shape === 'circle' ? '50%' : `${element.radiusMm}mm`
         break
     }
     nodes.push(node)
   }
-  if (options.isStale?.()) return
   await fitLabelText(fittingText)
   if (options.isStale?.()) return
+  if (options.interactive) nodes.push(createMarginGuide(design))
   options.element.replaceChildren(...nodes)
   applyRootStyles(options.element, design, options)
 }

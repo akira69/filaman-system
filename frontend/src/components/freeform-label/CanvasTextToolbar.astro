@@ -1,0 +1,15 @@
+---
+import TextModifierButtons from './TextModifierButtons.astro'
+---
+<div id="freeform-text-toolbar" class="freeform-text-toolbar" data-label-editor-chrome role="toolbar" aria-label="Text formatting" data-i18n-aria-label="labelDesigner.textFormatting" hidden>
+  <button type="button" data-text-select aria-pressed="false" data-i18n="labelDesigner.selectVisibleText" data-i18n-title="labelDesigner.textSelectionHint" title="Double-click to edit text. Tokens are selected, copied, and formatted as whole units. Escape returns to moving the element.">Edit text</button>
+  <TextModifierButtons context="text" />
+</div>
+<style>
+  .freeform-text-toolbar { align-items: center; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 5px; box-shadow: 0 3px 10px #0003; display: flex; gap: 3px; padding: 4px; position: fixed; z-index: 30; }
+  .freeform-text-toolbar[hidden] { display: none; }
+  .freeform-text-toolbar :global(button) { background: var(--bg-soft); border: 1px solid transparent; border-radius: 3px; color: var(--text); cursor: pointer; font-size: 0.72rem; height: 28px; min-width: 27px; padding: 3px 5px; }
+  .freeform-text-toolbar :global(button[aria-pressed='true']) { border-color: var(--accent); color: var(--accent); }
+  .freeform-text-toolbar :global(button svg) { height: 16px; width: 16px; }
+  .freeform-text-toolbar :global(button:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>

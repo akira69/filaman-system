@@ -14,6 +14,8 @@ export const LABEL_FONT_FAMILIES = [
 ] as const
 
 export const LABEL_FONT_WEIGHTS = [400, 500, 600, 700] as const
+export const LABEL_SHAPES = ['circle', 'square', 'rectangle', 'line'] as const
+export type LabelShape = typeof LABEL_SHAPES[number]
 
 export type LabelKind = 'spool' | 'filament'
 export type LabelElementType =
@@ -45,9 +47,11 @@ export interface LabelTextElement extends LabelElementBase {
   italic: boolean
   underline: boolean
   align: 'left' | 'center' | 'right'
+  /** Missing values preserve the original top-aligned layout. */
+  verticalAlign?: 'top' | 'middle' | 'bottom'
   color: string
   wrap: boolean
-  /** Shrink single-line preset text to its available width. */
+  /** Preserves shrink-to-fit titles from legacy presets. */
   fitToWidth?: boolean
 }
 
@@ -63,10 +67,18 @@ export interface LabelManufacturerLogoElement extends LabelElementBase {
   objectFit: 'contain'
 }
 
+export interface LabelImageCrop {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export interface LabelImageElement extends LabelElementBase {
   type: 'image'
   assetId: string
   objectFit: 'contain'
+  crop?: LabelImageCrop
 }
 
 export interface LabelSwatchElement extends LabelElementBase {
@@ -76,7 +88,7 @@ export interface LabelSwatchElement extends LabelElementBase {
 
 export interface LabelShapeElement extends LabelElementBase {
   type: 'shape'
-  shape: 'rectangle'
+  shape: LabelShape
   fill: string
   stroke: string
   strokeWidthMm: number

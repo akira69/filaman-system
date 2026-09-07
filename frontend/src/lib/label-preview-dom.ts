@@ -34,12 +34,18 @@ export function prepareLabelOutputClone(root: Element): void {
   root.querySelectorAll(editorChrome).forEach(element => element.remove())
   const renderedElements = [root, ...root.querySelectorAll('*')]
   renderedElements.forEach(element => {
+    if (element instanceof HTMLElement && (element.matches('.label-preview') || element.hasAttribute('data-label-interactive'))) {
+      element.style.overflow = 'hidden'
+    }
     const outputOnly = element.classList.contains('is-designer-output-only')
     element.classList.remove('is-selected')
     element.classList.remove('is-designer-representative', 'is-designer-output-only')
     if (outputOnly) element.removeAttribute('aria-hidden')
     element.removeAttribute('data-label-interactive')
     element.removeAttribute('data-label-interaction-bound')
+    for (const attribute of ['data-label-text-editing', 'data-template-token-chip', 'contenteditable', 'draggable']) {
+      element.removeAttribute(attribute)
+    }
     if (element.hasAttribute('data-label-element-id')) {
       element.removeAttribute('tabindex')
       element.removeAttribute('role')

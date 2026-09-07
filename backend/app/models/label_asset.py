@@ -34,7 +34,7 @@ class LabelAsset(Base, TimestampMixin):
     height: Mapped[int] = mapped_column(Integer, nullable=False)
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[bytes] = mapped_column(
-        LargeBinary().with_variant(LONGBLOB(), "mysql"), nullable=False
+        LargeBinary().with_variant(LONGBLOB(), "mysql"), nullable=False, deferred=True
     )
     orphaned_at: Mapped[datetime | None] = mapped_column(
         TZDateTime(), nullable=True

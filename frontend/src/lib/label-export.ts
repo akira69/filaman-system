@@ -1,5 +1,6 @@
 import { toCanvas } from 'html-to-image'
 import { prepareLabelOutputClone } from './label-preview-dom'
+import { waitForLabelOutputAssets } from './label-output-readiness'
 
 export const LABEL_EXPORT_DPI = 600
 export const LABEL_EXPORT_CSS_DPI = 96
@@ -130,7 +131,8 @@ async function renderCaptureCanvas(
     backgroundColor: '#ffffff',
     // Manufacturer logos can be object URLs; cache-busting would make blob: URLs invalid.
     cacheBust: false,
-    skipFonts: true,
+    // html-to-image embeds used font families and caches their data URLs between labels.
+    preferredFontFormat: 'woff2',
     filter: (node: Node) => {
       if (node instanceof Element && window.getComputedStyle(node).display === 'none') {
         return false
@@ -160,9 +162,7 @@ export async function captureLabelElement(element: HTMLElement, options: LabelCa
     }
 
     try {
-      if (document.fonts?.ready) {
-        await document.fonts.ready
-      }
+      await waitForLabelOutputAssets([captureElement])
       await waitForCaptureFrame()
 
       const canvas = await renderCaptureCanvas(captureElement, options)

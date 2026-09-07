@@ -1,11 +1,14 @@
 import {
   LABEL_FONT_FAMILIES,
   LABEL_FONT_WEIGHTS,
+  LABEL_SHAPES,
   type LabelDesignElement,
   type LabelDesignV2,
   type LabelElementBase,
   type LabelTextElement,
 } from './types'
+import { clampElementPosition, clampFinite, getElementMinimumSize, isProportionalElement } from './geometry'
+import { normalizeImageCrop } from './image-crop'
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i
 
@@ -14,8 +17,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function numberIn(value: unknown, min: number, max: number, fallback: number): number {
-  const number = typeof value === 'number' ? value : Number.NaN
-  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback
+  return clampFinite(value, min, max, fallback)
 }
 
 function booleanOr(value: unknown, fallback: boolean): boolean {
@@ -40,16 +42,30 @@ function normalizeBox(
   label: LabelDesignV2['label'],
   z: number,
   fallback: { w: number; h: number },
-  square = false,
-  minimum = { w: 3, h: 3 },
+  element: {
+    type: LabelDesignElement['type']
+    shape?: Extract<LabelDesignElement, { type: 'shape' }>['shape']
+    crop?: unknown
+    w?: unknown
+    h?: unknown
+  },
+  minimumHeight?: number,
 ): LabelElementBase {
-  const w = numberIn(raw.w, minimum.w, label.widthMm, fallback.w)
-  const h = square ? w : numberIn(raw.h, minimum.h, label.heightMm, fallback.h)
+  const minimum = getElementMinimumSize(element)
+  const proportional = isProportionalElement(element)
+  const maximumWidth = proportional ? Math.min(label.widthMm, label.heightMm) : label.widthMm
+  const w = numberIn(raw.w, minimum, maximumWidth, fallback.w)
+  const h = proportional ? w : numberIn(raw.h, minimumHeight ?? minimum, label.heightMm, fallback.h)
+  const position = clampElementPosition({
+    x: numberIn(raw.x, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, 0),
+    y: numberIn(raw.y, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY, 0),
+    w,
+    h,
+  }, label)
   return {
     id: textOr(raw.id, '', 120).trim(),
     type: textOr(raw.type) as LabelElementBase['type'],
-    x: numberIn(raw.x, 0, label.widthMm - w, 0),
-    y: numberIn(raw.y, 0, label.heightMm - h, 0),
+    ...position,
     w,
     h,
     z,
@@ -62,7 +78,7 @@ function normalizeTextElement(
   z: number,
 ): LabelTextElement {
   return {
-    ...normalizeBox(raw, label, z, { w: 20, h: 8 }),
+    ...normalizeBox(raw, label, z, { w: 20, h: 8 }, { type: 'text' }),
     type: 'text',
     template: textOr(raw.template),
     fontFamily: choiceOr(raw.fontFamily, LABEL_FONT_FAMILIES, 'Space Grotesk'),
@@ -71,13 +87,15 @@ function normalizeTextElement(
     italic: booleanOr(raw.italic, false),
     underline: booleanOr(raw.underline, false),
     align: choiceOr(raw.align, ['left', 'center', 'right'] as const, 'left'),
+    ...(raw.verticalAlign === 'top' || raw.verticalAlign === 'middle' || raw.verticalAlign === 'bottom'
+      ? { verticalAlign: raw.verticalAlign } : {}),
     color: colorOr(raw.color, '#000000'),
     wrap: booleanOr(raw.wrap, true),
     ...(typeof raw.fitToWidth === 'boolean' ? { fitToWidth: raw.fitToWidth } : {}),
   }
 }
 
-function normalizeElement(
+export function normalizeElement(
   raw: Record<string, unknown>,
   label: LabelDesignV2['label'],
   z: number,
@@ -87,7 +105,7 @@ function normalizeElement(
       return normalizeTextElement(raw, label, z)
     case 'qr':
       return {
-        ...normalizeBox(raw, label, z, { w: 18, h: 18 }, true),
+        ...normalizeBox(raw, label, z, { w: 18, h: 18 }, { type: 'qr' }),
         type: 'qr',
         mode: choiceOr(raw.mode, ['simple', 'logo', 'colorLogo'] as const, 'logo'),
         linkMode: choiceOr(raw.linkMode, ['spool', 'url'] as const, 'spool'),
@@ -95,19 +113,27 @@ function normalizeElement(
       }
     case 'manufacturerLogo':
       return {
-        ...normalizeBox(raw, label, z, { w: 25, h: 6 }),
+        ...normalizeBox(raw, label, z, { w: 25, h: 6 }, { type: 'manufacturerLogo' }),
         type: 'manufacturerLogo',
         objectFit: 'contain',
       }
-    case 'image':
+    case 'image': {
+      const crop = normalizeImageCrop(raw.crop)
       return {
-        ...normalizeBox(raw, label, z, { w: 20, h: 12 }),
+        ...normalizeBox(raw, label, z, { w: 20, h: 12 }, {
+          type: 'image',
+          crop,
+          w: raw.w,
+          h: raw.h,
+        }),
         type: 'image',
         assetId: textOr(raw.assetId, '', 120),
         objectFit: 'contain',
+        ...(crop ? { crop } : {}),
       }
+    }
     case 'swatch': {
-      const box = normalizeBox(raw, label, z, { w: 30, h: 6 })
+      const box = normalizeBox(raw, label, z, { w: 30, h: 6 }, { type: 'swatch' })
       return {
         ...box,
         type: 'swatch',
@@ -115,14 +141,23 @@ function normalizeElement(
       }
     }
     case 'shape': {
-      const box = normalizeBox(raw, label, z, { w: 20, h: 10 }, false, { w: 0.1, h: 0.1 })
+      const shape = choiceOr(raw.shape, LABEL_SHAPES, 'rectangle')
+      const strokeWidthMm = numberIn(raw.strokeWidthMm, 0, 10, 0.3)
+      const box = normalizeBox(
+        raw,
+        label,
+        z,
+        { w: shape === 'circle' || shape === 'square' ? 15 : 20, h: 10 },
+        { type: 'shape', shape },
+        shape === 'line' ? Math.max(0.1, strokeWidthMm) : undefined,
+      )
       return {
         ...box,
         type: 'shape',
-        shape: 'rectangle',
+        shape,
         fill: colorOr(raw.fill, '', true),
         stroke: colorOr(raw.stroke, '#000000', true),
-        strokeWidthMm: numberIn(raw.strokeWidthMm, 0, 10, 0.3),
+        strokeWidthMm,
         radiusMm: numberIn(raw.radiusMm, 0, Math.min(box.w, box.h) / 2, 0),
       }
     }

@@ -1,10 +1,13 @@
 from datetime import datetime
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import delete, exists, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import undefer
 
 from app.api.deps import DBSession, PrincipalDep
 from app.api.v1.label_presets import _require_user_id
@@ -13,7 +16,6 @@ from app.services.label_asset_service import (
     MAX_INPUT_IMAGE_BYTES,
     LabelAssetLimitError,
     LabelAssetValidationError,
-    cleanup_orphaned_label_assets,
     create_label_asset,
 )
 
@@ -43,7 +45,7 @@ def _not_found() -> HTTPException:
 
 
 @router.get("", response_model=list[LabelAssetResponse])
-async def list_label_assets(db: DBSession, principal: PrincipalDep):
+async def list_label_assets(db: DBSession, principal: PrincipalDep) -> list[LabelAsset]:
     user_id = _require_user_id(principal)
     result = await db.execute(
         select(LabelAsset)
@@ -57,12 +59,11 @@ async def list_label_assets(db: DBSession, principal: PrincipalDep):
 async def upload_label_asset(
     db: DBSession,
     principal: PrincipalDep,
-    file: UploadFile = File(...),
-):
+    file: Annotated[UploadFile, File()],
+) -> LabelAsset:
     user_id = _require_user_id(principal)
     content = await file.read(MAX_INPUT_IMAGE_BYTES + 1)
     try:
-        await cleanup_orphaned_label_assets(db)
         asset, _created = await create_label_asset(
             db,
             user_id,
@@ -96,9 +97,11 @@ async def get_label_asset_content(
     asset_id: str,
     db: DBSession,
     principal: PrincipalDep,
-):
+) -> Response:
     asset = await db.scalar(
-        select(LabelAsset).where(
+        select(LabelAsset)
+        .options(undefer(LabelAsset.content))
+        .where(
             LabelAsset.id == asset_id,
             LabelAsset.user_id == _require_user_id(principal),
         )
@@ -121,21 +124,27 @@ async def delete_label_asset(
     asset_id: str,
     db: DBSession,
     principal: PrincipalDep,
-):
-    asset = await db.scalar(
-        select(LabelAsset).where(
+) -> Response:
+    owned_asset_id = await db.scalar(
+        select(LabelAsset.id)
+        .where(
             LabelAsset.id == asset_id,
             LabelAsset.user_id == _require_user_id(principal),
         )
+        .with_for_update()
     )
-    if asset is None:
+    if owned_asset_id is None:
         raise _not_found()
-    reference_count = await db.scalar(
-        select(func.count())
-        .select_from(LabelPresetAsset)
-        .where(LabelPresetAsset.asset_id == asset.id)
+    # Keep the in-use check in the DELETE, including on SQLite where the
+    # preceding FOR UPDATE does not acquire a row lock.
+    result = await db.execute(
+        delete(LabelAsset).where(
+            LabelAsset.id == owned_asset_id,
+            ~exists().where(LabelPresetAsset.asset_id == LabelAsset.id),
+        )
     )
-    if reference_count:
+    if cast(CursorResult[Any], result).rowcount == 0:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -143,6 +152,5 @@ async def delete_label_asset(
                 "message": "This image is still used by a label preset",
             },
         )
-    await db.delete(asset)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

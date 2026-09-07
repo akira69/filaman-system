@@ -19,6 +19,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import DateTime, LargeBinary, delete, select, text
 from sqlalchemy.inspection import inspect as sa_inspect
+from sqlalchemy.orm import undefer
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.core.cache import response_cache
@@ -1356,7 +1358,7 @@ async def _export_all_data(db: DBSession) -> dict[str, list[dict[str, Any]]]:
     ]
 
     for table_name, model in tables_order:
-        result = await db.execute(select(model))
+        result = await db.execute(select(model).options(undefer("*")))
         rows = result.scalars().all()
         data[table_name] = [_serialize_row(row) for row in rows]
         logger.info(f"Exported {len(rows)} rows from {table_name}")
@@ -1733,7 +1735,9 @@ async def _import_all_data(
                     attr_data["name"] = normalize_label_preset_name(attr_data["name"])
                     attr_data["name_key"] = label_preset_name_key(attr_data["name"])
                 elif model is LabelAsset:
-                    canonical = canonicalize_label_image(attr_data.get("content", b""))
+                    canonical = await run_in_threadpool(
+                        canonicalize_label_image, attr_data.get("content", b"")
+                    )
                     if (
                         canonical.content != attr_data.get("content")
                         or canonical.sha256 != attr_data.get("sha256")

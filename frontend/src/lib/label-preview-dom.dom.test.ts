@@ -39,6 +39,27 @@ describe('stripElementIds', () => {
 })
 
 describe('prepareLabelOutputClone', () => {
+  it('removes live text-editing affordances without changing token output', () => {
+    const label = document.createElement('div')
+    label.innerHTML = '<div data-label-element-id="text" data-label-text-editing contenteditable="true"><strong><span data-template-token-chip contenteditable="false" draggable="false">PETG</span></strong></div>'
+    prepareLabelOutputClone(label)
+    expect(label.querySelector('[data-label-text-editing], [data-template-token-chip], [contenteditable], [draggable]')).toBeNull()
+    expect(label.querySelector('strong')?.textContent).toBe('PETG')
+  })
+
+  it('clips overflowing artwork to physical label dimensions and removes margin guides', () => {
+    const page = document.createElement('section')
+    page.innerHTML = '<div class="label-preview" data-label-interactive style="overflow:visible;width:60mm;height:40mm;--inner-border-style:0.3mm solid black"><div data-label-element-id="shape" style="left:-5mm;width:20mm"></div><div data-label-margin-guide data-label-editor-chrome></div></div>'
+    prepareLabelOutputClone(page)
+    const label = page.querySelector<HTMLElement>('.label-preview')!
+    expect(label.style.overflow).toBe('hidden')
+    expect(label.style.width).toBe('60mm')
+    expect(label.style.height).toBe('40mm')
+    expect(label.querySelector<HTMLElement>('[data-label-element-id]')!.style.left).toBe('-5mm')
+    expect(label.querySelector('[data-label-margin-guide]')).toBeNull()
+    expect(label.style.getPropertyValue('--inner-border-style')).toBe('0.3mm solid black')
+  })
+
   it.each([900, 901])('removes editor-only state and focus semantics at %ipx while preserving rendered label elements', width => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
     const root = document.createElement('section')

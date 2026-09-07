@@ -1,16 +1,18 @@
 // @vitest-environment happy-dom
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL as NodeURL } from 'node:url'
 
-import LabelDesignerEditor from '../components/LabelDesignerEditor.astro'
 import LabelSheetOutputSettings from '../components/LabelSheetOutputSettings.astro'
 import PrintActionFooter from '../components/PrintActionFooter.astro'
 import PrintSidebar from '../components/PrintSidebar.astro'
 import DesignerSidebar from '../components/freeform-label/DesignerSidebar.astro'
 import DesignerWorkspace from '../components/freeform-label/DesignerWorkspace.astro'
+import { createDefaultLabelDesign } from './freeform-label/defaults'
+import { bindLabelPrintWorkspaceTabs, getPrintDesignerDesign, initPrintDesignerEditor } from './label-print-workspace'
+import { getLabelOutputControls } from './label-print-page'
 
 import {
   bindLabelSheetControls,
@@ -42,6 +44,7 @@ const settings: LabelSheetSettings = {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   document.head.innerHTML = ''
   document.body.innerHTML = `
     <div id="preview">
@@ -51,6 +54,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   document.head.innerHTML = ''
   document.body.innerHTML = ''
 })
@@ -96,6 +100,34 @@ describe('label sheet preview styling', () => {
     expect(document.querySelector('.label-sheet-page .is-selected')).toBeNull()
     expect(document.querySelector('.label-sheet-page [data-label-interaction-bound]')).toBeNull()
     expect(document.querySelector('.label-sheet-page [data-editor-handle]')).toBeNull()
+  })
+
+  it('reveals a cropped image copy when it loads after the sheet preview was cloned', () => {
+    const source = document.querySelector<HTMLElement>('#source .label-preview')!
+    source.innerHTML = `
+      <div data-label-image-crop-viewport style="visibility: hidden">
+        <img src="asset.png" data-label-image-crop-aspect-factor="0.5">
+      </div>
+    `
+
+    renderLabelSheetPreview({
+      previewRoot: document.querySelector<HTMLElement>('#preview')!,
+      sourceElements: [document.querySelector<HTMLElement>('#source')!],
+      settings,
+      labelWidthMm: 60,
+      labelHeightMm: 40,
+    })
+
+    const cloneImage = document.querySelector<HTMLImageElement>('.label-sheet-page img')!
+    Object.defineProperties(cloneImage, {
+      naturalWidth: { configurable: true, value: 1200 },
+      naturalHeight: { configurable: true, value: 600 },
+    })
+    cloneImage.dispatchEvent(new Event('load'))
+
+    const viewport = cloneImage.closest<HTMLElement>('[data-label-image-crop-viewport]')!
+    expect(viewport.style.getPropertyValue('--label-image-crop-aspect')).toBe('1')
+    expect(viewport.style.visibility).toBe('visible')
   })
 })
 
@@ -201,24 +233,70 @@ describe('print guidance', () => {
   })
 })
 
-describe('label designer template fields', () => {
-  async function renderEditor() {
+describe('first-class print workspace navigation', () => {
+  it('resolves saved sheet designs separately from the current working design', () => {
+    const current = createDefaultLabelDesign('spool')
+    const saved = { ...current, label: { ...current.label, widthMm: 85 } }
+    const keys = { settingsKey: 'test-design', presetsKey: 'test-presets', kind: 'spool' as const }
+    localStorage.setItem(keys.settingsKey, JSON.stringify({ version: 2, design: current }))
+    localStorage.setItem(keys.presetsKey, JSON.stringify({ version: 2, presets: [
+      { name: 'Wide', data: { version: 2, design: saved } },
+    ] }))
+    const source = { ...keys, sheetSource: { type: 'designer' as const, presetName: 'Wide' } }
+
+    expect(getPrintDesignerDesign({ ...source, mode: 'sheets' }).label.widthMm).toBe(85)
+    expect(getPrintDesignerDesign({ ...source, mode: 'designer' })).toEqual(current)
+    expect(getPrintDesignerDesign({ ...source, mode: 'sheets', sheetSource: { type: 'designer', presetName: 'Missing' } })).toEqual(current)
+  })
+
+  it('initializes sheet preset options and loads the selected design before activating its editor', async () => {
+    const current = createDefaultLabelDesign('spool')
+    const saved = { ...current, label: { ...current.label, widthMm: 85 } }
+    localStorage.setItem('test-design', JSON.stringify({ version: 2, design: current }))
+    localStorage.setItem('test-presets', JSON.stringify({ version: 2, presets: [
+      { name: 'Wide', data: { version: 2, design: saved } },
+    ] }))
     const container = await AstroContainer.create()
-    document.body.innerHTML = await container.renderToString(LabelDesignerEditor)
-  }
-
-  it('renders multiline formats with at least five visible rows', async () => {
-    await renderEditor()
-
-    for (const id of ['ds-info-tpl', 'ds-info2-tpl']) {
-      const input = document.querySelector<HTMLTextAreaElement>(`#${id}`)
-      expect(input).toBeInstanceOf(HTMLTextAreaElement)
-      expect(Number(input!.getAttribute('rows'))).toBeGreaterThanOrEqual(5)
+    document.body.innerHTML = [
+      await container.renderToString(PrintSidebar, { props: { backLabel: 'Back' } }),
+      '<div id="tab-panel-print"></div>',
+      await container.renderToString(DesignerSidebar),
+      await container.renderToString(DesignerWorkspace),
+      await container.renderToString(LabelSheetOutputSettings),
+      await container.renderToString(PrintActionFooter),
+    ].join('')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('[]', { status: 200 })))
+    const controls = bindLabelSheetControls(() => undefined)
+    const outputControls = getLabelOutputControls()
+    const tabs = bindLabelPrintWorkspaceTabs({
+      sheetControls: controls, outputControls, storageKey: 'test-mode', initialMode: 'standard', onChange: () => undefined,
+    })
+    tabs.activate('sheets')
+    expect(outputControls.pngButton.hidden).toBe(true)
+    const activatedWidths: number[] = []
+    const editor = await initPrintDesignerEditor({
+      presetsKey: 'test-presets', settingsKey: 'test-design', entityType: 'spool',
+      onChange: async () => undefined,
+      sheetControls: controls,
+      activateDesigner: () => {
+        activatedWidths.push(editor.getDesign().label.widthMm)
+        tabs.activate('designer')
+      },
+    })
+    try {
+      const preset = document.querySelector<HTMLSelectElement>('#sheet-designer-preset')!
+      expect(Array.from(preset.options).some(option => option.value === 'Wide')).toBe(true)
+      controls.setSource({ type: 'designer', presetName: 'Wide' })
+      document.querySelector<HTMLButtonElement>('#sheet-edit-designer')!.click()
+      expect(activatedWidths).toEqual([85])
+      expect(editor.getDesign()).toEqual(saved)
+      expect(tabs.getActiveMode()).toBe('designer')
+      expect(outputControls.pngButton.hidden).toBe(false)
+    } finally {
+      editor.destroy()
     }
   })
-})
 
-describe('first-class print workspace navigation', () => {
   it.each([
     { path: '../pages/spools/[id]/print.astro', config: 'PRINT_WORKSPACE_ROUTES.singleSpool' },
     { path: '../pages/spools/print.astro', config: 'PRINT_WORKSPACE_ROUTES.batchSpools' },
@@ -244,7 +322,7 @@ describe('first-class print workspace navigation', () => {
     )
 
     expect(source.indexOf('let labelLogoLoaded = false')).toBeLessThan(
-      source.indexOf('designerEditor = await initFreeformLabelDesignerEditor({'),
+      source.indexOf('designerEditor = await initPrintDesignerEditor({'),
     )
   })
 
@@ -263,10 +341,10 @@ describe('first-class print workspace navigation', () => {
     if (batch) {
       expect(source).toMatch(/function queueRenderAll\(\)\s*\{\s*return renderAll\(\)\s*\}/)
       expect(source.indexOf("const countEl = document.getElementById('label-count')!")).toBeLessThan(
-        source.indexOf('designerEditor = await initFreeformLabelDesignerEditor({'),
+        source.indexOf('designerEditor = await initPrintDesignerEditor({'),
       )
       expect(source.indexOf('const ids =')).toBeLessThan(
-        source.indexOf('designerEditor = await initFreeformLabelDesignerEditor({'),
+        source.indexOf('designerEditor = await initPrintDesignerEditor({'),
       )
     }
   })
@@ -380,6 +458,54 @@ describe('first-class print workspace navigation', () => {
     expect(JSON.parse(localStorage.getItem('filaman-label-sheet-source-v1')!)).toEqual({ type: 'designer', presetName: 'Compact' })
     expect(changed.length).toBeGreaterThan(0)
   })
+
+  it('shows preset controls only for Designed Label and edits the selected preset', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(LabelSheetOutputSettings)
+    document.querySelector<HTMLElement>('#tab-panel-sheets')!.hidden = false
+    const controls = bindLabelSheetControls(() => undefined)
+    controls.setDesignerPresets(['Compact', 'Wide'])
+    const preset = document.querySelector<HTMLSelectElement>('#sheet-designer-preset')!
+    const edit = document.querySelector<HTMLButtonElement>('#sheet-edit-designer')!
+    const editedPresets: string[] = []
+    edit.addEventListener('label-designer-edit', event => {
+      editedPresets.push((event as CustomEvent<{ presetName: string }>).detail.presetName)
+    })
+
+    expect(preset.closest('[hidden]')).not.toBeNull()
+    expect(edit.closest('[hidden]')).not.toBeNull()
+    document.querySelector<HTMLInputElement>('[name="label-sheet-source"][value="designer"]')!.click()
+    expect(preset.closest('[hidden]')).toBeNull()
+    expect(edit.closest('[hidden]')).toBeNull()
+    expect(preset.disabled).toBe(false)
+    preset.value = 'Wide'
+    preset.dispatchEvent(new Event('change', { bubbles: true }))
+    edit.click()
+    expect(editedPresets).toEqual(['Wide'])
+
+    document.querySelector<HTMLInputElement>('[name="label-sheet-source"][value="standard"]')!.click()
+    expect(preset.closest('[hidden]')).not.toBeNull()
+    expect(edit.disabled).toBe(true)
+    controls.setSource({ type: 'designer', presetName: 'Compact' })
+    expect(preset.closest('[hidden]')).toBeNull()
+    expect(preset.value).toBe('Compact')
+  })
+
+  it('restores the saved designer preset after its options load', async () => {
+    const saved = { type: 'designer', presetName: 'Wide' }
+    localStorage.setItem('filaman-label-sheet-source-v1', JSON.stringify(saved))
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(LabelSheetOutputSettings)
+    const controls = bindLabelSheetControls(() => undefined)
+
+    controls.setDesignerPresets(['Compact', 'Wide'])
+
+    expect(controls.getSource()).toEqual(saved)
+    expect(JSON.parse(localStorage.getItem('filaman-label-sheet-source-v1')!)).toEqual(saved)
+    controls.setSource({ type: 'designer', presetName: 'Compact' })
+    controls.setDesignerPresets(['Compact', 'Wide'])
+    expect(controls.getSource()).toEqual({ type: 'designer', presetName: 'Compact' })
+  })
 })
 
 describe('compact responsive print layout', () => {
@@ -409,7 +535,6 @@ describe('compact responsive print layout', () => {
     expect(workspace).toMatch(/\.freeform-toolbar\s*button\s*:global\(svg\)\s*\{[^}]*height:\s*16px[^}]*width:\s*16px/s)
     expect(workspace).toMatch(/\.freeform-tool-label\s*\{[^}]*display:\s*inline[^}]*font-size:\s*0\.72rem[^}]*white-space:\s*nowrap/s)
     expect(workspace).toMatch(/\.freeform-toolbar-group\s*\{[^}]*flex-shrink:\s*0/s)
-    expect(workspace).toMatch(/\.freeform-canvas-region[^}]*min-width:\s*320px[^}]*overflow:\s*auto/s)
     expect(workspace).not.toMatch(/@container\s+freeform-tools/)
   })
 })

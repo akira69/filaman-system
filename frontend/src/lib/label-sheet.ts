@@ -7,6 +7,7 @@ import {
   bindFixedPreviewToolbar,
   prepareLabelOutputClone,
 } from './label-preview-dom'
+import { prepareCroppedImages } from './freeform-label/cropped-image'
 
 export const LABEL_SHEET_SETTINGS_KEY = 'filaman-label-sheet-settings-v1'
 export const LABEL_SHEET_PRESETS_KEY = 'filaman-label-sheet-presets-v1'
@@ -396,6 +397,7 @@ export function bindLabelSheetControls(
     'input[name="label-sheet-source"]',
   ))
   const designerPreset = getSelect('sheet-designer-preset')
+  const designerSourceControls = document.getElementById('sheet-designer-source-controls')
   const editDesigner = getButton('sheet-edit-designer')
   const panel = document.getElementById('label-sheet-settings') as HTMLElement | null
   const presetSelect = getSelect('sheet-preset')
@@ -423,16 +425,19 @@ export function bindLabelSheetControls(
     }
     return { type: 'standard' }
   }
+  const storedSource = readStoredSource()
+  let selectedDesignerPreset = storedSource.type === 'designer' ? storedSource.presetName : ''
 
   const getSource = (): LabelSheetSource => {
     const type = sourceInputs.find(input => input.checked)?.value
     return type === 'designer'
-      ? { type: 'designer', presetName: designerPreset?.value ?? '' }
+      ? { type: 'designer', presetName: designerPreset?.value || selectedDesignerPreset }
       : { type: 'standard' }
   }
 
   const syncSourceControls = (persist = true) => {
     const source = getSource()
+    if (designerSourceControls) designerSourceControls.hidden = source.type !== 'designer'
     if (designerPreset) designerPreset.disabled = source.type !== 'designer'
     if (editDesigner) editDesigner.disabled = source.type !== 'designer' || !source.presetName
     if (persist) {
@@ -446,16 +451,20 @@ export function bindLabelSheetControls(
 
   const setSource = (source: LabelSheetSource) => {
     sourceInputs.forEach(input => { input.checked = input.value === source.type })
-    if (source.type === 'designer' && designerPreset) designerPreset.value = source.presetName
+    if (source.type === 'designer') {
+      selectedDesignerPreset = source.presetName
+      if (designerPreset) designerPreset.value = source.presetName
+    }
     syncSourceControls()
     onChange()
   }
 
   const setDesignerPresets = (names: string[], selectedName?: string) => {
     if (!designerPreset) return
-    const previous = selectedName ?? designerPreset.value
+    const previous = selectedName ?? (designerPreset.value || selectedDesignerPreset)
     designerPreset.replaceChildren(...names.map(name => createSelectOption(name, name)))
-    designerPreset.value = names.includes(previous) ? previous : names[0] ?? ''
+    selectedDesignerPreset = names.includes(previous) ? previous : names[0] ?? ''
+    designerPreset.value = selectedDesignerPreset
     syncSourceControls()
   }
 
@@ -558,7 +567,6 @@ export function bindLabelSheetControls(
   }
 
   if (outputMode) outputMode.value = storedOutputMode
-  const storedSource = readStoredSource()
   sourceInputs.forEach(input => { input.checked = input.value === storedSource.type })
   if (storedSource.type === 'designer' && designerPreset) designerPreset.value = storedSource.presetName
   setFormValues(applySheetCapacityLimits(settings))
@@ -831,6 +839,7 @@ export function renderLabelSheetPreview(options: LabelSheetPreviewOptions) {
     if (sourceLabel) {
       const clone = sourceLabel.cloneNode(true) as HTMLElement
       prepareLabelOutputClone(clone)
+      prepareCroppedImages(clone)
       clone.style.zoom = '1'
       clone.style.transform = 'none'
       clone.style.transformOrigin = 'unset'
@@ -860,7 +869,7 @@ export function syncLabelSheetPreview(options: SyncLabelSheetPreviewOptions) {
 }
 
 export function applyLabelSheetPreviewZoom(previewRoot: HTMLElement, zoomPercent: number) {
-  const zoom = Math.min(3, Math.max(0.25, (Number(zoomPercent) || 100) / 100))
+  const zoom = Math.min(5, Math.max(0.25, (Number(zoomPercent) || 100) / 100))
   previewRoot.querySelectorAll<HTMLElement>('.label-sheet-page').forEach(page => {
     const frame = page.parentElement?.classList.contains(SHEET_PAGE_FRAME_CLASS)
       ? page.parentElement as HTMLElement

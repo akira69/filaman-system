@@ -3,7 +3,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
-  DESIGNER_DEFAULTS,
   getDesignerLabelDimensions,
   renderDesignerLabel,
 } from './label-designer'
@@ -77,8 +76,8 @@ describe('label renderers', () => {
     expectNoBrowserPrintCss()
   })
 
-  it('does not add browser print CSS when rendering a Designer label', async () => {
-    await renderDesignerLabel({
+  it('rejects legacy settings instead of retaining the old runtime renderer', async () => {
+    await expect(renderDesignerLabel({
       element: document.querySelector<HTMLElement>('#label')!,
       data: {
         id: '1',
@@ -98,13 +97,9 @@ describe('label renderers', () => {
         'filament.raw_material_weight_g': '1000',
         'filament.weight': '1000',
       },
-      settings: {
-        ...DESIGNER_DEFAULTS,
-        qr: { ...DESIGNER_DEFAULTS.qr, show: false },
-      },
-    })
-
-    expectNoBrowserPrintCss()
+      settings: {},
+    } as unknown as Parameters<typeof renderDesignerLabel>[0]))
+      .rejects.toThrow('A version 2 label design is required')
   })
 
   it('renders v2 freeform designs through the shared Designer entry point', async () => {

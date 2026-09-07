@@ -1,36 +1,21 @@
 ---
-import { designerIcon, type DesignerIconName } from '../../lib/freeform-label/icons'
-
-const filamentFields = [
-  ['{filament.name}', 'Name', 'labelDesigner.fieldName'],
-  ['{filament.type}', 'Type', 'labelDesigner.fieldType'],
-  ['{filament.manufacturer}', 'Manufacturer', 'labelDesigner.fieldManufacturer'],
-  ['{filament.color_name}', 'Color', 'labelDesigner.fieldColor'],
-  ['{filament.color_hex}', 'Hex', 'labelDesigner.fieldHex'],
-]
-const spoolFields = [
-  ['{id}', 'ID', 'labelDesigner.fieldId'],
-  ['{location}', 'Location', 'labelDesigner.fieldLocation'],
-  ['{status}', 'Status', 'labelDesigner.fieldStatus'],
-  ['{remaining_weight_g}', 'Remaining', 'labelDesigner.fieldRemaining'],
-  ['{lot_number}', 'Lot', 'labelDesigner.fieldLot'],
-]
-const iconModifiers: Array<{ modifier: string; icon: DesignerIconName; label: string; i18n: string }> = [
-  { modifier: 'caps', icon: 'uppercase', label: 'Uppercase', i18n: 'labelDesigner.modifierUppercase' },
-  { modifier: 'inverse', icon: 'inverse', label: 'Inverse', i18n: 'labelDesigner.modifierInverse' },
-  { modifier: 'colorInverse', icon: 'colorInverse', label: 'Filament color inverse', i18n: 'labelDesigner.modifierColorInverse' },
-  { modifier: 'date', icon: 'date', label: 'Date only', i18n: 'labelDesigner.modifierDateOnly' },
-]
+import TextModifierButtons from './TextModifierButtons.astro'
+import { FILAMENT_TOKENS, SPOOL_TOKENS } from '../../lib/label-token-catalog'
 ---
 
-<section id="freeform-field-dock" class="freeform-field-dock" aria-labelledby="freeform-fields-title">
+<section id="freeform-field-dock" class="freeform-field-dock" aria-labelledby="freeform-fields-title" data-open="false" data-available="false">
+ <button id="freeform-field-dock-toggle" class="freeform-field-dock-toggle" type="button" aria-expanded="false" aria-controls="freeform-field-dock-body" disabled>
+  <span id="freeform-fields-title" data-i18n="labelDesigner.fieldsAndModifiers">Fields & modifiers</span>
+  <span class="freeform-field-dock-empty" data-i18n="labelDesigner.selectTextForFields">Select a text element</span>
+  <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m4 10 4-4 4 4" /></svg>
+ </button>
+ <div id="freeform-field-dock-body" class="freeform-field-dock-body" aria-hidden="true" inert>
+ <div class="freeform-field-dock-clip">
+ <div class="freeform-field-dock-content">
+ <div class="freeform-token-editor">
   <div class="freeform-field-dock-heading">
-    <h2 id="freeform-fields-title" data-i18n="labelDesigner.fieldsAndModifiers">Fields & modifiers</h2>
     <div class="freeform-modifiers" role="group" aria-label="Text modifiers" data-i18n-aria-label="labelDesigner.textModifiers">
-      <button type="button" data-field-modifier="bold" aria-pressed="false" title="Bold" aria-label="Bold" data-i18n-title="labelDesigner.modifierBold" data-i18n-aria-label="labelDesigner.modifierBold"><strong>B</strong></button>
-      <button type="button" data-field-modifier="italic" aria-pressed="false" title="Italic" aria-label="Italic" data-i18n-title="labelDesigner.modifierItalic" data-i18n-aria-label="labelDesigner.modifierItalic"><em>I</em></button>
-      <button type="button" data-field-modifier="underline" aria-pressed="false" title="Underline" aria-label="Underline" data-i18n-title="labelDesigner.modifierUnderline" data-i18n-aria-label="labelDesigner.modifierUnderline"><u>U</u></button>
-      {iconModifiers.map(item => <button type="button" data-field-modifier={item.modifier} aria-pressed="false" title={item.label} aria-label={item.label} data-i18n-title={item.i18n} data-i18n-aria-label={item.i18n} set:html={designerIcon(item.icon)} />)}
+      <TextModifierButtons context="field" />
     </div>
   </div>
   <div class="freeform-field-tabs" role="tablist" aria-label="Field groups" data-i18n-aria-label="labelDesigner.fieldGroups">
@@ -39,27 +24,54 @@ const iconModifiers: Array<{ modifier: string; icon: DesignerIconName; label: st
     <button id="freeform-field-tab-extra" type="button" role="tab" aria-selected="false" aria-controls="freeform-field-panel-extra" tabindex="-1" data-field-group-tab="extra" data-i18n="labelDesigner.extraFields">Custom / extra</button>
   </div>
   <div class="freeform-field-groups freeform-field-panel-frame">
-    <div id="freeform-field-panel-filament" role="tabpanel" aria-labelledby="freeform-field-tab-filament" data-field-group="filament">{filamentFields.map(([token, label, i18n]) => <button class="freeform-token-chip" type="button" data-field-token={token} title={token} data-i18n={i18n}>{label}</button>)}</div>
-    <div id="freeform-field-panel-spool" role="tabpanel" aria-labelledby="freeform-field-tab-spool" data-field-group="spool" hidden>{spoolFields.map(([token, label, i18n]) => <button class="freeform-token-chip" type="button" data-field-token={token} title={token} data-i18n={i18n}>{label}</button>)}</div>
+    <div id="freeform-field-panel-filament" role="tabpanel" aria-labelledby="freeform-field-tab-filament" data-field-group="filament">{FILAMENT_TOKENS.map(({ token, label }) => <button class="freeform-token-chip" type="button" data-field-token={token} title={token}>{label}</button>)}</div>
+    <div id="freeform-field-panel-spool" role="tabpanel" aria-labelledby="freeform-field-tab-spool" data-field-group="spool" hidden>{SPOOL_TOKENS.map(({ token, label }) => <button class="freeform-token-chip" type="button" data-field-token={token} title={token}>{label}</button>)}</div>
     <div id="freeform-field-panel-extra" role="tabpanel" aria-labelledby="freeform-field-tab-extra" data-field-group="extra" hidden><div id="freeform-extra-fields"><span data-i18n="labelDesigner.noExtraFields">No custom fields available.</span></div></div>
   </div>
-  <p id="freeform-field-hint" class="freeform-field-hint" data-i18n="labelDesigner.selectTextHint">Select a text element to insert at its caret. With another element selected, a new text box is created.</p>
+  <p id="freeform-field-hint" class="freeform-field-hint" data-i18n="labelDesigner.textDockHint">Click a token to insert it. Select text to format it, or choose a modifier before inserting a token.</p>
+ </div>
+ <label class="freeform-template-field"><span data-i18n="labelDesigner.template">Template</span><textarea id="freeform-template" class="fm-input" rows="3" data-element-prop="template" spellcheck="false"></textarea></label>
+ </div>
+ </div>
+ </div>
 </section>
 
 <style>
-  .freeform-field-dock { background: var(--bg-elevated); border-top: 1px solid var(--border); padding: 9px 12px; }
-  .freeform-field-dock-heading { align-items: center; display: flex; gap: 10px; justify-content: space-between; }
-  .freeform-field-dock h2 { color: var(--text-muted); font-size: 0.7rem; letter-spacing: 0.08em; margin: 0; text-transform: uppercase; }
+  .freeform-field-dock { --freeform-drawer-body-limit: 300px; background: var(--bg-elevated); border-top: 1px solid var(--border); box-shadow: 0 -4px 12px #0002; flex-direction: column; max-height: min(100%, calc(var(--freeform-drawer-bar-height, 32px) + var(--freeform-drawer-body-limit))); }
+  .freeform-field-dock-toggle { align-items: center; background: var(--bg-elevated); border: 0; border-radius: 0; color: var(--text-muted); cursor: pointer; display: flex; flex-shrink: 0; font-size: 0.7rem; gap: 12px; height: var(--freeform-drawer-bar-height, 32px); padding: 0 12px; text-align: left; width: 100%; }
+  .freeform-field-dock-toggle:hover:not(:disabled) { color: var(--text); }
+  .freeform-field-dock-toggle:disabled { cursor: default; opacity: 1; }
+  .freeform-field-dock-toggle svg { height: 16px; margin-left: auto; width: 16px; }
+  .freeform-field-dock[data-open='true'] .freeform-field-dock-toggle svg { transform: rotate(180deg); }
+  .freeform-field-dock[data-available='true'] .freeform-field-dock-empty { display: none; }
+  .freeform-field-dock-empty { font-size: 0.65rem; }
+  .freeform-field-dock-body { display: grid; grid-template-rows: 0fr; min-height: 0; visibility: hidden; transition: grid-template-rows 200ms ease, visibility 200ms; }
+  .freeform-field-dock[data-open='true'] .freeform-field-dock-body { grid-template-rows: 1fr; visibility: visible; }
+  .freeform-field-dock-clip { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .freeform-field-dock-content { display: grid; gap: 10px; padding: 0 12px 9px; }
+  .freeform-token-editor { min-width: 0; }
+  .freeform-template-field { display: grid; gap: 5px; font-size: 0.72rem; min-width: 0; }
+  #freeform-template { font-family: 'Space Mono', monospace; font-size: 0.75rem; min-height: 76px; max-height: 170px; resize: vertical; width: 100%; }
+  .freeform-field-dock-heading { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
   .freeform-modifiers, .freeform-field-tabs, .freeform-field-groups > div { display: flex; flex-wrap: wrap; gap: 4px; }
-  .freeform-modifiers button, .freeform-field-tabs button { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.72rem; min-height: 28px; padding: 4px 7px; }
-  .freeform-modifiers button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
+  .freeform-modifiers :global(button), .freeform-field-tabs button { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.72rem; min-height: 28px; padding: 4px 7px; }
+  .freeform-modifiers :global(button[aria-pressed='true']) { border-color: var(--accent); color: var(--accent); }
   .freeform-field-tabs { align-items: flex-end; gap: 3px; margin: 7px 0 0; padding-left: 4px; position: relative; z-index: 1; }
   .freeform-field-tabs button { border-bottom-left-radius: 0; border-bottom-right-radius: 0; color: var(--text-muted); }
   .freeform-field-tabs button[aria-selected='true'] { background: color-mix(in srgb, var(--accent) 16%, var(--bg-elevated)); border-color: var(--accent); border-bottom-color: var(--bg-elevated); box-shadow: inset 0 2px 0 var(--accent); color: var(--text); font-weight: 700; margin-bottom: -1px; }
-  .freeform-field-panel-frame { background: color-mix(in srgb, var(--bg-soft) 55%, transparent); border: 1px solid var(--border); border-radius: 4px; max-height: 86px; overflow: auto; padding: 7px; }
-  .freeform-token-chip { background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid var(--accent); border-radius: 4px; color: var(--accent); cursor: pointer; font-family: 'Space Mono', 'Courier New', monospace; font-size: 0.6rem; line-height: 1.4; min-height: 26px; padding: 2px 6px; white-space: nowrap; }
-  .freeform-token-chip:hover { background: var(--accent); color: var(--btn-primary-text); }
+  .freeform-field-panel-frame { background: color-mix(in srgb, var(--bg-soft) 55%, transparent); border: 1px solid var(--border); border-radius: 4px; padding: 7px; }
+  #freeform-extra-fields { display: grid; gap: 8px; min-width: 0; width: 100%; }
+  #freeform-extra-fields :global(.ds-tokens-group-label) { color: var(--text-muted); font-size: 0.65rem; font-weight: 600; margin-bottom: 4px; }
+  #freeform-extra-fields :global(.ds-token-hints) { display: flex; flex-wrap: wrap; gap: 4px; }
+  #freeform-extra-fields :global(.ds-tokens-empty) { color: var(--text-muted); font-size: 0.64rem; line-height: 1.5; width: 100%; }
+  #freeform-extra-fields :global(.ds-custom-fields-toggle) { background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 0.64rem; min-height: 26px; padding: 2px 6px; }
+  #freeform-extra-fields :global(.ds-custom-fields-toggle:hover) { border-color: var(--accent); color: var(--accent); }
+  #freeform-extra-fields :global([data-i18n='labelDesigner.noExtraFields']) { color: var(--text-muted); font-size: 0.64rem; }
+  .freeform-token-chip, #freeform-extra-fields :global(.freeform-token-chip) { background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid var(--accent); border-radius: 4px; color: var(--accent); cursor: pointer; font-family: 'Space Mono', 'Courier New', monospace; font-size: 0.64rem; line-height: 1.4; min-height: 26px; padding: 2px 6px; white-space: nowrap; }
+  .freeform-token-chip:hover, #freeform-extra-fields :global(.freeform-token-chip:hover) { background: var(--accent); color: var(--btn-primary-text); }
   .freeform-field-hint { color: var(--text-muted); font-size: 0.68rem; margin: 6px 0 0; }
-  .freeform-modifiers button :global(svg) { height: 16px; width: 16px; }
-  .freeform-field-dock button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .freeform-modifiers :global(button svg) { height: 16px; width: 16px; }
+  .freeform-field-dock :global(button:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @container freeform-main (min-width: 690px) { .freeform-field-dock-content { align-items: start; grid-template-columns: minmax(0, 1.2fr) minmax(250px, 1fr); } }
+  @media (prefers-reduced-motion: reduce) { .freeform-field-dock-body { transition: none; } }
 </style>

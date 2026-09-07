@@ -9,6 +9,7 @@ import {
   vi,
 } from 'vitest'
 import JSZip from 'jszip'
+import { LabelOutputAssetError } from './label-output-readiness'
 
 import {
   LABEL_PRINT_PDF_MODE_KEY,
@@ -42,6 +43,7 @@ import {
   type TemporaryPdfPreviewController,
 } from './label-pdf-preview'
 import {
+  applyLabelSheetPreviewZoom,
   bindLabelSheetControls,
   syncLabelSheetIndividualExportState,
   type LabelSheetControls,
@@ -119,6 +121,7 @@ describe('print workspace modes', () => {
 
   it('shows one of Standard, Designer, and Label Sheets and updates output availability', () => {
     document.body.innerHTML = `
+      <aside class="print-sidebar"></aside>
       <button data-workspace-mode="standard"></button>
       <button data-workspace-mode="designer"></button>
       <button data-workspace-mode="sheets"></button>
@@ -142,10 +145,13 @@ describe('print workspace modes', () => {
         print: document.querySelector('#print')!,
       },
       storageKey: 'workspace-mode',
+      sidebar: document.querySelector<HTMLElement>('.print-sidebar'),
       onChange: mode => changes.push(mode),
     })
 
     binding.activate('sheets')
+    const sidebar = document.querySelector<HTMLElement>('.print-sidebar')!
+    expect(sidebar.classList.contains('sidebar-sheets-wide')).toBe(true)
     expect(document.querySelector<HTMLElement>('#sheets')!.hidden).toBe(false)
     expect(document.querySelector<HTMLElement>('#standard')!.hidden).toBe(true)
     expect(document.querySelector<HTMLButtonElement>('#png')!.hidden).toBe(true)
@@ -153,9 +159,15 @@ describe('print workspace modes', () => {
     expect(document.querySelector<HTMLButtonElement>('#pdf')!.hidden).toBe(false)
 
     binding.activate('designer')
+    expect(sidebar.classList.contains('sidebar-sheets-wide')).toBe(false)
+    expect(sidebar.classList.contains('sidebar-wide')).toBe(true)
     expect(document.querySelector<HTMLButtonElement>('#png')!.hidden).toBe(false)
     expect(changes).toEqual(['sheets', 'designer'])
     expect(binding.getActiveMode()).toBe('designer')
+    binding.activate('sheets')
+    binding.activate('standard')
+    expect(sidebar.classList.contains('sidebar-sheets-wide')).toBe(false)
+    expect(sidebar.classList.contains('sidebar-wide')).toBe(false)
   })
 
   it('uses arrow, Home, and End keys to focus and activate workspace tabs', () => {
@@ -200,7 +212,7 @@ describe('print workspace modes', () => {
     { route: 'batch spools', config: PRINT_WORKSPACE_ROUTES.batchSpools, entities: [11, 12, 13] },
     { route: 'single filament', config: PRINT_WORKSPACE_ROUTES.singleFilament, entities: [21] },
     { route: 'batch filaments', config: PRINT_WORKSPACE_ROUTES.batchFilaments, entities: [21, 22, 23] },
-  ])('$route executes the shared mode, source, representative, copies, and callback contract', ({ config, entities }) => {
+  ])('$route executes the shared mode, source, representative, output, and callback contract', ({ config, entities }) => {
     let source: LabelSheetSource = { type: 'standard' }
     const changes: string[] = []
     const coordinator = createPrintWorkspaceCoordinator({
@@ -208,7 +220,6 @@ describe('print workspace modes', () => {
       initialMode: 'standard',
       getItems: () => entities,
       getSheetSource: () => source,
-      getSheetCopies: () => 2,
       onModeChange: state => changes.push(`${state.mode}:${state.source}`),
     })
 
@@ -216,20 +227,18 @@ describe('print workspace modes', () => {
     expect(designer.representativeItem).toBe(entities[0])
     expect(designer.previewItems).toEqual([entities[0]])
     expect(designer.outputItems).toEqual(entities)
+    expect(coordinator.getPreviewItems()).toEqual([entities[0]])
+    expect(coordinator.getOutputItems()).toEqual(entities)
 
     const standardSheets = coordinator.activate('sheets')
-    expect(standardSheets.sheetPlan.source).toEqual({ type: 'standard' })
-    expect(standardSheets.sheetPlan.outputItems).toEqual([...entities, ...entities])
+    expect(standardSheets.source).toBe('standard')
+    expect(coordinator.getPreviewItems()).toEqual(entities)
 
     source = { type: 'designer', presetName: 'Saved' }
     const sheets = coordinator.activate('sheets')
     expect(sheets.source).toBe('designer')
-    expect(sheets.sheetPlan).toEqual({
-      source: { type: 'designer', presetName: 'Saved' },
-      items: entities,
-      copies: 2,
-      outputItems: [...entities, ...entities],
-    })
+    expect(coordinator.getSource()).toBe('designer')
+    expect(coordinator.getOutputItems()).toEqual(entities)
     expect(changes).toEqual([
       'designer:designer',
       'sheets:standard',
@@ -490,7 +499,7 @@ function renderPrintPageControls() {
     <div id="fm-page"></div>
     <main class="preview-container">
       <button id="preview-zoom-out">Zoom out</button>
-      <input id="preview-zoom-slider" type="range" min="50" max="300" step="5" value="100">
+      <input id="preview-zoom-slider" type="range" min="50" max="500" step="5" value="100">
       <button id="preview-zoom-in">Zoom in</button>
       <span id="preview-zoom-label">100%</span>
       <button id="preview-zoom-reset">Reset zoom</button>
@@ -741,7 +750,11 @@ describe('shared print-page controls', () => {
 })
 
 describe('shared single-label print-page behavior', () => {
-  it('zooms batch label wrappers nested inside the designer canvas host', () => {
+  it.each([
+    { zoom: 150, scale: 'scale(1.5)', width: '360px', height: '240px' },
+    { zoom: 500, scale: 'scale(5)', width: '1200px', height: '800px' },
+    { zoom: 600, scale: 'scale(5)', width: '1200px', height: '800px' },
+  ])('zooms batch label wrappers to $zoom% with a 500% ceiling', ({ zoom, scale, width, height }) => {
     document.body.innerHTML = `
       <main id="preview-root">
         <div id="freeform-designer-workspace">
@@ -761,13 +774,71 @@ describe('shared single-label print-page behavior', () => {
       offsetHeight: { configurable: true, value: 160 },
     })
 
-    applyBatchLabelPreviewZoom(root, 150)
+    applyBatchLabelPreviewZoom(root, zoom)
 
-    expect(label.style.transform).toBe('scale(1.5)')
+    expect(label.style.transform).toBe(scale)
     expect(label.style.transformOrigin).toBe('top left')
-    expect(wrapper.style.width).toBe('360px')
-    expect(wrapper.style.height).toBe('240px')
+    expect(wrapper.style.width).toBe(width)
+    expect(wrapper.style.height).toBe(height)
   })
+
+  it.each([500, 600])('zooms sheet pages and their scrollable frames up to 500% for %s input', zoom => {
+    document.body.innerHTML = `
+      <div class="label-sheet-page-frame"><div class="label-sheet-page"></div></div>
+    `
+    const page = document.querySelector<HTMLElement>('.label-sheet-page')!
+    const frame = page.parentElement!
+    Object.defineProperties(page, {
+      offsetWidth: { configurable: true, value: 800 },
+      offsetHeight: { configurable: true, value: 1100 },
+    })
+
+    applyLabelSheetPreviewZoom(document.body, zoom)
+
+    expect(page.style.transform).toBe('scale(5)')
+    expect(frame.style.width).toBe('4000px')
+    expect(frame.style.height).toBe('5500px')
+  })
+
+  it.each(['plain', 'versioned', 'route-owned'] as const)(
+    'restores %s zoom above 300% and persists button and slider changes up to 500%',
+    storageMode => {
+      renderPrintPageControls()
+      const storageKey = 'large-preview-zoom'
+      localStorage.setItem(storageKey, storageMode === 'versioned'
+        ? JSON.stringify({ _v: 2, width: '60', zoom: '485' })
+        : '485')
+      const zoom = bindLabelPreviewZoom({
+        storageKey,
+        previewRoot: document.querySelector<HTMLElement>('.preview-scroll-area')!,
+        settingsVersion: storageMode === 'versioned' ? 2 : undefined,
+        ...(storageMode === 'route-owned' ? {
+          readStoredZoom: () => Number(localStorage.getItem(storageKey)),
+          writeStoredZoom: (value: number) => localStorage.setItem(storageKey, String(value)),
+        } : {}),
+        onChange: () => undefined,
+      })
+      expect(zoom.getZoom()).toBe(485)
+
+      const zoomIn = document.querySelector<HTMLButtonElement>('#preview-zoom-in')!
+      zoomIn.click()
+      expect(zoom.getZoom()).toBe(495)
+      zoomIn.click()
+      zoomIn.click()
+      expect(zoom.getZoom()).toBe(500)
+      expect(document.querySelector('#preview-zoom-label')?.textContent).toBe('500%')
+      expect(localStorage.getItem(storageKey)).toBe(storageMode === 'versioned'
+        ? JSON.stringify({ _v: 2, width: '60', zoom: '500' })
+        : '500')
+
+      const slider = document.querySelector<HTMLInputElement>('#preview-zoom-slider')!
+      slider.value = '450'
+      slider.dispatchEvent(new Event('input'))
+      expect(zoom.getZoom()).toBe(450)
+      document.querySelector<HTMLButtonElement>('#preview-zoom-reset')!.click()
+      expect(zoom.getZoom()).toBe(100)
+    },
+  )
 
   it('restores and persists preview zoom through the existing zoom controls', () => {
     renderPrintPageControls()
@@ -1409,6 +1480,7 @@ describe('single and batch PDF factory reuse', () => {
         <select id="output-mode"><option>Individual</option></select>
         <textarea id="designer-template"></textarea>
       </aside>
+      <div id="freeform-designer-workspace" contenteditable="true"></div>
       <div class="preview-zoom-bar">
         <button id="zoom-in">Zoom in</button>
         <input id="zoom-slider" type="range">
@@ -1420,6 +1492,7 @@ describe('single and batch PDF factory reuse', () => {
       '#designer-template',
       '#zoom-in',
       '#zoom-slider',
+      '#freeform-designer-workspace',
     ].map(selector => document.querySelector<HTMLElement & { disabled: boolean }>(selector)!)
 
     controls.pngButton.click()
@@ -2210,6 +2283,22 @@ describe('collection output binding', () => {
     await vi.waitFor(() => {
       expect(alert).toHaveBeenCalledWith('Translated PNG failure.')
     })
+    expect(download).not.toHaveBeenCalled()
+  })
+
+  it('reports missing assets and blocks a misleading partial batch download', async () => {
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    const { controls } = bindCollectionOutputs([1, 2], {
+      allowPartialPng: true,
+      capture: async item => {
+        if (item === 1) throw new LabelOutputAssetError('Label image asset-1 unavailable')
+        return 'data:image/png;base64,c3Vydml2b3I='
+      },
+    })
+    controls.pngButton.click()
+    await vi.waitFor(() => expect(alert).toHaveBeenCalledWith(expect.stringContaining('asset-1')))
     expect(download).not.toHaveBeenCalled()
   })
 

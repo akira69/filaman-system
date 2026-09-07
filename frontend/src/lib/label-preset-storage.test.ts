@@ -1,9 +1,33 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { buildDesignerPresetCache, buildLabelPresetUpsertBody } from './label-preset-storage'
+import { buildDesignerPresetCache, buildLabelPresetUpsertBody, saveLabelPreset } from './label-preset-storage'
 import { createDefaultLabelDesign } from './freeform-label/defaults'
+import { api } from './api'
 
 describe('label preset cache migration', () => {
+  it('isolates unsupported presets and prevents overwriting them by name', async () => {
+    const future = { version: 3, design: { version: 3, elements: [{ type: 'future' }] } }
+    const original = structuredClone(future)
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const put = vi.spyOn(api, 'put').mockResolvedValue({})
+    try {
+      const cache = buildDesignerPresetCache([
+        { id: 1, preset_type: 'spool', name: 'Future', data: future },
+        { id: 2, preset_type: 'spool', name: 'Usable', data: { settings: { label: { width: 72 } } } },
+      ], 'spool')
+      expect(cache.presets.map(preset => preset.name)).toEqual(['Usable'])
+      expect(cache.presets[0].data.design.label.widthMm).toBe(72)
+      expect(future).toEqual(original)
+      expect(warning).toHaveBeenCalled()
+      expect(await saveLabelPreset('filaman-spool-label-presets-v1', { name: 'Future', settings: {} })).toBe(false)
+      expect(put).not.toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+      put.mockRestore()
+      buildDesignerPresetCache([], 'spool')
+    }
+  })
+
   it('exposes normalized v2 data while retaining legacy settings for the compatibility editor', () => {
     const legacy = {
       label: { width: 72, height: 35, marginMm: 2, border: true },

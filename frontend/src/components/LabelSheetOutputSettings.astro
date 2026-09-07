@@ -4,10 +4,17 @@
   <div class="ds-section-body">
     <fieldset class="sheet-source-picker">
       <legend data-i18n="labelPrint.sheetSource">Label source</legend>
-      <label><input type="radio" name="label-sheet-source" value="standard" checked /><span data-i18n="labelPrint.standardLabel">Standard Label</span></label>
-      <label><input type="radio" name="label-sheet-source" value="designer" /><span data-i18n="labelPrint.designedLabel">Designed Label</span></label>
-      <select id="sheet-designer-preset" class="fm-input" aria-label="Designed label preset" data-i18n-aria-label="labelPrint.designedLabelPreset" disabled></select>
-      <button id="sheet-edit-designer" type="button" data-i18n="labelPrint.editDesignedLabel">Edit this label</button>
+      <div class="sheet-source-segments">
+        <label class="sheet-source-option"><input type="radio" name="label-sheet-source" value="standard" checked /><span data-i18n="labelPrint.standardLabel">Standard Label</span></label>
+        <label class="sheet-source-option"><input type="radio" name="label-sheet-source" value="designer" aria-controls="sheet-designer-source-controls" /><span data-i18n="labelPrint.designedLabel">Designed Label</span></label>
+      </div>
+      <div id="sheet-designer-source-controls" class="sheet-designer-source-controls" hidden>
+        <div>
+          <label class="fm-label" for="sheet-designer-preset" data-i18n="labelPrint.designedLabelPreset">Designed label preset</label>
+          <select id="sheet-designer-preset" class="fm-input" aria-label="Designed label preset" data-i18n-aria-label="labelPrint.designedLabelPreset" disabled></select>
+        </div>
+        <button id="sheet-edit-designer" class="sheet-edit-designer" type="button" data-i18n="labelPrint.editDesignedLabel" disabled>Edit label</button>
+      </div>
     </fieldset>
     <div>
       <select id="output-mode" hidden aria-hidden="true" tabindex="-1">
@@ -142,17 +149,64 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     display: grid;
-    gap: 8px;
-    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    gap: 12px;
+    min-width: 0;
     margin: 0;
     padding: 10px;
   }
 
   .sheet-source-picker legend { color: var(--text-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; padding: 0 4px; text-transform: uppercase; }
-  .sheet-source-picker label { align-items: center; display: flex; font-size: 0.78rem; gap: 5px; }
+
+  .sheet-source-segments {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    display: grid;
+    gap: 4px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 4px;
+  }
+
+  .sheet-source-option { cursor: pointer; min-width: 0; position: relative; }
+  .sheet-source-option input { height: 1px; opacity: 0; position: absolute; width: 1px; }
+  .sheet-source-option span {
+    align-items: center;
+    border: 1px solid transparent;
+    border-radius: calc(var(--radius-sm) - 2px);
+    color: var(--text-muted);
+    display: flex;
+    font-size: 0.78rem;
+    font-weight: 600;
+    justify-content: center;
+    line-height: 1.3;
+    min-height: 34px;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .sheet-source-option input:checked + span { background: var(--bg-elevated); border-color: var(--accent); color: var(--text); }
+  .sheet-source-option input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sheet-source-option:hover span { color: var(--text); }
+  .sheet-designer-source-controls { display: grid; gap: 10px; min-width: 0; }
+  .sheet-designer-source-controls[hidden] { display: none; }
+  .sheet-designer-source-controls select { font-size: 0.8rem; min-width: 0; width: 100%; }
+  .sheet-edit-designer {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 600;
+    justify-self: start;
+    line-height: 1.3;
+    padding: 7px 10px;
+  }
+  .sheet-edit-designer:hover:not(:disabled) { background: var(--bg-soft); color: var(--text); }
+  .sheet-edit-designer:disabled { cursor: not-allowed; opacity: 0.5; }
 
   @media (max-width: 900px) {
-    .sheet-source-picker { grid-template-columns: 1fr; }
+    .sheet-source-option span { min-height: 44px; }
     .sheet-source-picker :is(button, select) { min-height: 44px; }
   }
 

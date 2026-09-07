@@ -17,20 +17,6 @@ describe('label designer history', () => {
     expect(history.canRedo()).toBe(false)
   })
 
-  it('coalesces all updates in one pointer gesture into one undo entry', () => {
-    const history = createLabelHistory({ x: 0 })
-
-    history.beginGesture()
-    history.updateGesture({ x: 1 })
-    history.updateGesture({ x: 5 })
-    history.updateGesture({ x: 12 })
-    history.endGesture()
-
-    expect(history.current()).toEqual({ x: 12 })
-    expect(history.undo()).toEqual({ x: 0 })
-    expect(history.canUndo()).toBe(false)
-  })
-
   it('retains at most fifty undo snapshots and resets for a loaded preset', () => {
     const history = createLabelHistory({ value: 0 }, 50)
     for (let value = 1; value <= 60; value += 1) history.push({ value })

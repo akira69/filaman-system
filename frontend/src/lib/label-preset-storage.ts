@@ -41,6 +41,7 @@ export interface DesignerPresetCache {
 
 let hydrationPromise: Promise<void> | null = null
 const PRESET_OWNER_KEY = 'filaman-label-presets-owner-v1'
+const unsupportedPresetNames = new Map<LabelKind, Set<string>>()
 
 function safeWrite(key: string, value: unknown): boolean {
   try {
@@ -55,16 +56,24 @@ export function buildDesignerPresetCache(
   presets: ApiLabelPreset[],
   presetType: LabelKind,
 ): DesignerPresetCache {
+  const unsupportedNames = new Set<string>()
+  unsupportedPresetNames.set(presetType, unsupportedNames)
   return {
     version: 2,
     presets: presets
       .filter(preset => preset.preset_type === presetType)
-      .map(preset => {
-        const data = normalizeDesignerPresetData(preset.data, presetType)
-        return {
-          name: preset.name,
-          data,
-          settings: data.legacy_v1 ?? {},
+      .flatMap(preset => {
+        try {
+          const data = normalizeDesignerPresetData(preset.data, presetType)
+          return [{
+            name: preset.name,
+            data,
+            settings: data.legacy_v1 ?? {},
+          }]
+        } catch (error) {
+          unsupportedNames.add(preset.name)
+          console.warn(`Could not load label preset "${preset.name}"; its database data is unchanged`, error)
+          return []
         }
       }),
   }
@@ -95,6 +104,7 @@ async function fetchPresetDatabase(): Promise<ApiLabelPreset[]> {
 }
 
 function removePresetBrowserValues(clearMigrationState = true) {
+  unsupportedPresetNames.clear()
   for (const key of [
     SPOOL_LABEL_PRESETS_KEY,
     FILAMENT_LABEL_PRESETS_KEY,
@@ -176,6 +186,13 @@ export async function saveLabelPreset(
 ): Promise<boolean> {
   const presetType = presetTypeForStorageKey(storageKey)
   if (!presetType) return false
+  if (presetType !== 'sheet' && (
+    unsupportedPresetNames.get(presetType)?.has(preset.name)
+    || (previousName !== undefined && unsupportedPresetNames.get(presetType)?.has(previousName))
+  )) {
+    console.warn('Cannot overwrite an unsupported label preset')
+    return false
+  }
   try {
     await api.put<ApiLabelPreset>(
       `/me/label-presets/${presetType}/item`,
