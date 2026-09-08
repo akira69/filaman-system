@@ -70,8 +70,7 @@ export interface LabelSheetLayout {
   cellsPerPage: number
 }
 
-export interface SheetLabelSetup {
-  type: 'standard' | 'designer'
+export type SheetLabelSetup = LabelSheetSource & {
   widthMm: number
   heightMm: number
   name: string
@@ -406,6 +405,7 @@ export function bindLabelSheetControls(
   const designerPreset = getSelect('sheet-designer-preset')
   const designerSourceControls = document.getElementById('sheet-designer-source-controls')
   const editDesigner = getButton('sheet-edit-designer')
+  const createLabel = document.querySelector<HTMLButtonElement>('[data-sheet-create]')
   const panel = document.getElementById('label-sheet-settings') as HTMLElement | null
   const presetSelect = getSelect('sheet-preset')
   const presetName = getInput('sheet-preset-name')
@@ -450,6 +450,7 @@ export function bindLabelSheetControls(
     if (designerSourceControls) designerSourceControls.hidden = source.type !== 'designer'
     if (designerPreset) designerPreset.disabled = source.type !== 'designer'
     if (editDesigner) editDesigner.disabled = source.type !== 'designer' || !source.presetName
+    syncCreateButton()
     if (persist) {
       try {
         localStorage.setItem(LABEL_SHEET_SOURCE_KEY, JSON.stringify(source))
@@ -513,6 +514,20 @@ export function bindLabelSheetControls(
     syncPresetControls()
   }
 
+  const syncCreateButton = () => {
+    const layout = getLabelSheetLayout(readFormSettings())
+    const source = getSource()
+    const standard = source.type === 'standard'
+    const unsupported = layout.cellWidthMm < 20 || layout.cellHeightMm < 10
+      || layout.cellWidthMm > (standard ? 200 : 300) || layout.cellHeightMm > (standard ? 120 : 200)
+    if (createLabel) createLabel.disabled = unsupported || (!standard && !source.presetName)
+    const hint = document.getElementById('sheet-create-size-hint')
+    if (hint) {
+      hint.hidden = !unsupported
+      hint.textContent = getTranslation('labelPrint.sheetSizeUnsupported', 'Editor size limits: Standard 20–200 × 10–120 mm; Designer 20–300 × 10–200 mm.')
+    }
+  }
+
   const updateLayoutSummary = (next: LabelSheetSettings) => {
     const layout = getLabelSheetLayout(next)
     const horizontalPitch = layout.cellWidthMm + next.gapHorizontalMm
@@ -521,17 +536,7 @@ export function bindLabelSheetControls(
       .replace('{width}', formatMm(layout.cellWidthMm)).replace('{height}', formatMm(layout.cellHeightMm))
     const sizeLabel = document.getElementById('sheet-label-size')
     if (sizeLabel) sizeLabel.textContent = size
-    const createButtons = document.querySelectorAll<HTMLButtonElement>('[data-sheet-create]')
-    createButtons.forEach(button => {
-      const standard = button.dataset.sheetCreate === 'standard'
-      button.disabled = layout.cellWidthMm < 20 || layout.cellHeightMm < 10
-        || layout.cellWidthMm > (standard ? 200 : 300) || layout.cellHeightMm > (standard ? 120 : 200)
-    })
-    const hint = document.getElementById('sheet-create-size-hint')
-    if (hint) {
-      hint.hidden = ![...createButtons].some(button => button.disabled)
-      hint.textContent = getTranslation('labelPrint.sheetSizeUnsupported', 'Editor size limits: Standard 20–200 × 10–120 mm; Designer 20–300 × 10–200 mm.')
-    }
+    syncCreateButton()
     if (!layoutSummary) return
     layoutSummary.textContent = getTranslation(
       'labelPrint.paperLayoutSummary',
@@ -699,19 +704,16 @@ export function bindLabelSheetControls(
     syncSourceControls()
     onChange()
   })
-  document.querySelectorAll<HTMLButtonElement>('[data-sheet-create]').forEach(button => {
-    button.addEventListener('click', () => {
-      if (button.disabled) return
-      const layout = getLabelSheetLayout(readFormSettings())
-      const dimensions = `${formatMm(layout.cellWidthMm)} × ${formatMm(layout.cellHeightMm)} mm`
-      const name = loadedPresetName ? `${loadedPresetName.slice(0, 90)} — ${dimensions}`
-        : getTranslation('labelPrint.sheetLabelName', '{size} label').replace('{size}', dimensions)
-      button.closest('details')?.removeAttribute('open')
-      button.dispatchEvent(new CustomEvent<SheetLabelSetup>('label-sheet-create', {
-        bubbles: true,
-        detail: { type: button.dataset.sheetCreate === 'designer' ? 'designer' : 'standard', widthMm: layout.cellWidthMm, heightMm: layout.cellHeightMm, name },
-      }))
-    })
+  createLabel?.addEventListener('click', () => {
+    if (createLabel.disabled) return
+    const layout = getLabelSheetLayout(readFormSettings())
+    const dimensions = `${formatMm(layout.cellWidthMm)} × ${formatMm(layout.cellHeightMm)} mm`
+    const name = loadedPresetName ? `${loadedPresetName.slice(0, 90)} — ${dimensions}`
+      : getTranslation('labelPrint.sheetLabelName', '{size} label').replace('{size}', dimensions)
+    createLabel.dispatchEvent(new CustomEvent<SheetLabelSetup>('label-sheet-create', {
+      bubbles: true,
+      detail: { ...getSource(), widthMm: layout.cellWidthMm, heightMm: layout.cellHeightMm, name },
+    }))
   })
   editDesigner?.addEventListener('click', () => {
     const source = getSource()

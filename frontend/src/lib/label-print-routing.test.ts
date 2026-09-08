@@ -590,7 +590,8 @@ it('creates correctly sized labels in both editors and saves a named design back
     preset.dispatchEvent(new Event('change'))
     document.querySelector<HTMLButtonElement>('#sheet-load-preset')!.click()
     const dimensions = getLabelSheetLayout(controls.getSettings())
-    document.querySelector<HTMLButtonElement>('[data-sheet-create="standard"]')!.click()
+    expect(document.querySelectorAll('[data-sheet-create]')).toHaveLength(1)
+    document.querySelector<HTMLButtonElement>('[data-sheet-create]')!.click()
     expect(tabs.getActiveMode()).toBe('standard')
     const standard = getStandardLabelSettings(getLabelSettingsControls(), { normalizeInputs: true })
     expect(standard.widthMm).toBeCloseTo(dimensions.cellWidthMm, 3)
@@ -599,10 +600,18 @@ it('creates correctly sized labels in both editors and saves a named design back
     expect(tabs.getActiveMode()).toBe('sheets')
     expect(controls.getSource().type).toBe('standard')
 
-    document.querySelector<HTMLButtonElement>('[data-sheet-create="designer"]')!.click()
+    const selectedDesign = createDefaultLabelDesign('spool')
+    selectedDesign.elements.find(element => element.type === 'text')!.template = 'Keep my custom template'
+    localStorage.setItem(SPOOL_LABEL_PRESETS_KEY, JSON.stringify({ version: 2, presets: [{ name: 'Selected custom label', data: { version: 2, design: selectedDesign } }] }))
+    controls.setDesignerPresets(['Selected custom label'])
+    controls.setSource({ type: 'designer', presetName: 'Selected custom label' })
+    document.querySelector<HTMLButtonElement>('[data-sheet-create]')!.click()
     expect(tabs.getActiveMode()).toBe('designer')
     expect(editor.getDesign().label.widthMm).toBe(dimensions.cellWidthMm)
     expect(editor.getDesign().label.heightMm).toBe(dimensions.cellHeightMm)
+    expect(editor.getDesign().elements.map(element => element.id)).toEqual(selectedDesign.elements.map(element => element.id))
+    expect(editor.getDesign().elements[0]).toMatchObject({ template: 'Keep my custom template' })
+    expect(JSON.parse(localStorage.getItem(SPOOL_LABEL_PRESETS_KEY)!).presets[0].data.design).toEqual(selectedDesign)
     const qr = editor.getDesign().elements.find(element => element.type === 'qr')!
     expect(qr.w).toBe(qr.h)
     const name = document.querySelector<HTMLInputElement>('#freeform-preset-name')!
@@ -629,7 +638,7 @@ it('creates correctly sized labels in both editors and saves a named design back
     const saved = JSON.parse(localStorage.getItem(SPOOL_LABEL_PRESETS_KEY)!)
     expect(saved.presets.find((item: {name: string}) => item.name === name.value).data.design).toEqual(editor.getDesign())
 
-    document.querySelector<HTMLButtonElement>('[data-sheet-create="designer"]')!.click()
+    document.querySelector<HTMLButtonElement>('[data-sheet-create]')!.click()
     name.value = 'My sheet labels'
     use.click()
     await vi.waitFor(() => expect(use.disabled).toBe(false))

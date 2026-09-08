@@ -7,7 +7,7 @@ import {
 } from './freeform-label/editor-controller'
 import type { LabelKind } from './freeform-label/types'
 import { bindPrintWorkspaceTabs, type createPrintWorkspaceCoordinator, type LabelOutputControls, type PrintWorkspaceMode } from './label-print-page'
-import { createSheetLabelDesign } from './freeform-label/standard-presets'
+import { resizeLabelDesign } from './freeform-label/geometry'
 import type { SheetLabelSetup, LabelSheetControls, LabelSheetSource } from './label-sheet'
 import { getAbortSignal } from './abort'
 import { t } from './i18n'
@@ -118,7 +118,11 @@ export async function initPrintDesignerEditor(options: FreeformLabelDesignerEdit
     const setup = (event as CustomEvent<SheetLabelSetup>).detail
     if (!setup || !Number.isFinite(setup.widthMm) || !Number.isFinite(setup.heightMm)) return
     if (setup.type === 'designer') {
-      editor.loadSettings(createSheetLabelDesign(setup.widthMm, setup.heightMm))
+      const source = loadFreeformLabelPresetDesign({
+        presetsKey: options.presetsKey, presetName: setup.presetName, kind: options.entityType ?? 'spool',
+      })
+      if (!source) return
+      editor.loadSettings(resizeLabelDesign(source, setup.widthMm, setup.heightMm))
       const names = getFreeformLabelPresetNames(options.presetsKey)
       existingSheetPresetNames = new Set(names)
       suggestedName = setup.name
