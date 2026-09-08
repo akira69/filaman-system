@@ -1,6 +1,7 @@
 import type { LabelDesignElement } from './types'
 import {
   formatTemplateRange,
+  isTemplateModifierActive,
   getTemplateSelectionRange,
   getTemplateCaretRange,
   copyTemplateRange,
@@ -70,8 +71,8 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
         const source = text?.template.slice(Number(token.dataset.templateStart), Number(token.dataset.templateEnd)) ?? ''
         const chip = editing && /^\{[^{}]*\}$/.test(source)
         token.toggleAttribute('data-template-token-chip', chip)
-        if (chip) { token.contentEditable = 'false'; token.draggable = false }
-        else { token.removeAttribute('contenteditable'); token.removeAttribute('draggable') }
+        if (chip) { token.contentEditable = 'false'; token.draggable = false; token.title = source }
+        else { token.removeAttribute('contenteditable'); token.removeAttribute('draggable'); token.removeAttribute('title') }
       }
       if (editing && canvasRange && !pendingEdit && !compositionRange && !node.contains(document.getSelection()?.anchorNode ?? null)) {
         restoreTemplateSelection(node, canvasRange)
@@ -79,6 +80,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
     }
     if (leavingTextSelection) void options.refreshInteractions()
     toolbar?.querySelector('[data-text-select]')?.setAttribute('aria-pressed', String(editingId !== null))
+    syncModifierState()
     positionToolbar()
   }
 
@@ -106,6 +108,17 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
     toolbar.style.top = `${Math.max(top, Math.min(above >= top ? above : rect.bottom + 8, bottom - toolbar.offsetHeight))}px`
   }
 
+  const syncModifierState = () => {
+    const selected = options.getSelected()
+    const source = canvasRange ?? options.getTemplateRange()
+    const range = source.end > source.start ? source : { start: 0, end: selected?.type === 'text' ? selected.template.length : 0 }
+    toolbar?.querySelectorAll<HTMLButtonElement>('[data-text-modifier]').forEach(button => {
+      button.setAttribute('aria-pressed', String(selected?.type === 'text' && isTemplateModifierActive(
+        selected.template, range.start, range.end, button.dataset.textModifier as TemplateTextModifier,
+      )))
+    })
+  }
+
   const rememberCanvasRange = () => {
     if (!editingId || pendingEdit || compositionRange) return
     const node = selectedNode()
@@ -113,6 +126,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
     if (!node || !selection || !node.contains(selection.anchorNode)) return
     canvasRange = getTemplateSelectionRange(node, selection) ?? getTemplateCaretRange(node, selection)
     if (canvasRange) options.setTemplateRange?.(canvasRange)
+    syncModifierState()
     if (canvasRange && !selection.isCollapsed) {
       const range = selection.getRangeAt(0)
       const atomicBoundary = [range.startContainer, range.endContainer].some(node =>
@@ -160,6 +174,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
     if (result.template.length > 8000) return true
     options.updateTemplate(result.template, result)
     if (fromCanvas) canvasRange = { start: result.start, end: result.end }
+    syncModifierState()
     const revision = ++editRevision
     pendingEdit = revision
     void options.refresh().then(() => {
@@ -237,6 +252,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
       canvasRange = { start: Number(token.dataset.templateStart), end: Number(token.dataset.templateEnd) }
       options.setTemplateRange?.(canvasRange)
       restoreTemplateSelection(selectedNode()!, canvasRange)
+      syncModifierState()
     }
   })
   const copy = (event: ClipboardEvent) => {
@@ -267,8 +283,8 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
     if (id && (node?.dataset.labelElementType === 'text' || options.getSelected()?.type === 'text')) startSelecting(id)
   })
   listen(document, 'selectionchange', rememberCanvasRange)
-  listen(template, 'focus', () => { canvasRange = null })
-  listen(template, 'select', () => { canvasRange = null })
+  listen(template, 'focus', () => { canvasRange = null; syncModifierState() })
+  listen(template, 'select', () => { canvasRange = null; syncModifierState() })
   listen(toolbar, 'pointerdown', event => {
     rememberCanvasRange()
     // Keep the highlighted range when the user presses a formatting button.
@@ -328,7 +344,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
       cleanups.forEach(cleanup => cleanup())
       canvas?.querySelectorAll('[data-label-text-editing]').forEach(node => {
         node.removeAttribute('data-label-text-editing'); node.removeAttribute('contenteditable')
-        node.querySelectorAll('[data-template-atomic]').forEach(token => { token.removeAttribute('contenteditable'); token.removeAttribute('draggable'); token.removeAttribute('data-template-token-chip') })
+        node.querySelectorAll('[data-template-atomic]').forEach(token => { token.removeAttribute('contenteditable'); token.removeAttribute('draggable'); token.removeAttribute('data-template-token-chip'); token.removeAttribute('title') })
       })
       if (toolbar) toolbar.hidden = true
     },

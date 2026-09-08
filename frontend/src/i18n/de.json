@@ -1641,6 +1641,7 @@
     "fitToCell": "Label in Zelle einpassen",
     "pngUnavailableInSheetMode": "PNG-Export im Labelpapiermodus nicht verfügbar",
     "btnPrint": "Drucken",
+    "exportHeading": "Export",
     "btnExportPng": "PNG exportieren",
     "btnExportAml": "AML exportieren",
     "btnExportPdf": "PDF exportieren",

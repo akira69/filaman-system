@@ -11,7 +11,7 @@ afterEach(() => { cleanups.splice(0).forEach(cleanup => cleanup()); document.bod
 function editor(source: string, delayed = false) {
   const selected = createDefaultLabelDesign('spool').elements.find(element => element.type === 'text')!
   selected.template = source
-  document.body.innerHTML = '<div id="freeform-canvas-host"><div data-label-element-id="text" data-label-element-type="text"></div></div>'
+  document.body.innerHTML = '<div id="freeform-canvas-host"><div data-label-element-id="text" data-label-element-type="text"></div></div><div id="freeform-text-toolbar"><button data-text-modifier="bold">B</button><button data-text-modifier="underline">U</button></div>'
   selected.id = 'text'
   const node = document.querySelector<HTMLElement>('[data-label-element-id]')!
   const render = () => { node.replaceChildren(renderSelectableTemplate(selected.template, { 'filament.color': 'Ocean Blue' } as SpoolData)) }
@@ -52,6 +52,7 @@ describe('canvas text editing', () => {
   it('edits visible literal text while keeping resolved tokens indivisible', async () => {
     const e = editor('Hi {filament.color}')
     expect(e.node.contentEditable).toBe('true')
+    expect(e.node.querySelector<HTMLElement>('[data-template-token-chip]')!.title).toBe('{filament.color}')
     expect(e.node.querySelector<HTMLElement>('[data-template-atomic]')!.contentEditable).toBe('false')
     e.select(e.node.firstChild!.firstChild!, 1)
     e.input('insertText', 'ey')
@@ -201,4 +202,22 @@ describe('canvas text editing', () => {
     e.clipboard('paste', { 'text/plain': 'X'.repeat(8001) })
     expect(e.selected.template).toBe('Hi {filament.color}')
   })
+})
+
+it('tracks the selected nested style and toggles it with toolbar clicks', async () => {
+  const e = editor('**__{filament.color}__** plain')
+  const bold = document.querySelector<HTMLButtonElement>('[data-text-modifier="bold"]')!
+  e.node.querySelector('[data-template-atomic]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  document.dispatchEvent(new Event('selectionchange'))
+  expect(bold.getAttribute('aria-pressed')).toBe('true')
+  for (let i = 0; i < 4; i++) {
+    bold.click()
+    await Promise.resolve()
+    expect(bold.getAttribute('aria-pressed')).toBe(String(i % 2 !== 0))
+    expect(e.node.textContent).toBe('Ocean Blue plain')
+  }
+  const tail = e.node.lastChild!.firstChild!
+  e.select(tail, 1, tail, 4)
+  document.dispatchEvent(new Event('selectionchange'))
+  expect(bold.getAttribute('aria-pressed')).toBe('false')
 })

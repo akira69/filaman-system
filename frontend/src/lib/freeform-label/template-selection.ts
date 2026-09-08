@@ -196,7 +196,7 @@ function syntaxRanges(template: string): SyntaxRange[] {
     }
   }
   const visitMarkup = (text: string, offset: number) => {
-    const regex = /\[size=\d{1,3}%?\][\s\S]*?\[\/size\]|\*\*\*[\s\S]*?\*\*\*|\*\*[\s\S]*?\*\*|__[\s\S]*?__|\*(?!\*)([\s\S]*?)\*(?!\*)|==[\s\S]*?==|@@[\s\S]*?@@|\^\^[\s\S]*?\^\^/gi
+    const regex = /\[size=\d{1,3}%?\][\s\S]*?\[\/size\]|\*\*\*[\s\S]*?\*\*\*|\*\*[\s\S]*?\*\*|__[\s\S]*?__|\*(?!\*)([\s\S]*?)\*(?=\*{3}(?!\*)|[^*]|$)|==[\s\S]*?==|@@[\s\S]*?@@|\^\^[\s\S]*?\^\^/gi
     for (const match of text.matchAll(regex)) {
       const part = match[0]
       const size = /^\[size=/i.test(part)
@@ -211,6 +211,47 @@ function syntaxRanges(template: string): SyntaxRange[] {
   }
   visitMarkup(template, 0)
   return ranges
+}
+
+function matchesModifier(range: SyntaxRange, modifier: TemplateTextModifier): boolean {
+  return modifier !== 'date' && (range.delimiter === TEMPLATE_TEXT_MODIFIER_DELIMITERS[modifier]
+    || ((modifier === 'bold' || modifier === 'italic') && range.delimiter === '***'))
+}
+
+/** A mixed selection is off; clicking its button applies the style throughout. */
+export function isTemplateModifierActive(template: string, start: number, end: number, modifier: TemplateTextModifier): boolean {
+  if (end <= start) return false
+  const ranges = syntaxRanges(template)
+  if (modifier === 'date') {
+    const tokens = ranges.filter(range => range.token && range.end > start && range.start < end)
+    return tokens.length > 0 && tokens.every(range => /\|date\s*\}$/i.test(template.slice(range.start, range.end)))
+  }
+  const styled = ranges.filter(range => matchesModifier(range, modifier))
+  if (!styled.some(range => range.innerEnd > start && range.innerStart < end)) return false
+  // Ignore syntax while checking that every selected character is styled.
+  const covered = [...styled, ...ranges.filter(range => !range.token).flatMap(range => [
+    { start: range.start, end: range.innerStart }, { start: range.innerEnd, end: range.end },
+  ])].sort((a, b) => a.start - b.start)
+  let cursor = start
+  for (const range of covered) {
+    if (range.start > cursor) break
+    cursor = Math.max(cursor, range.end)
+    if (cursor >= end) return true
+  }
+  return false
+}
+
+/** Remove this style only, including its half of combined bold/italic. */
+function removeModifier(template: string, modifier: TemplateTextModifier): string {
+  const edits = syntaxRanges(template).filter(range => matchesModifier(range, modifier)).flatMap(range => {
+    const remaining = range.delimiter === '***' ? modifier === 'bold' ? '*' : '**' : ''
+    return [
+      { start: range.start, end: range.innerStart, remaining },
+      { start: range.innerEnd, end: range.end, remaining },
+    ]
+  }).sort((a, b) => b.start - a.start)
+  for (const edit of edits) template = template.slice(0, edit.start) + edit.remaining + template.slice(edit.end)
+  return template
 }
 
 /** Format a source selection, widening only when needed to keep syntax balanced. */
@@ -249,20 +290,20 @@ export function formatTemplateRange(template: string, start: number, end: number
   }
 
   const delimiter = TEMPLATE_TEXT_MODIFIER_DELIMITERS[modifier]
-  const combined = (modifier === 'bold' || modifier === 'italic') && ranges.find(range => range.delimiter === '***' && (
-    (range.innerStart === start && range.innerEnd === end) || (range.start === start && range.end === end)
-  ))
-  if (combined) {
-    const remaining = modifier === 'bold' ? '*' : '**'
-    const inner = template.slice(combined.innerStart, combined.innerEnd)
-    return { template: template.slice(0, combined.start) + remaining + inner + remaining + template.slice(combined.end), start: combined.start + remaining.length, end: combined.start + remaining.length + inner.length }
+  const remove = isTemplateModifierActive(template, start, end, modifier)
+  const container = ranges.filter(range => matchesModifier(range, modifier) && range.innerStart <= start && range.innerEnd >= end)
+    .sort((a, b) => a.start - b.start || b.end - a.end)[0]
+  if (remove && container) {
+    const inner = template.slice(container.innerStart, container.innerEnd)
+    const prefix = copyTemplateRange(inner, 0, start - container.innerStart)
+    const suffix = copyTemplateRange(inner, end - container.innerStart, inner.length)
+    const selected = copyTemplateRange(template.slice(container.start, container.end), start - container.start, end - container.start)
+    const middle = removeModifier(selected, modifier)
+    const wrap = (text: string) => text ? container.delimiter + text + container.delimiter : ''
+    const before = template.slice(0, container.start) + wrap(prefix)
+    return { template: before + middle + wrap(suffix) + template.slice(container.end), start: before.length, end: before.length + middle.length }
   }
-  const existing = ranges.find(range => range.delimiter === delimiter && (
-    (range.innerStart === start && range.innerEnd === end) || (range.start === start && range.end === end)
-  ))
-  if (existing) {
-    const inner = template.slice(existing.innerStart, existing.innerEnd)
-    return { template: template.slice(0, existing.start) + inner + template.slice(existing.end), start: existing.start, end: existing.start + inner.length }
-  }
-  return { template: template.slice(0, start) + delimiter + template.slice(start, end) + delimiter + template.slice(end), start: start + delimiter.length, end: end + delimiter.length }
+  const middle = removeModifier(template.slice(start, end), modifier)
+  const replacement = remove ? middle : delimiter + middle + delimiter
+  return { template: template.slice(0, start) + replacement + template.slice(end), start: start + (remove ? 0 : delimiter.length), end: start + replacement.length - (remove ? 0 : delimiter.length) }
 }

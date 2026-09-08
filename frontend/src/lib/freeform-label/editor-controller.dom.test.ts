@@ -734,7 +734,7 @@ describe('freeform editor DOM binding', () => {
     expect(dock.map(button => button.getAttribute('aria-label'))).toEqual(labels)
     expect(canvas.map(button => button.getAttribute('aria-label'))).toEqual(labels)
     expect(dock.map(button => button.getAttribute('aria-pressed'))).toEqual(names.map(() => 'false'))
-    expect(canvas.map(button => button.getAttribute('aria-pressed'))).toEqual(names.map(() => null))
+    expect(canvas.map(button => button.getAttribute('aria-pressed'))).toEqual(names.map(() => 'false'))
   })
 
   it('gives every real icon tool a localized tooltip and accessible name', async () => {

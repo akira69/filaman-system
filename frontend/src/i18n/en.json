@@ -1640,6 +1640,7 @@
     "fitToCell": "Fit label to cell",
     "pngUnavailableInSheetMode": "PNG export not available in label paper mode",
     "btnPrint": "Print",
+    "exportHeading": "Export",
     "btnExportPng": "Export PNG",
     "btnExportAml": "Export AML",
     "btnExportPdf": "Export PDF",

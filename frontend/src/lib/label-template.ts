@@ -294,8 +294,9 @@ function expandTemplate(template: string, data: SpoolData, selectable: boolean):
 /** Apply inline markup to rendered template text. */
 function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: SpoolData, sources?: TemplateCharacterSource[], sourceOffset = 0): void {
   // Regex: match swatch marker, [size=NNN]...[/size] (case-insensitive),
+  // An italic closing star may touch the next ***bold/italic*** run.
   // bold (**...**), underline (__...__), italic (*...*), inverse (==...==), filament inverse (@@...@@)
-  const regex = /(\[\[FM_SWATCH\|\d{1,3}\|(bands|layers)\|(?:#[0-9A-F]{6})(?:,#[0-9A-F]{6})*\]\]|\[size=\d{1,3}%?\][\s\S]*?\[\/size\]|\*\*\*[\s\S]*?\*\*\*|\*\*[\s\S]*?\*\*|__[\s\S]*?__|\*(?!\*)([\s\S]*?)\*(?!\*)|==[\s\S]*?==|@@[\s\S]*?@@)/gi
+  const regex = /(\[\[FM_SWATCH\|\d{1,3}\|(bands|layers)\|(?:#[0-9A-F]{6})(?:,#[0-9A-F]{6})*\]\]|\[size=\d{1,3}%?\][\s\S]*?\[\/size\]|\*\*\*[\s\S]*?\*\*\*|\*\*[\s\S]*?\*\*|__[\s\S]*?__|\*(?!\*)([\s\S]*?)\*(?=\*{3}(?!\*)|[^*]|$)|==[\s\S]*?==|@@[\s\S]*?@@)/gi
   let last = 0
 
   const appendPlainText = (raw: string, container: DocumentFragment | HTMLElement, offset: number) => {
