@@ -113,7 +113,33 @@ describe('text alignment picker', () => {
     expect(vertical.map(action => action.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true'])
   })
 
-  it('toggles persisted word wrapping and overrides legacy shrink-to-fit when wrapping is enabled', async () => {
+  it('toggles scale to fit, restores it on undo, and clears it for text without the option', async () => {
+    const { controller, binding } = await bindPicker()
+    const scale = document.querySelector<HTMLInputElement>('input[type="checkbox"][data-element-prop="fitToWidth"]')
+    expect(scale).not.toBeNull()
+    expect(scale!.checked).toBe(false)
+    scale!.click()
+    expect(controller.getSelectedElement()).toMatchObject({ fitToWidth: true, minFontSizeMm: 2 })
+    controller.undo()
+    binding.sync()
+    expect(scale!.checked).toBe(false)
+    controller.redo()
+    binding.sync()
+    expect(scale!.checked).toBe(true)
+    const minimum = document.querySelector<HTMLInputElement>('[data-element-prop="minFontSizeMm"]')!
+    expect(minimum.value).toBe('2')
+    minimum.value = '1.5'
+    minimum.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(controller.getSelectedElement()).toMatchObject({ minFontSizeMm: 1.5 })
+    scale!.click()
+    scale!.click()
+    expect(controller.getSelectedElement()).toMatchObject({ fitToWidth: true, minFontSizeMm: 1.5 })
+    controller.addElement('text')
+    binding.sync()
+    expect(scale!.checked).toBe(false)
+  })
+
+  it('keeps word wrapping and scaling independent and restores both on undo', async () => {
     const { controller, binding } = await bindPicker()
     const wrap = document.querySelector<HTMLInputElement>('input[type="checkbox"][data-element-prop="wrap"]')
     expect(wrap).not.toBeNull()
@@ -123,7 +149,7 @@ describe('text alignment picker', () => {
     controller.updateSelected({ fitToWidth: true })
     binding.sync()
     wrap!.click()
-    expect(controller.getSelectedElement()).toMatchObject({ wrap: true, fitToWidth: false })
+    expect(controller.getSelectedElement()).toMatchObject({ wrap: true, fitToWidth: true })
     controller.undo()
     binding.sync()
     expect(wrap?.checked).toBe(false)

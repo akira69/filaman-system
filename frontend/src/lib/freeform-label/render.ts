@@ -7,7 +7,7 @@ import { decorateQrCenter, ensureQrCodeLoaded, getQrCodeConstructor } from '../q
 import { normalizeLabelDesign } from './normalize'
 import { prepareCroppedImage } from './cropped-image'
 import { getQrModuleCount } from './qr-readability'
-import { fitLabelText } from './text-fit'
+import { fitLabelText, type TextFitTarget } from './text-fit'
 import { renderSelectableTemplate } from './template-selection'
 import { t } from '../i18n'
 import type { LabelDesignElement, LabelDesignV2 } from './types'
@@ -121,8 +121,9 @@ function renderText(node: HTMLElement, element: Extract<LabelDesignElement, { ty
   node.style.textAlign = element.align
   node.style.color = element.color
   node.style.lineHeight = '1.15'
-  node.style.whiteSpace = element.wrap && !element.fitToWidth ? 'normal' : 'nowrap'
-  node.style.overflowWrap = element.wrap && !element.fitToWidth ? 'anywhere' : 'normal'
+  node.style.whiteSpace = element.wrap ? 'normal' : 'nowrap'
+  node.style.textWrap = element.wrap ? 'balance' : 'nowrap'
+  node.style.overflowWrap = element.wrap ? 'anywhere' : 'normal'
   node.style.display = 'flex'
   node.style.flexDirection = 'column'
   node.style.justifyContent = element.verticalAlign === 'middle' ? 'center' : element.verticalAlign === 'bottom' ? 'flex-end' : 'flex-start'
@@ -202,7 +203,7 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
   if (options.isStale?.()) return
 
   const nodes: HTMLElement[] = []
-  const fittingText: HTMLElement[] = []
+  const fittingText: TextFitTarget[] = []
   for (const element of design.elements) {
     if (options.isStale?.()) return
     const node = document.createElement('div')
@@ -210,7 +211,11 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
     switch (element.type) {
       case 'text':
         renderText(node, element, options.data)
-        if (element.fitToWidth) fittingText.push(node)
+        if (element.fitToWidth) fittingText.push({
+          node,
+          minimumMm: element.minFontSizeMm ?? (element.wrap ? 2 : 0.265),
+          maxLines: element.wrap ? 2 : 1,
+        })
         break
       case 'qr':
         await renderQr(node, element, options.data, options.entityPath ?? 'spools')

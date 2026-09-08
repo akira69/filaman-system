@@ -80,6 +80,10 @@ export function bindFixedPreviewToolbar(
     if (!isActive()) return
     const toolbar = getPreviewToolbar(options.previewRoot)
     if (!toolbar) return
+    if (toolbar.closest('.freeform-command-bar')) {
+      restore()
+      return
+    }
     const rect = options.previewRoot.getBoundingClientRect()
     const right = rect.right ?? rect.left + rect.width
     const visibleLeft = Math.max(0, rect.left)

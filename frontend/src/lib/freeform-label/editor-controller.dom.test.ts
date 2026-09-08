@@ -326,7 +326,7 @@ describe('freeform editor element operations', () => {
     await binding.ready
     const node = preview.firstElementChild as HTMLElement
     const selectedId = controller.getState().selectedId
-    for (const selector of ['#freeform-template', '[data-field-modifier="bold"]', '[data-text-modifier="bold"]', '[data-element-prop="x"]', '[data-designer-action="duplicate"]']) {
+    for (const selector of ['#freeform-template', '[data-field-modifier="bold"]', '[data-text-modifier="bold"]', '[data-element-prop="x"]', '[data-designer-action="duplicate"]', '.freeform-zoom-slot']) {
       document.querySelector(selector)!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
       expect(controller.getState().selectedId).toBe(selectedId)
     }

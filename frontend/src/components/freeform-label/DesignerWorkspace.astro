@@ -30,7 +30,7 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
 ---
 
 <div id="freeform-designer-workspace" class="freeform-designer-workspace">
-  <div class="freeform-workspace-main">
+  <div class="freeform-command-bar">
     <div class="freeform-toolbar" role="toolbar" aria-label="Label designer tools" data-i18n-aria-label="labelDesigner.toolbar">
       <div class="freeform-toolbar-group">
         {addTools.map(tool => <button type="button" data-designer-add={tool.type} title={tool.label} aria-label={tool.label} data-i18n-title={tool.i18n} data-i18n-aria-label={tool.i18n}><Fragment set:html={designerIcon(tool.icon)} /><span class="freeform-tool-label" data-i18n={tool.shortI18n}>{tool.shortLabel}</span></button>)}
@@ -38,14 +38,21 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
           <Fragment set:html={designerIcon('shape')} /><span class="freeform-tool-label" data-i18n="labelDesigner.toolShape">Shape</span><svg class="freeform-shape-chevron" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 4.5 3 3 3-3" /></svg>
         </button>
       </div>
-      <div class="freeform-toolbar-group">
+      <div class="freeform-toolbar-group freeform-icon-tools">
         {historyTools.map(tool => <button type="button" data-designer-action={tool.action} title={tool.label} aria-label={tool.label} data-i18n-title={tool.i18n} data-i18n-aria-label={tool.i18n}><Fragment set:html={designerIcon(tool.icon)} /><span class="freeform-tool-label" data-i18n={tool.shortI18n}>{tool.shortLabel}</span></button>)}
       </div>
-      <div class="freeform-toolbar-group">
+      <div class="freeform-toolbar-group freeform-icon-tools">
         {arrangeTools.map(tool => <button type="button" data-designer-action={tool.action} data-requires-selection title={tool.action === 'delete' ? 'Remove the selected element from this label. Image files stay in the library.' : tool.label} aria-label={tool.label} data-i18n-title={tool.action === 'delete' ? 'labelDesigner.deleteElementHint' : tool.i18n} data-i18n-aria-label={tool.i18n}><Fragment set:html={designerIcon(tool.icon)} /><span class="freeform-tool-label" data-i18n={tool.shortI18n}>{tool.shortLabel}</span></button>)}
       </div>
     </div>
-
+    <div class="freeform-zoom-slot"></div>
+    <nav id="freeform-preview-navigation" class="freeform-preview-navigation" aria-label="Preview selected labels" data-i18n-aria-label="labelDesigner.previewSelectedLabels" hidden>
+      <button type="button" data-preview-step="-1" aria-label="Previous label" title="Previous label" data-i18n-aria-label="labelDesigner.previousLabel" data-i18n-title="labelDesigner.previousLabel">‹</button>
+      <span data-preview-position role="status" aria-live="polite" aria-atomic="true"></span>
+      <button type="button" data-preview-step="1" aria-label="Next label" title="Next label" data-i18n-aria-label="labelDesigner.nextLabel" data-i18n-title="labelDesigner.nextLabel">›</button>
+    </nav>
+  </div>
+  <div class="freeform-workspace-main">
     <div class="freeform-canvas-area">
     <div class="freeform-canvas-region">
      <div class="freeform-canvas-stage">
@@ -67,16 +74,32 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
 </div>
 
 <style>
+  :global(.preview-container:has(#freeform-designer-workspace.is-active)),
+  :global(.preview-scroll-area:has(> #freeform-designer-workspace.is-active)) { gap: 0; padding: 0; }
   .freeform-designer-workspace, .freeform-workspace-main, .freeform-canvas-area, .freeform-canvas-region, .freeform-canvas-stage { display: contents; }
-  .freeform-toolbar, .freeform-designer-workspace :global(.freeform-element-inspector), .freeform-designer-workspace :global(.freeform-field-dock) { display: none; }
-  .freeform-designer-workspace.is-active { background: var(--bg); display: grid; grid-template-columns: minmax(0, 1fr) auto; height: 100%; min-height: 0; width: 100%; }
-  .freeform-designer-workspace.is-active .freeform-workspace-main { container: freeform-main / inline-size; display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; position: relative; }
-  .freeform-designer-workspace.is-active .freeform-toolbar { align-items: center; background: var(--bg-elevated); border-bottom: 1px solid var(--border); display: flex; flex-wrap: nowrap; gap: 4px; overflow-x: auto; padding: 7px 4px; }
+  .freeform-command-bar, .freeform-toolbar, .freeform-designer-workspace :global(.freeform-element-inspector), .freeform-designer-workspace :global(.freeform-field-dock) { display: none; }
+  .freeform-designer-workspace.is-active { background: var(--bg); container: freeform-workspace / inline-size; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; width: 100%; }
+  .freeform-designer-workspace.is-active .freeform-workspace-main { container: freeform-main / inline-size; display: grid; grid-template-rows: minmax(0, 1fr); min-height: 0; min-width: 0; position: relative; }
+  .freeform-designer-workspace.is-active .freeform-command-bar { align-items: center; background: var(--bg-elevated); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; padding: 6px 10px; position: relative; z-index: 10; }
+  .freeform-designer-workspace.is-active .freeform-toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+  .freeform-zoom-slot { border-left: 1px solid var(--border); padding-left: 8px; }
+  .freeform-preview-navigation:not([hidden]) { align-items: center; display: flex; gap: 6px; margin-left: auto; }
+  .freeform-preview-navigation span { color: var(--text); font-size: 0.72rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .freeform-preview-navigation button { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 4px; color: var(--text); cursor: pointer; font-size: 1.3rem; height: 32px; line-height: 1; width: 32px; }
+  .freeform-preview-navigation button:disabled { cursor: default; opacity: 0.4; }
+  .freeform-preview-navigation button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+  .freeform-preview-navigation button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @container freeform-workspace (max-width: 1050px) {
+    .freeform-command-bar:has(#freeform-preview-navigation:not([hidden])) [data-designer-add]:not([data-designer-add='text']) .freeform-tool-label { display: none; }
+  }
+  .freeform-designer-workspace.is-active :global(.label-count) { display: none; }
+  .freeform-zoom-slot :global(.preview-zoom-bar) { background: transparent; border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none; left: auto; padding: 0; position: static; transform: none; }
+  .freeform-icon-tools .freeform-tool-label { display: none; }
   .freeform-designer-workspace.is-active :global(.freeform-element-inspector) { display: block; }
   .freeform-designer-workspace.is-active :global(.freeform-field-dock) { bottom: 0; display: flex; left: 0; position: absolute; right: 0; z-index: 5; }
-  .freeform-toolbar-group { display: flex; flex-shrink: 0; gap: 1px; }
-  .freeform-toolbar-group + .freeform-toolbar-group { border-left: 1px solid var(--border); padding-left: 4px; }
-  .freeform-toolbar button { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text); display: inline-flex; flex: none; gap: 3px; height: 32px; justify-content: center; padding: 0 2px; width: auto; }
+  .freeform-toolbar-group { display: flex; flex-shrink: 0; gap: 2px; }
+  .freeform-toolbar-group + .freeform-toolbar-group { border-left: 1px solid var(--border); padding-left: 8px; }
+  .freeform-toolbar button { align-items: center; background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text); display: inline-flex; flex: none; gap: 3px; height: 32px; justify-content: center; min-width: 32px; padding: 0 6px; width: auto; }
   .freeform-toolbar button:not(:disabled):hover, .freeform-toolbar button:focus-visible { background: var(--bg-soft); border-color: var(--border); }
   .freeform-toolbar button:disabled { cursor: default; opacity: 0.45; }
   .freeform-toolbar button[data-designer-action='delete'] { background: var(--error-bg); border-color: var(--error-border); color: var(--label-danger, #ff8a80); }

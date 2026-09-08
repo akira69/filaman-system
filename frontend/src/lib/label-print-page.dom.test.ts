@@ -112,6 +112,42 @@ describe('createPreviewRenderCoordinator', () => {
 })
 
 describe('print workspace modes', () => {
+  it('docks the existing zoom controls in the designer and restores them for other modes', () => {
+    document.body.innerHTML = `
+      <main class="preview-container">
+        <div class="preview-zoom-bar"><button>Zoom in</button></div>
+        <div id="workspace"><div class="freeform-command-bar"><div class="freeform-zoom-slot"></div></div></div>
+      </main>
+      <section id="standard"></section><section id="designer"></section><section id="sheets"></section>
+    `
+    const previewRoot = document.querySelector<HTMLElement>('.preview-container')!
+    const zoom = document.querySelector<HTMLElement>('.preview-zoom-bar')!
+    const clicked = vi.fn()
+    zoom.querySelector('button')!.addEventListener('click', clicked)
+    const binding = bindPrintWorkspaceTabs({
+      buttons: [],
+      panels: {
+        standard: document.querySelector('#standard')!,
+        designer: document.querySelector('#designer')!,
+        sheets: document.querySelector('#sheets')!,
+      },
+      designerWorkspace: document.querySelector<HTMLElement>('#workspace'),
+      storageKey: 'workspace-mode',
+      onChange: () => applyBatchLabelPreviewZoom(previewRoot, 100),
+    })
+    binding.activate('standard')
+    expect(zoom.style.position).toBe('fixed')
+    binding.activate('designer')
+    expect(zoom.parentElement?.className).toBe('freeform-zoom-slot')
+    expect(zoom.style.position).toBe('')
+    zoom.querySelector('button')!.click()
+    expect(clicked).toHaveBeenCalledOnce()
+    for (const mode of ['sheets', 'designer', 'standard'] as const) binding.activate(mode)
+    expect(previewRoot.firstElementChild).toBe(zoom)
+    expect(document.querySelectorAll('.preview-zoom-bar')).toHaveLength(1)
+    expect(zoom.style.position).toBe('fixed')
+  })
+
   it('validates persisted modes and falls back to standard', () => {
     localStorage.setItem('workspace-mode', 'sheets')
     expect(readPrintWorkspaceMode('workspace-mode')).toBe('sheets')
@@ -269,6 +305,43 @@ describe('print workspace modes', () => {
     syncDesignerRepresentativeElements('sheets', wrappers)
     expect(wrappers.every(wrapper => !wrapper.classList.contains('is-designer-output-only'))).toBe(true)
     expect(wrappers.every(wrapper => !wrapper.hasAttribute('aria-hidden'))).toBe(true)
+  })
+
+  it('changes the batch preview while retaining the full output order and clamping the selection', () => {
+    let items = [11, 22, 33]
+    const workspace = createPrintWorkspaceCoordinator({
+      config: PRINT_WORKSPACE_ROUTES.batchSpools,
+      initialMode: 'designer', getItems: () => items,
+      getSheetSource: () => ({ type: 'standard' }), onModeChange: () => undefined,
+    })
+    workspace.selectPreview(1)
+    expect(workspace.getState()).toMatchObject({ previewIndex: 1, representativeItem: 22, previewItems: [22], outputItems: [11, 22, 33] })
+    workspace.selectPreview(99)
+    expect(workspace.getPreviewItems()).toEqual([33])
+    workspace.activate('sheets')
+    expect(workspace.getPreviewItems()).toEqual([11, 22, 33])
+    workspace.activate('designer')
+    expect(workspace.getRepresentativeItem()).toBe(33)
+    items = [11]
+    expect(workspace.getState()).toMatchObject({ previewIndex: 0, previewItems: [11] })
+    workspace.selectPreview(-1)
+    expect(workspace.getRepresentativeItem()).toBe(11)
+    items = []
+    expect(workspace.getPreviewItems()).toEqual([])
+  })
+
+  it('puts the selected preview first for editor interactions and restores normal DOM order', () => {
+    document.body.innerHTML = '<div id="canvas"><div id="first"></div><div id="second"></div><div id="third"></div></div>'
+    const canvas = document.querySelector('#canvas')!
+    const elements = Array.from(canvas.children) as HTMLElement[]
+    syncDesignerRepresentativeElements('designer', elements, 1)
+    expect(canvas.firstElementChild?.id).toBe('second')
+    expect(elements[1].classList.contains('is-designer-representative')).toBe(true)
+    expect(elements[0].getAttribute('aria-hidden')).toBe('true')
+    syncDesignerRepresentativeElements('designer', elements, 2)
+    expect(canvas.firstElementChild?.id).toBe('third')
+    syncDesignerRepresentativeElements('standard', elements)
+    expect(Array.from(canvas.children).map(el => el.id)).toEqual(['first', 'second', 'third'])
   })
 
   it('synchronizes the hidden sheet output mode before notifying a route', () => {
@@ -750,6 +823,31 @@ describe('shared print-page controls', () => {
 })
 
 describe('shared single-label print-page behavior', () => {
+  it('does not magnify hidden batch placeholders repeatedly when zoom changes', () => {
+    document.body.innerHTML = '<main><div class="freeform-canvas-host"><div class="label-wrapper"><div class="label-preview"></div></div><div class="label-wrapper"><div class="label-preview"></div></div></div></main>'
+    const root = document.querySelector<HTMLElement>('main')!
+    const wrappers = Array.from(root.querySelectorAll<HTMLElement>('.label-wrapper'))
+    wrappers.forEach((wrapper, index) => {
+      const label = wrapper.firstElementChild as HTMLElement
+      // Unrendered placeholders take their width from the wrapper being scaled.
+      Object.defineProperties(label, {
+        offsetWidth: { get: () => index === 0 ? 120 : Number.parseFloat(wrapper.style.width) || 120 },
+        offsetHeight: { get: () => 80 },
+      })
+    })
+    syncDesignerRepresentativeElements('designer', wrappers)
+    for (const zoom of [315, 385, 395, 405, 415, 425, 500]) applyBatchLabelPreviewZoom(root, zoom)
+    expect(wrappers[0].style.width).toBe('600px')
+    expect(wrappers[1].style.width).toBe('')
+    expect((wrappers[1].firstElementChild as HTMLElement).style.transform).toBe('')
+
+    syncDesignerRepresentativeElements('designer', wrappers, 1)
+    applyBatchLabelPreviewZoom(root, 500)
+    expect(wrappers[1].style.width).toBe('600px')
+    expect(wrappers[1].style.height).toBe('400px')
+    expect((wrappers[1].firstElementChild as HTMLElement).style.transform).toBe('scale(5)')
+  })
+
   it.each([
     { zoom: 150, scale: 'scale(1.5)', width: '360px', height: '240px' },
     { zoom: 500, scale: 'scale(5)', width: '1200px', height: '800px' },
@@ -868,6 +966,25 @@ describe('shared single-label print-page behavior', () => {
     expect(zoom.getZoom()).toBe(145)
     expect(localStorage.getItem('test-label-zoom')).toBe('145')
     expect(onChange).toHaveBeenCalledTimes(2)
+  })
+
+  it('dismisses zoom options with Escape or an outside press', () => {
+    renderPrintPageControls()
+    const menu = document.createElement('details')
+    menu.className = 'preview-zoom-menu'
+    menu.innerHTML = '<summary>100%</summary>'
+    menu.append(document.querySelector('#preview-zoom-slider')!)
+    document.querySelector('.preview-container')!.prepend(menu)
+    bindLabelPreviewZoom({ storageKey: 'zoom-menu', previewRoot: document.querySelector('.preview-container')!, onChange: () => undefined })
+    menu.open = true
+    menu.querySelector('input')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(menu.open).toBe(false)
+    expect(document.activeElement).toBe(menu.querySelector('summary'))
+    menu.open = true
+    menu.querySelector('input')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    expect(menu.open).toBe(true)
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    expect(menu.open).toBe(false)
   })
 
   it('supports route-owned preview zoom storage without replacing its settings payload', () => {
