@@ -9,15 +9,19 @@
         <label class="sheet-source-option"><input type="radio" name="label-sheet-source" value="designer" aria-controls="sheet-designer-source-controls" /><span data-i18n="labelPrint.designedLabel">Designed Label</span></label>
       </div>
       <div id="sheet-designer-source-controls" class="sheet-designer-source-controls" hidden>
-        <div>
-          <label class="fm-label" for="sheet-designer-preset" data-i18n="labelPrint.designedLabelPreset">Designed label preset</label>
-          <select id="sheet-designer-preset" class="fm-input" aria-label="Designed label preset" data-i18n-aria-label="labelPrint.designedLabelPreset" disabled></select>
-        </div>
-        <button id="sheet-edit-designer" class="sheet-edit-designer" type="button" data-i18n="labelPrint.editDesignedLabel" disabled>Edit label</button>
+        <label class="fm-label" for="sheet-designer-preset" data-i18n="labelPrint.designedLabelPreset">Designed label preset</label>
+        <select id="sheet-designer-preset" class="fm-input" aria-label="Designed label preset" data-i18n-aria-label="labelPrint.designedLabelPreset" disabled></select>
+        <button id="sheet-edit-designer" class="sheet-edit-designer" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 4 4 4M3 21l5-1L21 7a2.8 2.8 0 0 0-4-4L4 16z"/></svg>
+          <span data-i18n="labelPrint.editDesignedLabel">Edit label</span>
+        </button>
       </div>
       <div class="sheet-size-action">
         <span id="sheet-label-size" class="sheet-label-size"></span>
-        <button type="button" class="sheet-edit-designer" data-sheet-create data-i18n="labelPrint.createLabelForSize">Create label for this size</button>
+        <button type="button" class="sheet-edit-designer" data-sheet-create>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span data-i18n="labelPrint.createLabelForSize">Create label for this size</span>
+        </button>
       </div>
       <p id="sheet-create-size-hint" class="sheet-label-size" hidden></p>
     </fieldset>
@@ -195,10 +199,14 @@
   .sheet-source-option input:checked + span { background: var(--bg-elevated); border-color: var(--accent); color: var(--text); }
   .sheet-source-option input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
   .sheet-source-option:hover span { color: var(--text); }
-  .sheet-designer-source-controls { display: grid; gap: 10px; min-width: 0; }
+  .sheet-designer-source-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
+  .sheet-designer-source-controls label { grid-column: 1 / -1; margin: 0; }
   .sheet-designer-source-controls[hidden] { display: none; }
   .sheet-designer-source-controls select { font-size: 0.8rem; min-width: 0; width: 100%; }
   .sheet-edit-designer {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: transparent;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -211,6 +219,7 @@
     line-height: 1.3;
     padding: 7px 10px;
   }
+  .sheet-edit-designer svg { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .sheet-edit-designer:hover:not(:disabled) { background: var(--bg-soft); color: var(--text); }
   .sheet-edit-designer:disabled { cursor: not-allowed; opacity: 0.5; }
 
