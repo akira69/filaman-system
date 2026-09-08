@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { parseTemplate, type SpoolData } from '../label-template'
-import { formatTemplateRange, getTemplateSelectionRange, renderSelectableTemplate, restoreTemplateSelection } from './template-selection'
+import { formatTemplateRange, isTemplateModifierActive, getTemplateSelectionRange, renderSelectableTemplate, restoreTemplateSelection } from './template-selection'
 
 const data = { id: '42', 'filament.color': 'Ocean Blue', 'filament.name': 'Straße', purchase_date: '2026-09-05T12:00:00Z' } as SpoolData
 function render(template: string) {
@@ -159,5 +159,37 @@ describe('source range formatting', () => {
     expect(result.template).toBe('On {purchase_date|date} today')
     expect(formatTemplateRange(result.template, result.start, result.end, 'date').template).toBe('On {purchase_date} today')
     expect(formatTemplateRange('Hello world', 0, 11, 'date').template).toBe('Hello world')
+  })
+})
+
+
+describe('selection formatting state', () => {
+  it('toggles enclosing styles through nested markup without accumulating delimiters', () => {
+    let source = '**__{filament.color}__**'
+    for (let i = 0; i < 6; i++) {
+      const start = source.indexOf('{')
+      const end = source.indexOf('}') + 1
+      expect(isTemplateModifierActive(source, start, end, 'bold')).toBe(i % 2 === 0)
+      expect(isTemplateModifierActive(source, start, end, 'underline')).toBe(true)
+      source = formatTemplateRange(source, start, end, 'bold').template
+      expect(render(source).textContent).toBe('Ocean Blue')
+      expect(source.length).toBeLessThanOrEqual(24)
+    }
+  })
+  it('turns mixed formatting on uniformly and then off', () => {
+    const source = '**Hello** world'
+    expect(isTemplateModifierActive(source, 2, source.length, 'bold')).toBe(false)
+    const on = formatTemplateRange(source, 2, source.length, 'bold')
+    expect(on.template).toBe('**Hello world**')
+    expect(isTemplateModifierActive(on.template, on.start, on.end, 'bold')).toBe(true)
+    expect(formatTemplateRange(on.template, on.start, on.end, 'bold').template).toBe('Hello world')
+  })
+  it('removes bold from part of combined bold/italic while retaining italic', () => {
+    const result = formatTemplateRange('***Hello***', 4, 7, 'bold')
+    const root = render(result.template)
+    expect(root.textContent).toBe('Hello')
+    expect([...root.querySelectorAll('strong')].map(node => node.textContent).join('')).toBe('Ho')
+    expect([...root.querySelectorAll('em')].map(node => node.textContent).join('')).toBe('Hello')
+    expect(isTemplateModifierActive(result.template, result.start, result.end, 'bold')).toBe(false)
   })
 })

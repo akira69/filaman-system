@@ -13,7 +13,7 @@ const { context } = Astro.props
     type="button"
     data-field-modifier={context === 'field' ? item.modifier : undefined}
     data-text-modifier={context === 'text' ? item.modifier : undefined}
-    aria-pressed={context === 'field' ? 'false' : undefined}
+    aria-pressed="false"
     title={item.label}
     aria-label={item.label}
     data-i18n-title={item.i18n}
