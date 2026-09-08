@@ -1646,6 +1646,7 @@
     "sheetLabelSize": "Etikettengröße: {width} × {height} mm",
     "sheetLabelName": "Etikett {size}",
     "useOnSheet": "Auf diesem Bogen verwenden",
+    "saveAndUseOnSheet": "Speichern & auf dem Bogen verwenden",
     "sheetSizeUnsupported": "Editor-Größen: Standard 20–200 × 10–120 mm; Designer 20–300 × 10–200 mm.",
     "exportHeading": "Export",
     "btnExportPng": "PNG exportieren",

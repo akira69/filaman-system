@@ -1645,6 +1645,7 @@
     "sheetLabelSize": "Label size: {width} × {height} mm",
     "sheetLabelName": "{size} label",
     "useOnSheet": "Use on this sheet",
+    "saveAndUseOnSheet": "Save & use on sheet",
     "sheetSizeUnsupported": "Editor size limits: Standard 20–200 × 10–120 mm; Designer 20–300 × 10–200 mm.",
     "exportHeading": "Export",
     "btnExportPng": "Export PNG",
