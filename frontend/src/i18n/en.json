@@ -1376,6 +1376,10 @@
     "spoolProfileLoaded": "Spool profile data loaded"
   },
   "labelDesigner": {
+    "previewSelectedLabels": "Preview selected labels",
+    "previousLabel": "Previous label",
+    "nextLabel": "Next label",
+    "previewPosition": "Label {current} of {total}",
     "standardPresets": "Standard presets",
     "qrCenterLogo": "Center logo",
     "qrCenterColor": "Color",
@@ -1437,6 +1441,10 @@
     "alignTop": "Top",
     "alignMiddle": "Middle",
     "alignBottom": "Bottom",
+    "minFontSizeMm": "Minimum size (mm)",
+    "wrapLimitHint": "Wrap to at most 2 lines.",
+    "textDoesNotFit": "Text cannot fit at the minimum size. Enlarge the box or shorten the text.",
+    "scaleToFit": "Scale to fit",
     "wordWrap": "Word wrap",
     "alignLeft": "Left",
     "alignCenter": "Center",

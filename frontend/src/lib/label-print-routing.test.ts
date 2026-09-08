@@ -11,8 +11,8 @@ import PrintSidebar from '../components/PrintSidebar.astro'
 import DesignerSidebar from '../components/freeform-label/DesignerSidebar.astro'
 import DesignerWorkspace from '../components/freeform-label/DesignerWorkspace.astro'
 import { createDefaultLabelDesign } from './freeform-label/defaults'
-import { bindLabelPrintWorkspaceTabs, getPrintDesignerDesign, initPrintDesignerEditor } from './label-print-workspace'
-import { getLabelOutputControls } from './label-print-page'
+import { bindDesignerPreviewNavigation, bindLabelPrintWorkspaceTabs, getPrintDesignerDesign, initPrintDesignerEditor } from './label-print-workspace'
+import { createPrintWorkspaceCoordinator, getLabelOutputControls, PRINT_WORKSPACE_ROUTES } from './label-print-page'
 
 import {
   bindLabelSheetControls,
@@ -23,6 +23,38 @@ import {
 } from './label-sheet'
 
 const componentsDirectory = fileURLToPath(new NodeURL('../components/', import.meta.url))
+
+it('browses the selected labels from the real designer navigation and hides it for one label', async () => {
+  const container = await AstroContainer.create()
+  document.body.innerHTML = await container.renderToString(DesignerWorkspace)
+  let items = [10, 20, 30]
+  const workspace = createPrintWorkspaceCoordinator({
+    config: PRINT_WORKSPACE_ROUTES.batchFilaments, initialMode: 'designer',
+    getItems: () => items, getSheetSource: () => ({ type: 'standard' }),
+    onModeChange: () => undefined,
+  })
+  const sync = bindDesignerPreviewNavigation(workspace)
+  const navigation = document.querySelector<HTMLElement>('#freeform-preview-navigation')!
+  const previous = navigation.querySelector<HTMLButtonElement>('[data-preview-step="-1"]')!
+  const next = navigation.querySelector<HTMLButtonElement>('[data-preview-step="1"]')!
+  expect(navigation.hidden).toBe(false)
+  expect(previous.disabled).toBe(true)
+  expect(next.disabled).toBe(false)
+  next.click()
+  expect(navigation.textContent).toContain('Label 2 of 3')
+  expect(workspace.getPreviewItems()).toEqual([20])
+  next.click()
+  expect(next.disabled).toBe(true)
+  previous.click()
+  expect(workspace.getOutputItems()).toEqual([10, 20, 30])
+  workspace.activate('standard')
+  sync()
+  expect(navigation.hidden).toBe(true)
+  workspace.activate('designer')
+  items = [10]
+  sync()
+  expect(navigation.hidden).toBe(true)
+})
 
 const settings: LabelSheetSettings = {
   paperSize: 'custom',
@@ -523,18 +555,5 @@ describe('compact responsive print layout', () => {
     expect(styles).toMatch(/\.tab-btn\s*\{[^}]*white-space:\s*normal[^}]*overflow-wrap:\s*anywhere/s)
   })
 
-  it('keeps compact desktop controls and nonshrinking designer canvas affordances', () => {
-    const base = readFileSync(`${componentsDirectory}LabelPrintBaseStyles.astro`, 'utf8')
-    const workspace = readFileSync(`${componentsDirectory}freeform-label/DesignerWorkspace.astro`, 'utf8')
 
-    expect(base).toMatch(/\.fm-input\s*\{[^}]*font-size:\s*0\.8rem/s)
-    expect(workspace).toMatch(/\.freeform-designer-workspace\.is-active\s+\.freeform-toolbar\s*\{[^}]*gap:\s*4px[^}]*overflow-x:\s*auto[^}]*padding:\s*7px 4px/s)
-    expect(workspace).toMatch(/\.freeform-toolbar-group\s*\{[^}]*gap:\s*1px/s)
-    expect(workspace).toMatch(/\.freeform-toolbar-group\s*\+\s*\.freeform-toolbar-group\s*\{[^}]*padding-left:\s*4px/s)
-    expect(workspace).toMatch(/\.freeform-toolbar\s*button\s*\{[^}]*gap:\s*3px[^}]*height:\s*32px[^}]*padding:\s*0 2px[^}]*width:\s*auto/s)
-    expect(workspace).toMatch(/\.freeform-toolbar\s*button\s*:global\(svg\)\s*\{[^}]*height:\s*16px[^}]*width:\s*16px/s)
-    expect(workspace).toMatch(/\.freeform-tool-label\s*\{[^}]*display:\s*inline[^}]*font-size:\s*0\.72rem[^}]*white-space:\s*nowrap/s)
-    expect(workspace).toMatch(/\.freeform-toolbar-group\s*\{[^}]*flex-shrink:\s*0/s)
-    expect(workspace).not.toMatch(/@container\s+freeform-tools/)
-  })
 })

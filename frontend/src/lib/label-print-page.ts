@@ -1,3 +1,4 @@
+import { getAbortSignal } from './abort'
 import {
   LABEL_EXPORT_PIXEL_RATIO,
   captureLabelElement,
@@ -426,6 +427,18 @@ export function bindLabelPreviewZoom(
 ): LabelPreviewZoomBinding {
   const root = options.previewRoot.closest('.preview-container') ?? document
   const slider = requireElement(root, 'preview-zoom-slider', HTMLInputElement)
+  const menu = root.querySelector<HTMLDetailsElement>('.preview-zoom-menu')
+  if (menu) {
+    document.addEventListener('pointerdown', event => {
+      if (event.target instanceof Node && !menu.contains(event.target)) menu.open = false
+    }, { signal: getAbortSignal() })
+    menu.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !menu.open) return
+      event.stopPropagation()
+      menu.open = false
+      menu.querySelector('summary')?.focus()
+    })
+  }
   const binding = bindPreviewZoomControls({
     zoomInput: slider,
     slider,
@@ -659,6 +672,7 @@ export function applyBatchLabelPreviewZoom(previewRoot: HTMLElement, zoomPercent
     '.freeform-canvas-host > .label-wrapper',
   ))
   const labels = [...directWrappers, ...canvasWrappers].map(wrapper => {
+    if (wrapper.classList.contains('is-designer-output-only')) return null
     const label = Array.from(wrapper.children).find(
       (element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains('label-preview'),
     )
@@ -700,6 +714,7 @@ export const PRINT_WORKSPACE_ROUTES = {
 
 export interface PrintWorkspaceSnapshot<T> extends ResolvedPrintWorkspace {
   config: PrintWorkspaceRouteConfig
+  previewIndex: number
   representativeItem: T | undefined
   previewItems: T[]
   outputItems: T[]
@@ -727,8 +742,9 @@ export function resolvePrintWorkspace(
 export function getPrintWorkspacePreviewItems<T>(
   mode: PrintWorkspaceMode,
   items: readonly T[],
+  index = 0,
 ): T[] {
-  return mode === 'designer' ? items.slice(0, 1) : [...items]
+  return mode === 'designer' ? items.slice(index, index + 1) : [...items]
 }
 
 export function getPrintWorkspaceOutputItems<T>(items: readonly T[]): T[] {
@@ -739,21 +755,31 @@ export function createPrintWorkspaceCoordinator<T>(
   options: PrintWorkspaceCoordinatorOptions<T>,
 ) {
   let activeMode = options.initialMode
+  let previewIndex = 0
 
   const getState = (mode = activeMode): PrintWorkspaceSnapshot<T> => {
     const items = getPrintWorkspaceOutputItems(options.getItems())
+    previewIndex = Math.max(0, Math.min(previewIndex, items.length - 1))
     const source = options.getSheetSource()
     const resolved = resolvePrintWorkspace(mode, source)
     return {
       ...resolved,
       config: options.config,
-      representativeItem: items[0],
-      previewItems: getPrintWorkspacePreviewItems(mode, items),
+      previewIndex,
+      representativeItem: items[previewIndex],
+      previewItems: getPrintWorkspacePreviewItems(mode, items, previewIndex),
       outputItems: items,
     }
   }
 
   return {
+    selectPreview(index: number) {
+      const previous = getState().previewIndex
+      previewIndex = Number.isFinite(index) ? Math.trunc(index) : previous
+      const state = getState()
+      if (state.previewIndex !== previous) options.onModeChange(state)
+      return state
+    },
     activate(mode: PrintWorkspaceMode) {
       activeMode = mode
       const state = getState()
@@ -763,8 +789,8 @@ export function createPrintWorkspaceCoordinator<T>(
     getState,
     getActiveMode: () => activeMode,
     getSource: () => resolvePrintWorkspace(activeMode, options.getSheetSource()).source,
-    getRepresentativeItem: () => options.getItems()[0],
-    getPreviewItems: () => getPrintWorkspacePreviewItems(activeMode, options.getItems()),
+    getRepresentativeItem: () => getState().representativeItem,
+    getPreviewItems: () => getState().previewItems,
     getOutputItems: () => getPrintWorkspaceOutputItems(options.getItems()),
   }
 }
@@ -772,15 +798,20 @@ export function createPrintWorkspaceCoordinator<T>(
 export function syncDesignerRepresentativeElements(
   mode: PrintWorkspaceMode,
   elements: readonly HTMLElement[],
+  previewIndex = 0,
 ) {
   elements.forEach((element, index) => {
-    const representative = mode === 'designer' && index === 0
-    const outputOnly = mode === 'designer' && index > 0
+    const representative = mode === 'designer' && index === previewIndex
+    const outputOnly = mode === 'designer' && !representative
     element.classList.toggle('is-designer-representative', representative)
     element.classList.toggle('is-designer-output-only', outputOnly)
     if (outputOnly) element.setAttribute('aria-hidden', 'true')
     else element.removeAttribute('aria-hidden')
   })
+  // The shared editor targets the first label; output uses the original item order.
+  const active = elements[previewIndex]
+  if (mode === 'designer') active?.parentElement?.prepend(active)
+  else elements[0]?.parentElement?.append(...elements)
 }
 
 interface PrintWorkspaceTabsOptions {
@@ -814,6 +845,10 @@ export function readPrintWorkspaceMode(
 export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
   let activeMode = options.initialMode ?? readPrintWorkspaceMode(options.storageKey)
   const buttons = Array.from(options.buttons)
+  const zoom = options.designerWorkspace?.closest('.preview-container')?.querySelector('.preview-zoom-bar')
+  const zoomParent = zoom?.parentNode
+  const zoomNext = zoom?.nextSibling ?? null
+  const zoomSlot = options.designerWorkspace?.querySelector('.freeform-zoom-slot')
 
   const activate = (mode: PrintWorkspaceMode) => {
     activeMode = mode
@@ -837,6 +872,11 @@ export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
     options.sidebar?.classList.toggle('sidebar-wide', mode === 'designer')
     options.sidebar?.classList.toggle('sidebar-sheets-wide', sheetMode)
     options.designerWorkspace?.classList.toggle('is-active', mode === 'designer')
+    if (zoom && zoomParent && zoomSlot) {
+      if (mode === 'designer') zoomSlot.appendChild(zoom)
+      else zoomParent.insertBefore(zoom, zoomNext)
+      zoom.querySelector('details')?.removeAttribute('open')
+    }
     writeStorageValue(options.storageKey, mode)
     options.sheetControls?.setOutputMode(
       mode === 'sheets' ? 'sheet' : 'individual',

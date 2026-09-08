@@ -51,8 +51,9 @@ export interface LabelTextElement extends LabelElementBase {
   verticalAlign?: 'top' | 'middle' | 'bottom'
   color: string
   wrap: boolean
-  /** Preserves shrink-to-fit titles from legacy presets. */
+  /** Shrink to fit; wrapped text uses at most two lines. */
   fitToWidth?: boolean
+  minFontSizeMm?: number
 }
 
 export interface LabelQrElement extends LabelElementBase {

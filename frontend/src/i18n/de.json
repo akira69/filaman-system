@@ -1377,6 +1377,10 @@
     "spoolProfileLoaded": "Spulenprofil-Daten geladen"
   },
   "labelDesigner": {
+    "previewSelectedLabels": "Ausgewählte Etiketten ansehen",
+    "previousLabel": "Vorheriges Etikett",
+    "nextLabel": "Nächstes Etikett",
+    "previewPosition": "Etikett {current} von {total}",
     "standardPresets": "Standardvorlagen",
     "qrCenterLogo": "Logo in der Mitte",
     "qrCenterColor": "Farbe",
@@ -1438,6 +1442,10 @@
     "alignTop": "Oben",
     "alignMiddle": "Mitte",
     "alignBottom": "Unten",
+    "minFontSizeMm": "Mindestgröße (mm)",
+    "wrapLimitHint": "Auf höchstens 2 Zeilen umbrechen.",
+    "textDoesNotFit": "Der Text passt nicht in der Mindestgröße. Vergrößere das Feld oder kürze den Text.",
+    "scaleToFit": "Passend skalieren",
     "wordWrap": "Zeilenumbruch",
     "alignLeft": "Links",
     "alignCenter": "Zentriert",

@@ -23,6 +23,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   import { bindLabelSheetControls, createLabelSheetPdf } from '../../lib/label-sheet'
   import { labelAssetContentUrl } from '../../lib/freeform-label/assets'
   import {
+    bindDesignerPreviewNavigation,
     bindLabelPrintWorkspaceTabs,
     getPrintDesignerDesign,
     initPrintDesignerEditor,
@@ -155,6 +156,8 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
       else queueRenderAll()
     },
   })
+
+  const syncPreviewNavigation = bindDesignerPreviewNavigation(workspace)
 
   // Extra field definitions from API: {key, label, target_type}
   let efDefs: ExtraFieldDef[] = []
@@ -421,6 +424,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   async function renderAllNow(mode: PrintWorkspaceMode, output: boolean) {
     const token = ++renderVersion
     const isStale = () => token !== renderVersion || activeMode !== mode
+      || workspace.getState(mode).previewIndex !== workspaceState.previewIndex
     const workspaceState = workspace.getState(mode)
     const source = workspaceState.source
     const representative = workspaceState.representativeItem
@@ -442,7 +446,8 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
       await new Promise(r => setTimeout(r, 0))
     }
     if (isStale()) return
-    syncDesignerRepresentativeElements(mode, getLabelSourceElements())
+    syncDesignerRepresentativeElements(mode, getLabelSourceElements(), workspaceState.previewIndex)
+    syncPreviewNavigation()
     syncOutputPreview()
     saveSettings()
   }

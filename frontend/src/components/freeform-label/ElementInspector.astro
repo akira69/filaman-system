@@ -35,8 +35,11 @@ const verticalAlignmentOptions = [
     <div data-element-section="text" hidden>
       <div class="freeform-geometry-grid">
         <label><span data-i18n="labelDesigner.font">Font</span><select class="fm-input" data-element-prop="fontFamily"><option>Space Grotesk</option><option>Roboto Condensed</option><option>Fraunces</option><option>Space Mono</option></select></label>
-        <label><span data-i18n="labelDesigner.fontSizeMm">Size (mm)</span><input class="fm-input" type="number" min="1" max="20" step="0.1" data-element-prop="fontSizeMm" /></label>
         <label><span data-i18n="labelDesigner.weight">Weight</span><select class="fm-input" data-element-prop="fontWeight"><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option></select></label>
+        <div class="freeform-text-size">
+          <label><span data-i18n="labelDesigner.fontSizeMm">Size (mm)</span><input class="fm-input" type="number" min="1" max="20" step="0.1" data-element-prop="fontSizeMm" /></label>
+          <label class="freeform-wrap-field"><input type="checkbox" data-element-prop="fitToWidth" /><span data-i18n="labelDesigner.scaleToFit">Scale to fit</span></label>
+        </div>
         <div class="freeform-alignment-field">
           <span id="freeform-alignment-label" data-i18n="labelDesigner.alignment">Alignment</span>
           <div class="freeform-alignment-buttons" role="group" aria-labelledby="freeform-alignment-label">
@@ -50,6 +53,11 @@ const verticalAlignmentOptions = [
           </div>
         </div>
         <label class="freeform-wrap-field"><input type="checkbox" data-element-prop="wrap" /><span data-i18n="labelDesigner.wordWrap">Word wrap</span></label>
+        <div id="freeform-fit-settings" class="freeform-fit-settings" hidden>
+          <label><span data-i18n="labelDesigner.minFontSizeMm">Minimum size (mm)</span><input class="fm-input" type="number" min="0.265" max="20" step="any" data-element-prop="minFontSizeMm" /></label>
+          <p id="freeform-wrap-limit-hint" data-i18n="labelDesigner.wrapLimitHint">Wrap to at most 2 lines.</p>
+        </div>
+        <p id="freeform-text-fit-warning" class="freeform-text-fit-warning" role="alert" hidden></p>
       </div>
     </div>
 
@@ -130,6 +138,14 @@ const verticalAlignmentOptions = [
   .freeform-inspector-fields, .freeform-field { display: grid; gap: 10px; }
   .freeform-geometry-grid { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .freeform-geometry-grid label, .freeform-field { font-size: 0.72rem; }
+  .freeform-text-size { align-items: end; display: flex; gap: 12px; grid-column: 1 / -1; }
+  .freeform-text-size > label:first-child { display: grid; gap: 4px; width: 90px; }
+  .freeform-text-size > .freeform-wrap-field { align-self: center; margin-top: 18px; }
+  .freeform-fit-settings { grid-column: 1 / -1; }
+  .freeform-fit-settings label { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+  .freeform-fit-settings input { width: 90px; }
+  .freeform-fit-settings p { color: var(--text-muted); font-size: 0.7rem; margin: 6px 0 0; }
+  .freeform-text-fit-warning { color: var(--danger, #dc2626); font-size: 0.72rem; grid-column: 1 / -1; margin: 0; }
   .freeform-alignment-field { font-size: 0.72rem; min-width: 0; }
   .freeform-alignment-buttons { display: flex; gap: 4px; margin-top: 4px; }
   .freeform-alignment-buttons button { align-items: center; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; display: inline-flex; flex: 0 0 30px; height: 30px; justify-content: center; padding: 5px; width: 30px; }

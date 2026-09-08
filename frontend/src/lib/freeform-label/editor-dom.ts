@@ -25,7 +25,7 @@ export interface BindFreeformEditorDomOptions {
 
 const elementProperties = [
   'x', 'y', 'w', 'h', 'template', 'fontFamily', 'fontSizeMm',
-  'fontWeight', 'align', 'assetId', 'mode', 'strokeWidthMm', 'wrap',
+  'fontWeight', 'align', 'assetId', 'mode', 'strokeWidthMm', 'wrap', 'fitToWidth', 'minFontSizeMm',
 ] as const
 function isElementProperty(value: string): value is typeof elementProperties[number] {
   return elementProperties.some(property => property === value)
@@ -132,8 +132,10 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     })
     queryAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[data-element-prop]').forEach(input => {
       const property = input.dataset.elementProp
-      if (!selected || !property || !isElementProperty(property) || !(property in selected)) return
-      const value: unknown = Reflect.get(selected, property)
+      if (!selected || !property || !isElementProperty(property)) return
+      const value: unknown = property === 'minFontSizeMm' && selected.type === 'text'
+        ? selected.minFontSizeMm ?? (selected.wrap ? Math.min(2, selected.fontSizeMm) : 0.265)
+        : Reflect.get(selected, property)
       if (input instanceof HTMLInputElement && input.type === 'radio') {
         input.checked = input.value === value
       } else if (input instanceof HTMLInputElement && input.type === 'checkbox') {
@@ -144,6 +146,20 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
         input.value = value
       }
     })
+    const fitSettings = query<HTMLElement>('#freeform-fit-settings')
+    if (fitSettings) fitSettings.hidden = selected?.type !== 'text' || !selected.fitToWidth
+    const minimumSize = query<HTMLInputElement>('[data-element-prop="minFontSizeMm"]')
+    if (minimumSize && selected?.type === 'text') minimumSize.max = String(selected.fontSizeMm)
+    const wrapHint = query<HTMLElement>('#freeform-wrap-limit-hint')
+    if (wrapHint) wrapHint.hidden = selected?.type !== 'text' || !selected.wrap
+    const fitWarning = query<HTMLElement>('#freeform-text-fit-warning')
+    if (fitWarning) {
+      const failed = selected?.type === 'text'
+        ? queryAll<HTMLElement>('[data-label-output-error]').find(node => node.dataset.labelElementId === selected.id)
+        : undefined
+      fitWarning.hidden = !failed
+      fitWarning.textContent = failed?.dataset.labelOutputError ?? ''
+    }
     const json = query<HTMLTextAreaElement>('#freeform-element-json')
     if (json && document.activeElement !== json) json.value = controller.getSelectedJson()
     const template = query<HTMLTextAreaElement>('#freeform-template')
@@ -328,11 +344,14 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       if (!editable || (input instanceof HTMLInputElement && input.type === 'radio' && !input.checked)) return
       const property = input.dataset.elementProp
       if (!property || !isElementProperty(property)) return
-      const numeric = ['x', 'y', 'w', 'h', 'fontSizeMm', 'fontWeight', 'strokeWidthMm'].includes(property)
+      const selected = controller.getSelectedElement()
+      const numeric = ['x', 'y', 'w', 'h', 'fontSizeMm', 'minFontSizeMm', 'fontWeight', 'strokeWidthMm'].includes(property)
       mutate(() => controller.updateSelected({
         [property]: input instanceof HTMLInputElement && input.type === 'checkbox'
           ? input.checked : numeric ? Number(input.value) : input.value,
-        ...(property === 'wrap' && input instanceof HTMLInputElement && input.checked ? { fitToWidth: false } : {}),
+        ...(property === 'fitToWidth' && input instanceof HTMLInputElement && input.checked
+          ? { minFontSizeMm: selected?.type === 'text'
+            ? selected.minFontSizeMm ?? Math.min(2, selected.fontSizeMm) : 2 } : {}),
       } as Partial<LabelDesignElement>))
     })
   })
@@ -585,7 +604,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     if (!editable || !controller.getSelectedId() || !(event.target instanceof Element)) return
     const target = event.target
     if (canvasHost?.contains(target) && target.closest('[data-label-element-id], [data-label-selection-for]')) return
-    const editingControl = target.closest('.freeform-toolbar, #freeform-element-inspector, #freeform-field-dock, .freeform-text-toolbar, .freeform-shape-menu')
+    const editingControl = target.closest('.freeform-command-bar, .freeform-toolbar, #freeform-element-inspector, #freeform-field-dock, .freeform-text-toolbar, .freeform-shape-menu')
     if (editingControl && root.contains(editingControl)) return
     const selection = canvasHost?.ownerDocument.getSelection()
     if (selection?.anchorNode && canvasHost?.contains(selection.anchorNode)) selection.removeAllRanges()

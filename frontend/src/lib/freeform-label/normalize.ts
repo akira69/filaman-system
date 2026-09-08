@@ -77,12 +77,13 @@ function normalizeTextElement(
   label: LabelDesignV2['label'],
   z: number,
 ): LabelTextElement {
+  const fontSizeMm = numberIn(raw.fontSizeMm, 1, 20, 3.2)
   return {
     ...normalizeBox(raw, label, z, { w: 20, h: 8 }, { type: 'text' }),
     type: 'text',
     template: textOr(raw.template),
     fontFamily: choiceOr(raw.fontFamily, LABEL_FONT_FAMILIES, 'Space Grotesk'),
-    fontSizeMm: numberIn(raw.fontSizeMm, 1, 20, 3.2),
+    fontSizeMm,
     fontWeight: choiceOr(raw.fontWeight, LABEL_FONT_WEIGHTS, 600),
     italic: booleanOr(raw.italic, false),
     underline: booleanOr(raw.underline, false),
@@ -92,6 +93,8 @@ function normalizeTextElement(
     color: colorOr(raw.color, '#000000'),
     wrap: booleanOr(raw.wrap, true),
     ...(typeof raw.fitToWidth === 'boolean' ? { fitToWidth: raw.fitToWidth } : {}),
+    ...(typeof raw.minFontSizeMm === 'number'
+      ? { minFontSizeMm: numberIn(raw.minFontSizeMm, 0.265, fontSizeMm, Math.min(2, fontSizeMm)) } : {}),
   }
 }
 

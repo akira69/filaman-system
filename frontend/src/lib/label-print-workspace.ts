@@ -7,8 +7,32 @@ import {
   type FreeformLabelDesignerEditorOptions,
 } from './freeform-label/editor-controller'
 import type { LabelKind } from './freeform-label/types'
-import { bindPrintWorkspaceTabs, type LabelOutputControls, type PrintWorkspaceMode } from './label-print-page'
+import { bindPrintWorkspaceTabs, type createPrintWorkspaceCoordinator, type LabelOutputControls, type PrintWorkspaceMode } from './label-print-page'
 import type { LabelSheetControls, LabelSheetSource } from './label-sheet'
+import { getAbortSignal } from './abort'
+import { t } from './i18n'
+
+export function bindDesignerPreviewNavigation<T>(workspace: ReturnType<typeof createPrintWorkspaceCoordinator<T>>) {
+  const navigation = document.getElementById('freeform-preview-navigation')
+  const buttons = navigation?.querySelectorAll<HTMLButtonElement>('[data-preview-step]') ?? []
+  const position = navigation?.querySelector('[data-preview-position]')
+  const sync = () => {
+    const { mode, previewIndex, outputItems } = workspace.getState()
+    if (navigation) navigation.hidden = mode !== 'designer' || outputItems.length <= 1
+    if (position) position.textContent = t('labelDesigner.previewPosition', {
+      current: String(previewIndex + 1), total: String(outputItems.length),
+    })
+    buttons.forEach(button => {
+      button.disabled = Number(button.dataset.previewStep) < 0 ? previewIndex === 0 : previewIndex >= outputItems.length - 1
+    })
+  }
+  buttons.forEach(button => button.addEventListener('click', () => {
+    workspace.selectPreview(workspace.getState().previewIndex + Number(button.dataset.previewStep))
+    sync()
+  }, { signal: getAbortSignal() }))
+  sync()
+  return sync
+}
 
 export function bindLabelPrintWorkspaceTabs(options: {
   sheetControls: LabelSheetControls
