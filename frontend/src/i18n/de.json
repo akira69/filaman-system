@@ -1624,7 +1624,7 @@
     "fitToCell": "Label in Zelle einpassen",
     "pngUnavailableInSheetMode": "PNG-Export im Labelpapiermodus nicht verfügbar",
     "btnPrint": "Drucken",
-    "createLabelForSheet": "Etikett für diesen Bogen erstellen",
+    "createLabelForSize": "Etikett für diese Größe erstellen",
     "sheetLabelSize": "Etikettengröße: {width} × {height} mm",
     "sheetLabelName": "Etikett {size}",
     "useOnSheet": "Auf diesem Bogen verwenden",

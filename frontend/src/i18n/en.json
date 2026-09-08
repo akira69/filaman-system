@@ -1623,7 +1623,7 @@
     "fitToCell": "Fit label to cell",
     "pngUnavailableInSheetMode": "PNG export not available in label paper mode",
     "btnPrint": "Print",
-    "createLabelForSheet": "Create label for this sheet",
+    "createLabelForSize": "Create label for this size",
     "sheetLabelSize": "Label size: {width} × {height} mm",
     "sheetLabelName": "{size} label",
     "useOnSheet": "Use on this sheet",

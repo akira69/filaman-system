@@ -1,4 +1,4 @@
-import type { LabelDesignElement } from './types'
+import type { LabelDesignElement, LabelDesignV2 } from './types'
 
 type GeometryElement = {
   type: LabelDesignElement['type']
@@ -43,4 +43,29 @@ export function getElementMinimumSize(element: GeometryElement): number {
 export function isProportionalElement(element: GeometryElement): boolean {
   return element.type === 'qr'
     || (element.type === 'shape' && (element.shape === 'circle' || element.shape === 'square'))
+}
+
+
+/** Fit a copy to a new canvas without distorting the existing layout or QR codes. */
+export function resizeLabelDesign(source: LabelDesignV2, widthMm: number, heightMm: number): LabelDesignV2 {
+  const design = structuredClone(source)
+  const scale = Math.min(widthMm / design.label.widthMm, heightMm / design.label.heightMm)
+  const offsetX = (widthMm - design.label.widthMm * scale) / 2
+  const offsetY = (heightMm - design.label.heightMm * scale) / 2
+  design.elements.forEach(element => {
+    element.x = element.x * scale + offsetX
+    element.y = element.y * scale + offsetY
+    element.w *= scale
+    element.h *= scale
+    if (element.type === 'text') {
+      element.fontSizeMm *= scale
+      if (element.minFontSizeMm !== undefined) element.minFontSizeMm *= scale
+    }
+    if ('radiusMm' in element) element.radiusMm *= scale
+    if ('strokeWidthMm' in element) element.strokeWidthMm *= scale
+  })
+  design.label.widthMm = widthMm
+  design.label.heightMm = heightMm
+  design.label.marginMm *= scale
+  return design
 }
