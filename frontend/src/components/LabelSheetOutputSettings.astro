@@ -15,6 +15,15 @@
         </div>
         <button id="sheet-edit-designer" class="sheet-edit-designer" type="button" data-i18n="labelPrint.editDesignedLabel" disabled>Edit label</button>
       </div>
+      <div id="sheet-label-size" class="sheet-label-size"></div>
+      <details class="sheet-create-label">
+        <summary data-i18n="labelPrint.createLabelForSheet">Create label for this sheet</summary>
+        <div class="sheet-create-options">
+          <button type="button" class="sheet-edit-designer" data-sheet-create="standard" data-i18n="labelPrint.standardLabel">Standard Label</button>
+          <button type="button" class="sheet-edit-designer" data-sheet-create="designer" data-i18n="spools.labelDesigner">Label Designer</button>
+        </div>
+      </details>
+      <p id="sheet-create-size-hint" class="sheet-label-size" hidden></p>
     </fieldset>
     <div>
       <select id="output-mode" hidden aria-hidden="true" tabindex="-1">
@@ -154,6 +163,10 @@
     margin: 0;
     padding: 10px;
   }
+
+  .sheet-label-size { color: var(--text-muted); font-size: 0.75rem; margin: 0; }
+  .sheet-create-label summary { color: var(--accent); cursor: pointer; font-size: 0.78rem; font-weight: 600; }
+  .sheet-create-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
   .sheet-source-picker legend { color: var(--text-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; padding: 0 4px; text-transform: uppercase; }
 

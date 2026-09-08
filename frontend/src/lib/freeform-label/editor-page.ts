@@ -125,8 +125,8 @@ export async function initFreeformLabelDesignerEditor(
   }
   const syncGeometry = () => {
     const label = controller.getLabel()
-    if (width) width.value = formatDesignerNumber(label.widthMm)
-    if (height) height.value = formatDesignerNumber(label.heightMm)
+    if (width) width.value = formatDesignerNumber(label.widthMm, 3)
+    if (height) height.value = formatDesignerNumber(label.heightMm, 3)
     if (margin) margin.value = formatDesignerNumber(label.marginMm)
     if (border) border.checked = label.border
   }
@@ -199,12 +199,11 @@ export async function initFreeformLabelDesignerEditor(
       ? readStoredPresets(storageKey).find(preset => preset.name === name) ?? null
       : null
   }
-  const loadSettings = () => {
-    const design = loadStoredFreeformLabelDesign({
+  const loadSettings = (design = loadStoredFreeformLabelDesign({
       settingsKey: options.settingsKey,
       presetsKey: options.presetsKey,
       kind: entityType,
-    })
+    })) => {
     controller.reset(design)
     syncGeometry()
     domBinding?.sync()
@@ -239,16 +238,21 @@ export async function initFreeformLabelDesignerEditor(
     setStatus(options.translate?.('labelDesigner.presetLoaded', 'Preset loaded.') ?? 'Preset loaded.')
   })
   listen(presetSelect, 'change', syncSidebarMutationControls)
-  listen<MouseEvent>(presetSave, 'click', () => {
-    if (!editorEditable) return
+  const savePreset = async (asNew = false): Promise<string | null> => {
+    if (!editorEditable) return null
     const name = presetName?.value.trim() ?? ''
     if (!name) {
       setStatus(options.translate?.('labelDesigner.presetNameRequired', 'Enter a preset name.') ?? 'Enter a preset name.')
       presetName?.focus()
-      return
+      return null
+    }
+    if (asNew && readStoredPresets(options.presetsKey).some(preset => preset.name === name)) {
+      setStatus(options.translate?.('labelDesigner.presetNameExists', 'That name is already in use. Choose a new name.') ?? 'That name is already in use. Choose a new name.')
+      presetName?.focus()
+      return null
     }
     const design = controller.getDesign()
-    void enqueuePresetMutation(async () => {
+    return enqueuePresetMutation(async () => {
       const presets = readStoredPresets(options.presetsKey)
       const index = presets.findIndex(candidate => candidate.name === name)
       const existing = index >= 0 ? presets[index] : null
@@ -267,11 +271,14 @@ export async function initFreeformLabelDesignerEditor(
       setStatus(saved
         ? (options.translate?.('labelDesigner.presetSaved', 'Preset saved.') ?? 'Preset saved.')
         : (options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.'))
+      return saved ? name : null
     }, () => {
       refreshPresetList()
       setStatus(options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.')
+      return null
     })
-  })
+  }
+  listen<MouseEvent>(presetSave, 'click', () => { void savePreset() })
   listen<MouseEvent>(presetDelete, 'click', () => {
     if (!editorEditable) return
     const value = presetSelect?.value ?? ''
@@ -328,6 +335,7 @@ export async function initFreeformLabelDesignerEditor(
 
   return {
     getDesign: controller.getDesign,
+    savePreset,
     loadSettings,
     refresh: () => domBinding?.refresh() ?? Promise.resolve(),
     refreshInteractions: () => domBinding?.refreshInteractions() ?? Promise.resolve(),

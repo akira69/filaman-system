@@ -3,12 +3,12 @@ import {
   initFreeformLabelDesignerEditor,
   loadFreeformLabelDesign,
   loadFreeformLabelPresetDesign,
-  persistFreeformLabelDesign,
   type FreeformLabelDesignerEditorOptions,
 } from './freeform-label/editor-controller'
 import type { LabelKind } from './freeform-label/types'
 import { bindPrintWorkspaceTabs, type createPrintWorkspaceCoordinator, type LabelOutputControls, type PrintWorkspaceMode } from './label-print-page'
-import type { LabelSheetControls, LabelSheetSource } from './label-sheet'
+import { createSheetLabelDesign } from './freeform-label/standard-presets'
+import type { SheetLabelSetup, LabelSheetControls, LabelSheetSource } from './label-sheet'
 import { getAbortSignal } from './abort'
 import { t } from './i18n'
 
@@ -76,7 +76,7 @@ export function getPrintDesignerDesign(options: {
 }
 
 export async function initPrintDesignerEditor(options: FreeformLabelDesignerEditorOptions & {
-  sheetControls: Pick<LabelSheetControls, 'setDesignerPresets'>
+  sheetControls: Pick<LabelSheetControls, 'setDesignerPresets' | 'setSource'>
   activateDesigner: () => void
 }) {
   const { sheetControls, activateDesigner, ...editorOptions } = options
@@ -105,10 +105,55 @@ export async function initPrintDesignerEditor(options: FreeformLabelDesignerEdit
       })
       : null
     if (!design) return
-    persistFreeformLabelDesign(options.settingsKey, design)
-    editor.loadSettings()
+    editor.loadSettings(design)
     activateDesigner()
   }, { signal: events.signal })
+
+  const returnButtons = document.querySelectorAll<HTMLButtonElement>('[data-sheet-use]')
+  const nameInput = document.getElementById('freeform-preset-name') as HTMLInputElement | null
+  let suggestedName = ''
+  let existingSheetPresetNames = new Set<string>()
+  const activateTab = (mode: PrintWorkspaceMode) => document.querySelector<HTMLButtonElement>(`[data-workspace-mode="${mode}"]`)?.click()
+  document.addEventListener('label-sheet-create', event => {
+    const setup = (event as CustomEvent<SheetLabelSetup>).detail
+    if (!setup || !Number.isFinite(setup.widthMm) || !Number.isFinite(setup.heightMm)) return
+    if (setup.type === 'designer') {
+      editor.loadSettings(createSheetLabelDesign(setup.widthMm, setup.heightMm))
+      const names = getFreeformLabelPresetNames(options.presetsKey)
+      existingSheetPresetNames = new Set(names)
+      suggestedName = setup.name
+      for (let suffix = 2; names.includes(suggestedName); suffix++) suggestedName = `${setup.name} (${suffix})`
+      if (nameInput) nameInput.value = suggestedName
+      activateDesigner()
+    } else {
+      const width = document.getElementById('input-width') as HTMLInputElement | null
+      const height = document.getElementById('input-height') as HTMLInputElement | null
+      if (width && height) {
+        width.value = String(Number(setup.widthMm.toFixed(3)))
+        height.value = String(Number(setup.heightMm.toFixed(3)))
+        width.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      activateTab('standard')
+    }
+    returnButtons.forEach(button => { button.hidden = button.dataset.sheetUse !== setup.type })
+  }, { signal: events.signal })
+  nameInput?.addEventListener('focus', () => {
+    if (nameInput.value === suggestedName) nameInput.select()
+  }, { signal: events.signal })
+  returnButtons.forEach(button => button.addEventListener('click', async () => {
+    if (button.disabled) return
+    button.disabled = true
+    try {
+      if (button.dataset.sheetUse === 'designer') {
+        const name = await editor.savePreset(existingSheetPresetNames.has(nameInput?.value.trim() ?? ''))
+        if (!name) return
+        sheetControls.setDesignerPresets(getFreeformLabelPresetNames(options.presetsKey), name)
+        sheetControls.setSource({ type: 'designer', presetName: name })
+      } else sheetControls.setSource({ type: 'standard' })
+      returnButtons.forEach(candidate => { candidate.hidden = true })
+      activateTab('sheets')
+    } finally { button.disabled = false }
+  }, { signal: events.signal }))
 
   return {
     ...editor,
