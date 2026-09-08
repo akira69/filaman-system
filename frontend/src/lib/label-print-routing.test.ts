@@ -6,16 +6,19 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL as NodeURL } from 'node:url'
 
 import LabelSheetOutputSettings from '../components/LabelSheetOutputSettings.astro'
+import StandardLabelSettingsPanel from '../components/StandardLabelSettingsPanel.astro'
+import { SPOOL_LABEL_PRESETS_KEY } from './label-preset-storage'
 import PrintActionFooter from '../components/PrintActionFooter.astro'
 import PrintSidebar from '../components/PrintSidebar.astro'
 import DesignerSidebar from '../components/freeform-label/DesignerSidebar.astro'
 import DesignerWorkspace from '../components/freeform-label/DesignerWorkspace.astro'
 import { createDefaultLabelDesign } from './freeform-label/defaults'
 import { bindDesignerPreviewNavigation, bindLabelPrintWorkspaceTabs, getPrintDesignerDesign, initPrintDesignerEditor } from './label-print-workspace'
-import { createPrintWorkspaceCoordinator, getLabelOutputControls, PRINT_WORKSPACE_ROUTES } from './label-print-page'
+import { createPrintWorkspaceCoordinator, getLabelSettingsControls, getStandardLabelSettings, getLabelOutputControls, PRINT_WORKSPACE_ROUTES } from './label-print-page'
 
 import {
   bindLabelSheetControls,
+  getLabelSheetLayout,
   renderLabelSheetPreview,
   syncLabelSheetIndividualExportState,
   type LabelSheetControls,
@@ -556,4 +559,81 @@ describe('compact responsive print layout', () => {
   })
 
 
+})
+
+it('creates correctly sized labels in both editors and saves a named design back to its sheet', async () => {
+  const container = await AstroContainer.create()
+  document.body.innerHTML = [
+    await container.renderToString(PrintSidebar, { props: { backLabel: 'Back' } }),
+    await container.renderToString(StandardLabelSettingsPanel),
+    await container.renderToString(DesignerSidebar),
+    await container.renderToString(DesignerWorkspace),
+    await container.renderToString(LabelSheetOutputSettings),
+    await container.renderToString(PrintActionFooter),
+  ].join('')
+  let failSave = false
+  vi.stubGlobal('fetch', vi.fn(async (_url, init) => new Response(
+    init?.method === 'PUT' ? '{}' : '[]', { status: init?.method === 'PUT' && failSave ? 500 : 200 },
+  )))
+  const controls = bindLabelSheetControls(() => undefined)
+  const tabs = bindLabelPrintWorkspaceTabs({
+    sheetControls: controls, outputControls: getLabelOutputControls(), storageKey: 'test-mode', initialMode: 'standard', onChange: () => undefined,
+  })
+  const editor = await initPrintDesignerEditor({
+    presetsKey: SPOOL_LABEL_PRESETS_KEY, settingsKey: 'test-design', entityType: 'spool',
+    onChange: async () => undefined, sheetControls: controls, activateDesigner: () => tabs.activate('designer'),
+  })
+  try {
+    tabs.activate('sheets')
+    const preset = document.querySelector<HTMLSelectElement>('#sheet-preset')!
+    preset.value = [...preset.options].find(option => option.textContent?.startsWith('Letter'))!.value
+    preset.dispatchEvent(new Event('change'))
+    document.querySelector<HTMLButtonElement>('#sheet-load-preset')!.click()
+    const dimensions = getLabelSheetLayout(controls.getSettings())
+    document.querySelector<HTMLButtonElement>('[data-sheet-create="standard"]')!.click()
+    expect(tabs.getActiveMode()).toBe('standard')
+    const standard = getStandardLabelSettings(getLabelSettingsControls(), { normalizeInputs: true })
+    expect(standard.widthMm).toBeCloseTo(dimensions.cellWidthMm, 3)
+    expect(standard.heightMm).toBeCloseTo(dimensions.cellHeightMm, 3)
+    document.querySelector<HTMLButtonElement>('[data-sheet-use="standard"]')!.click()
+    expect(tabs.getActiveMode()).toBe('sheets')
+    expect(controls.getSource().type).toBe('standard')
+
+    document.querySelector<HTMLButtonElement>('[data-sheet-create="designer"]')!.click()
+    expect(tabs.getActiveMode()).toBe('designer')
+    expect(editor.getDesign().label.widthMm).toBe(dimensions.cellWidthMm)
+    expect(editor.getDesign().label.heightMm).toBe(dimensions.cellHeightMm)
+    const qr = editor.getDesign().elements.find(element => element.type === 'qr')!
+    expect(qr.w).toBe(qr.h)
+    const name = document.querySelector<HTMLInputElement>('#freeform-preset-name')!
+    expect(name.value).toContain('Letter')
+    expect(name.value).toContain('66.7 × 25.4 mm')
+    name.focus()
+    expect(name.selectionEnd! - name.selectionStart!).toBe(name.value.length)
+    name.value = 'My sheet labels'
+    name.dispatchEvent(new Event('input'))
+    const width = document.querySelector<HTMLInputElement>('#freeform-label-width')!
+    width.dispatchEvent(new Event('change'))
+    expect(name.value).toBe('My sheet labels')
+    const use = document.querySelector<HTMLButtonElement>('[data-sheet-use="designer"]')!
+    failSave = true
+    use.click()
+    await vi.waitFor(() => expect(use.disabled).toBe(false))
+    expect(tabs.getActiveMode()).toBe('designer')
+    failSave = false
+    // Saving manually first must still allow returning to the sheet.
+    expect(await editor.savePreset()).toBe('My sheet labels')
+    use.click()
+    await vi.waitFor(() => expect(tabs.getActiveMode()).toBe('sheets'))
+    expect(controls.getSource()).toEqual({ type: 'designer', presetName: 'My sheet labels' })
+    const saved = JSON.parse(localStorage.getItem(SPOOL_LABEL_PRESETS_KEY)!)
+    expect(saved.presets.find((item: {name: string}) => item.name === name.value).data.design).toEqual(editor.getDesign())
+
+    document.querySelector<HTMLButtonElement>('[data-sheet-create="designer"]')!.click()
+    name.value = 'My sheet labels'
+    use.click()
+    await vi.waitFor(() => expect(use.disabled).toBe(false))
+    expect(tabs.getActiveMode()).toBe('designer')
+    expect(JSON.parse(localStorage.getItem(SPOOL_LABEL_PRESETS_KEY)!)).toEqual(saved)
+  } finally { editor.destroy() }
 })

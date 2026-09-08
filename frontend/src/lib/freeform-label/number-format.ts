@@ -1,3 +1,3 @@
-export function formatDesignerNumber(value: number): string {
-  return String(Number(value.toFixed(2)))
+export function formatDesignerNumber(value: number, decimals = 2): string {
+  return String(Number(value.toFixed(decimals)))
 }

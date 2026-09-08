@@ -151,3 +151,28 @@ const standards = createStandards()
 export function getStandardLabelPresets(): StandardLabelPreset[] {
   return structuredClone(standards)
 }
+
+
+/** Start a sheet-sized label from the closest compact layout, keeping QR codes square. */
+export function createSheetLabelDesign(widthMm: number, heightMm: number): LabelDesignV2 {
+  const candidates = getStandardLabelPresets().filter(preset => /^(Compact|Slim|Vertical Compact) /.test(preset.name))
+  const distance = (design: LabelDesignV2) => Math.abs(Math.log((design.label.widthMm / design.label.heightMm) / (widthMm / heightMm)))
+  const design = candidates.sort((a, b) => distance(a.data.design) - distance(b.data.design))[0].data.design
+  const scale = Math.min(widthMm / design.label.widthMm, heightMm / design.label.heightMm)
+  const offsetX = (widthMm - design.label.widthMm * scale) / 2
+  const offsetY = (heightMm - design.label.heightMm * scale) / 2
+  design.elements.forEach(element => {
+    element.x = element.x * scale + offsetX
+    element.y = element.y * scale + offsetY
+    element.w *= scale
+    element.h *= scale
+    if (element.type === 'text') {
+      element.fontSizeMm *= scale
+      element.fitToWidth = true
+      element.minFontSizeMm = Math.min(2, element.fontSizeMm)
+    }
+  })
+  design.label.widthMm = widthMm
+  design.label.heightMm = heightMm
+  return design
+}

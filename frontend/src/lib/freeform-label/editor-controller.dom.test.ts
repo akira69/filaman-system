@@ -1209,7 +1209,7 @@ describe('freeform editor responsive lifecycle', () => {
     }
   })
 
-  it('shows designer numbers with at most two decimals without changing stored precision', async () => {
+  it('shows label sizes to three decimals and element geometry to two without changing stored precision', async () => {
     await renderRealDesignerEditor()
     let precisionId = 0
     const design = createDefaultLabelDesign('spool', () => `precision-${++precisionId}`)
@@ -1233,7 +1233,7 @@ describe('freeform editor responsive lifecycle', () => {
     expect(document.querySelector<HTMLInputElement>('[data-element-prop="x"]')!.value).toBe('23.13')
     expect(document.querySelector<HTMLInputElement>('[data-element-prop="y"]')!.value).toBe('11.87')
     expect(document.querySelector<HTMLInputElement>('[data-element-prop="w"]')!.value).toBe('20')
-    expect(document.querySelector<HTMLInputElement>('#freeform-label-width')!.value).toBe('63.46')
+    expect(document.querySelector<HTMLInputElement>('#freeform-label-width')!.value).toBe('63.456')
     expect(document.querySelector<HTMLInputElement>('#freeform-label-height')!.value).toBe('40')
     expect(document.querySelector<HTMLInputElement>('#freeform-label-margin')!.value).toBe('0')
 

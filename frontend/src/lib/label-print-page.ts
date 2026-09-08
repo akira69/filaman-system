@@ -493,8 +493,8 @@ export interface LabelSettingsControls {
 }
 
 const LABEL_SETTING_INPUTS = [
-  ['width', 'width', 'widthMm', 20, 200, 60, 0, 1],
-  ['height', 'height', 'heightMm', 10, 120, 40, 0, 1],
+  ['width', 'width', 'widthMm', 20, 200, 60, 3, 1],
+  ['height', 'height', 'heightMm', 10, 120, 40, 3, 1],
   ['fontSize', 'fontSize', 'fontScale', 50, 200, 100, 0, 100],
   ['qrSize', 'qrSize', 'qrSizeMm', 8, 40, 18, 1, 1],
 ] as const
