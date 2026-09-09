@@ -2,14 +2,15 @@ import logging
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
+from app.api.v1.printers import pick_bambuddy_driver, _is_primary_worker, _proxy_to_primary
 from app.core.cache import response_cache
 from app.core.db_utils import get_next_available_id
 from app.api.v1.schemas import PaginatedResponse
@@ -43,6 +44,7 @@ from app.models import (
     SpoolStatus,
     SystemExtraField,
 )
+from app.utils.colors import normalize_hex_color
 from app.utils.query_params import parse_multi_int, parse_multi_str
 
 logger = logging.getLogger(__name__)
@@ -666,14 +668,42 @@ async def resolve_filament_from_tag(
         await db.flush()
         manufacturer_created = True
 
-    filament_result = await db.execute(
-        select(Filament)
-        .where(Filament.manufacturer_id == manufacturer.id)
-        .where(func.upper(Filament.material_type) == material_type_raw)
-        .order_by(Filament.id.asc())
-        .limit(1)
-    )
-    filament = filament_result.scalar_one_or_none()
+    target_color_hex: str | None = None
+    if data.color_hex and str(data.color_hex).strip():
+        try:
+            target_color_hex = normalize_hex_color(data.color_hex)
+        except ValueError:
+            target_color_hex = None
+
+    filament = None
+    if target_color_hex:
+        color_query = (
+            select(Filament)
+            .join(Filament.filament_colors)
+            .join(FilamentColor.color)
+            .where(Filament.manufacturer_id == manufacturer.id)
+            .where(func.upper(Filament.material_type) == material_type_raw)
+            .where(
+                or_(
+                    func.upper(Color.hex_code) == target_color_hex,
+                    func.upper(func.substr(Color.hex_code, 1, 7)) == target_color_hex[:7],
+                )
+            )
+            .order_by(Filament.id.asc())
+            .limit(1)
+        )
+        filament_result = await db.execute(color_query)
+        filament = filament_result.scalar_one_or_none()
+
+    if filament is None:
+        filament_result = await db.execute(
+            select(Filament)
+            .where(Filament.manufacturer_id == manufacturer.id)
+            .where(func.upper(Filament.material_type) == material_type_raw)
+            .order_by(Filament.id.asc())
+            .limit(1)
+        )
+        filament = filament_result.scalar_one_or_none()
 
     filament_created = False
     filament_updated = False
@@ -696,6 +726,27 @@ async def resolve_filament_from_tag(
         db.add(filament)
         await db.flush()
         filament_created = True
+
+        if target_color_hex:
+            color_match = await db.execute(
+                select(Color).where(
+                    or_(
+                        func.upper(Color.hex_code) == target_color_hex,
+                        func.upper(func.substr(Color.hex_code, 1, 7)) == target_color_hex[:7],
+                    )
+                ).limit(1)
+            )
+            matched_color = color_match.scalar_one_or_none()
+            if matched_color is None:
+                matched_color = Color(name=target_color_hex, hex_code=target_color_hex)
+                db.add(matched_color)
+                await db.flush()
+            fc = FilamentColor(
+                filament_id=filament.id,
+                color_id=matched_color.id,
+                position=1,
+            )
+            db.add(fc)
     else:
         designation = filament.designation
 
@@ -1276,3 +1327,110 @@ async def delete_filament(
     await db.commit()
     await event_bus.publish({"event": "filaments_changed"})
     response_cache.delete("filament_types")
+
+
+class DefaultFilamentSlicerProfileBody(BaseModel):
+    base_name: str = Field(..., min_length=1)
+    apply_to_existing: bool = False
+
+
+class ModelFilamentSlicerProfileBody(BaseModel):
+    base_name: str | None = None
+    clear_override: bool = False
+
+
+@router_filaments.post("/{filament_id}/slicer-profile/default")
+@router_filaments.put("/{filament_id}/slicer-profile/default")
+async def set_filament_default_slicer_profile(
+    filament_id: int,
+    body: DefaultFilamentSlicerProfileBody,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Set default Bambu cloud slicer profile for a filament."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/filaments/{filament_id}/slicer-profile/default",
+            json_body=body.model_dump(),
+        )
+    filament = await db.get(Filament, filament_id)
+    if not filament:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Filament not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "set_default_filament_profile", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support default slicer profiles",
+            },
+        )
+    result = await method(
+        int(filament_id),
+        base_name=body.base_name.strip(),
+        apply_to_existing=body.apply_to_existing,
+    )
+    return result
+
+
+@router_filaments.post("/{filament_id}/slicer-profile/models/{model}")
+@router_filaments.put("/{filament_id}/slicer-profile/models/{model}")
+async def set_filament_model_slicer_profile(
+    filament_id: int,
+    model: str,
+    body: ModelFilamentSlicerProfileBody,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Set or clear a per-model slicer profile override on a filament."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/filaments/{filament_id}/slicer-profile/models/{model}",
+            json_body=body.model_dump(),
+        )
+    filament = await db.get(Filament, filament_id)
+    if not filament:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Filament not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "set_filament_profile_for_model", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support per-model slicer profiles",
+            },
+        )
+    if body.clear_override:
+        result = await method(
+            int(filament_id), model.strip().upper(), clear_override=True
+        )
+    else:
+        if not body.base_name or not body.base_name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "invalid_params",
+                    "message": "base_name is required",
+                },
+            )
+        result = await method(
+            int(filament_id),
+            model.strip().upper(),
+            base_name=body.base_name.strip(),
+            link_others=False,
+        )
+    return result

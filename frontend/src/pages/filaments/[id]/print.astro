@@ -1,0 +1,577 @@
+---
+import LabelPrintPageShell from '../../../components/LabelPrintPageShell.astro'
+
+export function getStaticPaths() {
+  return [
+    {params: {id: 'detail'}},
+  ];
+}
+---
+
+<LabelPrintPageShell
+  title="FilaMan - Print Filament Label"
+  variant="single"
+  backLabel="Back to Filament"
+  backLabelId="label-back"
+  idLabelI18n="filaments.showFilamentId"
+  idFallback="Filament ID"
+  resetLabel="Defaults"
+>
+  <div slot="preview" id="label-preview" class="label-preview"></div>
+</LabelPrintPageShell>
+
+<script>
+  import { initLabelDesignerEditor } from '../../../lib/label-designer-editor'
+  import {
+    buildSpoolDataFromFlatLabel,
+    getDesignerLabelDimensions,
+    loadDesignerSettingsFromStorage,
+    renderDesignerLabel,
+  } from '../../../lib/label-designer'
+  import { captureLabelElement } from '../../../lib/label-export'
+  import { bindLabelSheetControls, createLabelSheetPdf } from '../../../lib/label-sheet'
+  import {
+    buildStandardLabelDataFromFlat,
+    getStandardLabelDimensions,
+    renderStandardLabel,
+    type StandardExtraField,
+  } from '../../../lib/label-standard'
+  import {
+    buildCanonicalFilamentLabelData,
+    buildFilamentLabelDataFromParams,
+    buildReducedStandardFilamentExtraFieldsFromLabelData,
+    type FilamentExtraField,
+  } from '../../../lib/filament-label-data'
+  import {
+    LABEL_EXPORT_PIXEL_RATIO,
+    bindLabelOutputPreview,
+    bindLabelOutputs,
+    bindLabelPreviewZoom,
+    bindLabelSettingsEvents,
+    bindPrintPageSidebarCollapse,
+    bindPrintDesignerTabs,
+    appendLabelSettingsCheckbox,
+    buildLabelExportBaseName,
+    captureLabelSettings,
+    createPreviewRenderCoordinator,
+    getLabelOutputControls,
+    getLabelSettingsControls,
+    getStandardLabelSettings,
+    readVersionedLabelSettings,
+    readPrintDesignerTab,
+    removeStorageValue,
+    resetLabelSettings,
+    restoreLabelSettings,
+    safeSetLocalStorage,
+    type LabelSettingsState,
+    type PrintDesignerTab,
+  } from '../../../lib/label-print-page'
+  import {
+    dedupeLabelExtraFields,
+    isBuiltInLabelField,
+    scopeLabelExtraField,
+  } from '../../../lib/label-extra-fields'
+  import {
+    FILAMENT_LABEL_PRESETS_KEY,
+    hydrateLabelPresetStorage,
+    SPOOL_LABEL_PRESETS_KEY,
+  } from '../../../lib/label-preset-storage'
+  import { buildEntityExtraFieldsForPrint } from '../../../lib/entity-extra-fields'
+  import { type SystemExtraFieldDef } from '../../../lib/extra-fields'
+  import { consumeScopedLabelFields } from '../../../lib/label-print-session'
+
+  bindPrintPageSidebarCollapse()
+
+  type TranslationWindow = Window & { __t?: (key: string) => string }
+  type SavedLabelSettings = LabelSettingsState & { _v?: unknown }
+
+  const translate = (key: string, fallback = '') => (window as TranslationWindow).__t?.(key) || fallback
+
+  // Filament ID from URL: /filaments/{id}/print
+  const id = window.location.pathname.split('/').filter(Boolean).slice(-2, -1)[0]
+
+  const params = new URLSearchParams(window.location.search)
+  const labelData = buildFilamentLabelDataFromParams(id, params)
+
+  let extraFields: FilamentExtraField[] = []
+  try {
+    const parsed = consumeScopedLabelFields<FilamentExtraField>('filaman-filament-label-extra-fields', id)
+    if (Array.isArray(parsed)) {
+      extraFields = dedupeLabelExtraFields(
+        parsed.filter((item) => (
+          item &&
+          typeof item.key === 'string' &&
+          typeof item.label === 'string' &&
+          typeof item.value === 'string'
+        )),
+        'filament',
+      )
+    }
+  } catch { /* ignore */ }
+
+  const LABEL_SETTINGS_KEY = 'filaman-filament-label-settings'
+  const LABEL_SETTINGS_VERSION = 2
+  const ACTIVE_TAB_KEY = 'filaman-filament-label-active-tab'
+  const DESIGNER_PRESETS_KEY = FILAMENT_LABEL_PRESETS_KEY
+  const DESIGNER_SETTINGS_KEY = 'filaman-filament-label-designer-v1'
+
+  // SpoolData for the template parser — filament fields map directly
+  function buildSpoolData() {
+    return buildSpoolDataFromFlatLabel({
+      id: labelData.id,
+      filament_id: labelData.id,
+      designation: labelData.designation,
+      manufacturer: labelData.manufacturer,
+      manufacturer_id: labelData.manufacturer_id || labelData.mfr_id,
+      type: labelData.type,
+      subtype: labelData.subtype,
+      color: labelData.color,
+      colors: labelData.colors,
+      hex_code: labelData.hex_code,
+      color_hexes: labelData.color_hexes,
+      color_mode: labelData.color_mode,
+      multi_color_style: labelData.multi_color_style,
+      extruder_temp: labelData.extruder_temp,
+      bed_temp: labelData.bed_temp,
+      raw_material_weight_g: labelData.raw_material_weight_g,
+      weight: labelData.weight,
+      diameter: labelData.diameter,
+      finish: labelData.finish,
+      density: labelData.density,
+      price: labelData.price,
+      manufacturer_color_name: labelData.manufacturer_color_name,
+      default_spool_weight_g: labelData.default_spool_weight_g,
+      spool_outer_diameter_mm: labelData.spool_outer_diameter_mm,
+      spool_width_mm: labelData.spool_width_mm,
+      spool_material: labelData.spool_material,
+      shop_url: labelData.shop_url,
+      extraFields,
+    })
+  }
+
+  const settingsControls = getLabelSettingsControls()
+  const outputControls = getLabelOutputControls()
+  const {
+    pngButton: exportPngBtn,
+    amlButton: exportAmlBtn,
+    pdfButton: exportPdfBtn,
+  } = outputControls
+  const labelPreview = document.getElementById('label-preview') as HTMLElement
+  const previewRoot = document.querySelector<HTMLElement>('.preview-scroll-area')!
+  await hydrateLabelPresetStorage()
+  let syncOutputPreview: () => void = () => undefined
+  const sheetControls = bindLabelSheetControls(() => syncOutputPreview())
+
+  // --- Tab switching ---
+  const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn')
+  const tabPanelPrint = document.getElementById('tab-panel-print') as HTMLElement | null
+  const tabPanelDesigner = document.getElementById('tab-panel-designer') as HTMLElement | null
+  const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null
+  let activePreviewTab: PrintDesignerTab = readPrintDesignerTab(ACTIVE_TAB_KEY)
+  let previewRenderVersion = 0
+  const previewRenders = createPreviewRenderCoordinator()
+
+  function beginPreviewRender(tab: 'print' | 'designer') {
+    activePreviewTab = tab
+    const token = ++previewRenderVersion
+    return () => activePreviewTab !== tab || token !== previewRenderVersion
+  }
+
+  function renderActiveTab(tab: PrintDesignerTab) {
+    if (!tabPanelPrint || !tabPanelDesigner || !labelPreview) return
+    if (tab === 'designer') {
+      const isStale = beginPreviewRender('designer')
+      labelPreview.innerHTML = ''
+      labelPreview.style.border = ''
+      labelPreview.style.padding = ''
+      updateDesignerPreview(isStale)
+    } else {
+      const isStale = beginPreviewRender('print')
+      labelPreview.innerHTML = ''
+      labelPreview.style.border = 'none'
+      labelPreview.style.padding = ''
+      updatePreview(isStale)
+    }
+  }
+
+  function getActiveLabelDimensions() {
+    if (activePreviewTab === 'designer') {
+      return getDesignerLabelDimensions(loadDesignerSettingsFromStorage({
+        presetsKey: DESIGNER_PRESETS_KEY,
+        settingsKey: DESIGNER_SETTINGS_KEY,
+      }))
+    }
+    return getStandardLabelDimensions(getStandardSettings())
+  }
+
+  const tabControls = bindPrintDesignerTabs({
+    buttons: tabBtns,
+    printPanel: tabPanelPrint!,
+    designerPanel: tabPanelDesigner!,
+    resetButton: resetBtn,
+    sidebar: document.querySelector<HTMLElement>('.print-sidebar'),
+    storageKey: ACTIVE_TAB_KEY,
+    initialTab: activePreviewTab,
+    onChange: tab => {
+      activePreviewTab = tab
+      renderActiveTab(tab)
+    },
+  })
+
+
+  // ─── Label Designer ────────────────────────────────────────────────────────
+
+  function getDesignerExtraFields() {
+    return extraFields.filter(ef => !isBuiltInLabelField(ef.source ?? 'filament', ef.key, ef.label))
+  }
+
+  const designerEditor = await initLabelDesignerEditor({
+    extraFields: getDesignerExtraFields(),
+    entityType: 'filament',
+    getFilamentColorHex: () => labelData.hex_code,
+    getFilamentColorHexes: () => labelData.color_hexes,
+    getFilamentMultiColorStyle: () => labelData.multi_color_style,
+    safeSetLocalStorage,
+    translate,
+    onChange: () => updateDesignerPreview(),
+    presetsKey: DESIGNER_PRESETS_KEY,
+    settingsKey: DESIGNER_SETTINGS_KEY,
+    entityLabel: 'Filament',
+    crossPresetsKey: SPOOL_LABEL_PRESETS_KEY,
+    ownPresetsLabel: translate('filaments.dsPresetsOwnGroup', 'Filament presets'),
+    crossPresetsLabel: translate('filaments.dsPresetsCrossGroupSpool', 'Spool presets'),
+  })
+
+  // ─── Preview zoom ─────────────────────────────────────────────────────────
+
+  const ZOOM_KEY = 'filaman-filament-label-zoom-v1'
+  const previewZoom = bindLabelPreviewZoom({
+    storageKey: ZOOM_KEY,
+    previewRoot,
+    min: 50,
+    onChange: () => syncOutputPreview(),
+    getTranslation: translate,
+  })
+  syncOutputPreview = bindLabelOutputPreview({
+    previewRoot,
+    sheetControls,
+    outputControls,
+    getSourceElements: () => [labelPreview],
+    getDimensions: getActiveLabelDimensions,
+    getZoom: previewZoom.getZoom,
+    applyIndividualZoom: zoom => {
+      labelPreview.style.transform = `scale(${zoom / 100})`
+      labelPreview.style.transformOrigin = 'center center'
+    },
+  })
+
+  // Label logo state
+  let labelLogoUrl: string | null = null
+  let labelLogoLoaded = false
+
+  async function loadLabelLogo() {
+    if (!labelData.mfr_id) return
+    try {
+      const resp = await fetch(`/api/v1/manufacturers/${labelData.mfr_id}/label-logo`, {
+        credentials: 'include',
+      })
+      if (resp.ok) {
+        const blob = await resp.blob()
+        labelLogoUrl = URL.createObjectURL(blob)
+        labelLogoLoaded = true
+      }
+    } catch {
+      // Label logo not available — fall back to manufacturer name text
+    }
+  }
+
+  // Build extra field checkboxes dynamically
+  const extraFieldsTitle = document.getElementById('title-extra-fields')!
+  const extraFieldsCheckboxes = document.getElementById('extra-fields-checkboxes')!
+  const extraFieldChecks: {key: string, label: string, value: string, checkbox: HTMLInputElement}[] = []
+
+  const parsedClassicSettings = readVersionedLabelSettings<SavedLabelSettings>(
+    LABEL_SETTINGS_KEY,
+    LABEL_SETTINGS_VERSION,
+  )
+  const savedExtraFieldSettings = parsedClassicSettings?.extraFields
+    && typeof parsedClassicSettings.extraFields === 'object'
+    ? parsedClassicSettings.extraFields as Record<string, boolean>
+    : {}
+
+  if (extraFields.length > 0) {
+    extraFieldsTitle.style.display = ''
+    extraFieldsCheckboxes.style.display = ''
+
+    for (const ef of extraFields) {
+      const cb = appendLabelSettingsCheckbox({
+        container: extraFieldsCheckboxes,
+        id: `check-ef-${ef.key}`,
+        label: ef.label,
+        checked: savedExtraFieldSettings[ef.key] || false,
+        onChange: () => updatePreview(),
+      })
+      extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
+    }
+  }
+
+  function saveSettings() {
+    const settings: SavedLabelSettings = {
+      ...captureLabelSettings(settingsControls),
+      _v: LABEL_SETTINGS_VERSION,
+      extraFields: Object.fromEntries(
+        extraFieldChecks.map(({ key, checkbox }) => [key, checkbox.checked]),
+      ),
+    }
+    safeSetLocalStorage(LABEL_SETTINGS_KEY, JSON.stringify(settings))
+  }
+
+  function loadSettings() {
+    if (!parsedClassicSettings) return
+    restoreLabelSettings(settingsControls, parsedClassicSettings)
+    getStandardLabelSettings(settingsControls, { normalizeInputs: true })
+  }
+
+  loadSettings()
+
+  // i18n labels
+  document.getElementById('tab-btn-print')!.textContent = translate('labelPrint.standardLabel', 'Standard Label')
+  document.getElementById('tab-btn-designer')!.textContent = translate('spools.labelDesigner', 'Label Designer')
+  document.getElementById('title-settings')!.textContent = translate('labelPrint.settingsTitle', 'Label Settings')
+  document.getElementById('label-width-text')!.textContent = translate('spools.labelWidth', 'Width (mm)')
+  document.getElementById('label-height-text')!.textContent = translate('spools.labelHeight', 'Height (mm)')
+  document.getElementById('label-font-size-text')!.textContent = translate('spools.fontSize', 'Font Size (%)')
+  document.getElementById('label-qr-size-text')!.textContent = translate('spools.qrSize', 'QR Size (mm)')
+  document.getElementById('label-show-logo')!.textContent = translate('spools.showLogo', 'Logo')
+  document.getElementById('label-show-qr')!.textContent = translate('spools.showQRCode', 'QR Code')
+  document.getElementById('label-show-id')!.textContent = translate('filaments.showFilamentId', 'Filament ID')
+  document.getElementById('label-show-mfr')!.textContent = translate('spools.showManufacturer', 'Manufacturer')
+  document.getElementById('label-show-mat')!.textContent = translate('spools.showMaterial', 'Material')
+  document.getElementById('label-show-color')!.textContent = translate('spools.showColor', 'Color')
+  document.getElementById('label-show-color-swatch')!.textContent = translate('spools.showColorSwatch', 'Color Swatch')
+  document.getElementById('label-show-color-hex')!.textContent = translate('labelPrint.checkColorHex', 'Color Hex')
+  if (extraFields.length > 0) {
+    document.getElementById('title-extra-fields')!.textContent = translate('filaments.extraFieldsLabel', 'Filament Extra Fields')
+  }
+  const backBtn = document.getElementById('btn-back') as HTMLAnchorElement
+  backBtn.href = `/filaments/${id}`
+  document.getElementById('label-back')!.textContent = translate('filaments.backToFilament', 'Back to Filament')
+  exportPngBtn.textContent = translate('labelPrint.btnExportPng', 'Export PNG')
+  exportAmlBtn.textContent = translate('labelPrint.btnExportAml', 'Export AML')
+  exportPdfBtn.textContent = translate('labelPrint.btnExportPdf', 'Export PDF')
+  document.getElementById('btn-print')!.textContent = translate('common.print', 'Print')
+  document.getElementById('btn-reset')!.textContent = translate('spools.resetDefaults', 'Defaults')
+
+  function getSelectedStandardExtraFields(): StandardExtraField[] {
+    return extraFieldChecks
+      .filter(ef => ef.checkbox.checked)
+      .map(ef => ({ label: ef.label, value: ef.value }))
+  }
+
+  const getStandardSettings = () =>
+    getStandardLabelSettings(settingsControls, { normalizeInputs: true })
+
+  function buildStandardData() {
+    return buildStandardLabelDataFromFlat({
+      id: labelData.id,
+      designation: labelData.designation,
+      manufacturer: labelData.manufacturer,
+      material: labelData.type,
+      colorName: labelData.color,
+      hexCode: labelData.hex_code,
+      colorHexes: labelData.color_hexes,
+      multiColorStyle: labelData.multi_color_style,
+      extraFields: getSelectedStandardExtraFields(),
+      qrUrl: `${window.location.origin}/filaments/${labelData.id}`,
+    })
+  }
+
+  function updatePreview(isStale = () => false) {
+    if (activePreviewTab !== 'print') return Promise.resolve()
+    return previewRenders.run(() => renderStandardPreview(isStale))
+  }
+
+  async function renderStandardPreview(isStale = () => false) {
+    if (activePreviewTab !== 'print') return
+    if (isStale() || activePreviewTab !== 'print') return
+
+    labelPreview.style.border = 'none'
+    labelPreview.style.padding = ''
+    await renderStandardLabel({
+      element: labelPreview,
+      data: buildStandardData(),
+      settings: getStandardSettings(),
+      logoUrl: labelLogoLoaded ? labelLogoUrl : null,
+      isStale: () => isStale() || activePreviewTab !== 'print',
+    })
+    if (isStale() || activePreviewTab !== 'print') return
+    saveSettings()
+    syncOutputPreview()
+  }
+
+  bindLabelSettingsEvents({
+    controls: settingsControls,
+    resetButton: resetBtn,
+    onChange: () => {
+      void updatePreview()
+    },
+    onReset: resetStandardSettings,
+  })
+
+  // ─── Designer preview ─────────────────────────────────────────────────────
+
+  function updateDesignerPreview(isStale = () => false) {
+    if (activePreviewTab !== 'designer') return Promise.resolve()
+    return previewRenders.run(() => renderDesignerPreview(isStale))
+  }
+
+  async function renderDesignerPreview(isStale = () => false) {
+    if (activePreviewTab !== 'designer') return
+    if (isStale() || activePreviewTab !== 'designer') return
+
+    await renderDesignerLabel({
+      element: labelPreview,
+      previewBorder: false,
+      settings: loadDesignerSettingsFromStorage({
+        presetsKey: DESIGNER_PRESETS_KEY,
+        settingsKey: DESIGNER_SETTINGS_KEY,
+      }),
+      data: buildSpoolData(),
+      logoUrl: labelLogoLoaded ? labelLogoUrl : null,
+      isStale: () => isStale() || activePreviewTab !== 'designer',
+      entityPath: 'filaments',
+    })
+    if (isStale() || activePreviewTab !== 'designer') return
+    syncOutputPreview()
+  }
+
+  // ─── Export ───────────────────────────────────────────────────────────────
+
+  function buildExportBaseName() {
+    const mode = activePreviewTab === 'designer' ? 'designer' : 'classic'
+    return buildLabelExportBaseName([
+      'filament-label',
+      labelData.manufacturer,
+      labelData.designation,
+      labelData.id ? `filament-${labelData.id}` : '',
+      mode,
+    ], `filament-label-${mode}`)
+  }
+
+  function resetStandardSettings() {
+    removeStorageValue(LABEL_SETTINGS_KEY)
+    resetLabelSettings(settingsControls)
+    for (const ef of extraFieldChecks) {
+      ef.checkbox.checked = false
+    }
+    void updatePreview()
+  }
+
+  // The requested API entity is canonical. URL values only fill fields omitted by
+  // the API, and scoped session fields are optional one-time UI handoff data.
+  await (async () => {
+    let apiFilament: Record<string, unknown> | null = null
+    try {
+      const filRes = await fetch(`/api/v1/filaments/${id}`, { credentials: 'include' })
+      if (filRes.ok) {
+        apiFilament = await filRes.json() as Record<string, unknown>
+        Object.assign(labelData, buildCanonicalFilamentLabelData(apiFilament, labelData, id))
+      }
+    } catch { /* retain query fallbacks when the API is unavailable */ }
+
+    if (extraFields.length === 0) {
+      let definitions: unknown = []
+      try {
+        const response = await fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' })
+        if (response.ok) definitions = await response.json()
+      } catch { /* custom fields remain optional */ }
+
+      const definitionList = Array.isArray(definitions)
+        ? definitions
+        : (definitions && typeof definitions === 'object' && 'items' in definitions)
+          ? (definitions as { items?: unknown }).items
+          : []
+      const systemDefinitions = Object.fromEntries(
+        (Array.isArray(definitionList) ? definitionList : [])
+          .map((definition: SystemExtraFieldDef) => [
+            definition.key,
+            { ...definition, field_type: definition.field_type || 'text' },
+          ]),
+      ) as Record<string, SystemExtraFieldDef>
+      const customPrintFields = apiFilament
+        ? buildEntityExtraFieldsForPrint(
+            apiFilament.custom_fields as Record<string, unknown> | undefined,
+            apiFilament.custom_field_definitions as Record<string, unknown> | undefined,
+            systemDefinitions,
+            true,
+          ).filter(field => !isBuiltInLabelField('filament', field.key, field.label))
+        : []
+      const standardFilamentFields = buildReducedStandardFilamentExtraFieldsFromLabelData(labelData)
+
+      if (standardFilamentFields.length > 0 || customPrintFields.length > 0) {
+        function makeEfCheckbox(ef: FilamentExtraField) {
+          extraFields.push({ ...ef, source: ef.source ?? 'filament' })
+          const cb = appendLabelSettingsCheckbox({
+            container: extraFieldsCheckboxes,
+            id: `check-ef-${ef.key}`,
+            label: ef.label,
+            checked: savedExtraFieldSettings[ef.key] || false,
+            onChange: () => updatePreview(),
+          })
+          extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
+        }
+
+        for (const sfd of standardFilamentFields) {
+          makeEfCheckbox(sfd)
+        }
+
+        for (const field of customPrintFields) {
+          makeEfCheckbox(scopeLabelExtraField(field, 'filament'))
+        }
+
+        extraFieldsTitle.style.display = ''
+        extraFieldsCheckboxes.style.display = ''
+        document.getElementById('title-extra-fields')!.textContent = translate('filaments.extraFieldsLabel', 'Filament Extra Fields')
+
+        designerEditor.refreshExtraFields(getDesignerExtraFields())
+      }
+    }
+
+    await loadLabelLogo()
+    tabControls.activate(readPrintDesignerTab(ACTIVE_TAB_KEY))
+  })()
+
+  bindLabelOutputs({
+    controls: outputControls,
+    collection: {
+      getItems: () => [labelPreview],
+      prepare: () => previewRenders.settle(),
+      capture: labelElement => captureLabelElement(labelElement, {
+        pixelRatio: LABEL_EXPORT_PIXEL_RATIO,
+        resetTransform: true,
+      }),
+      getDimensions: getActiveLabelDimensions,
+      browserPrint: {
+        previewRoot,
+        sheetControls,
+        getIndividualPages: () => [labelPreview],
+      },
+      pngName: () => `${buildExportBaseName()}.png`,
+      pngArchiveName: () => `${buildExportBaseName()}.zip`,
+      pdfName: () =>
+        sheetControls.getOutputMode() === 'sheet'
+          ? `${buildExportBaseName()}-sheet.pdf`
+          : `${buildExportBaseName()}.pdf`,
+      allowPartialPng: false,
+      allowPartialPdf: false,
+    },
+    getTranslation: translate,
+    createPdf: (pages, defaultCreate) =>
+      sheetControls.getOutputMode() === 'sheet'
+        ? createLabelSheetPdf(
+            pages,
+            sheetControls.getSettings(),
+          )
+        : defaultCreate(),
+  })
+</script>

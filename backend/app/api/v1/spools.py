@@ -1,12 +1,18 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, or_, select, update
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
+from sqlalchemy import String, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
+from app.api.v1.printers import (
+    pick_bambuddy_driver,
+    _is_primary_worker,
+    _proxy_to_primary,
+)
 from app.core.cache import response_cache
 from app.core.db_utils import get_next_available_id, get_next_available_ids
 from app.api.v1.schemas import PaginatedResponse
@@ -24,6 +30,7 @@ from app.api.v1.schemas_spool import (
     MoveLocationRequest,
     SpoolBulkCreate,
     SpoolCreate,
+    SpoolEventColor,
     SpoolEventResponse,
     SpoolResponse,
     SpoolStatusResponse,
@@ -39,9 +46,41 @@ from app.models import (
     Spool,
     SpoolEvent,
     SpoolStatus,
+    SystemExtraField,
 )
 from app.services.spool_service import SpoolService
 from app.utils.query_params import parse_multi_int, parse_multi_str
+
+
+async def _reject_driver_managed_create_location(
+    db: AsyncSession, spool_data: dict
+) -> None:
+    """Refuse to claim an AMS/slot location while creating or duplicating.
+
+    Driver-managed locations (see `Location.is_driver_managed`) may only be
+    claimed by the driver itself, after the spool was physically placed. The
+    update endpoints are deliberately not guarded — that is the path drivers
+    use to assign and release slots.
+    """
+    loc_id = spool_data.get("location_id")
+    if not loc_id:
+        return
+    result = await db.execute(select(Location).where(Location.id == loc_id))
+    location = result.scalar_one_or_none()
+    if location is not None and location.is_driver_managed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "driver_managed_location",
+                "message": (
+                    f"Location {location.name!r} is managed by a printer driver "
+                    "and is assigned when the driver detects a spool in that "
+                    "slot. Create the spool without a location instead."
+                ),
+                "location_id": location.id,
+            },
+        )
+
 
 router_locations = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -160,8 +199,23 @@ async def delete_location(
             detail={"code": "not_found", "message": "Location not found"},
         )
 
+    # Only active spools block deletion — archived spools are not counted in the
+    # location's spool_count either (see list_locations), so a location shown as
+    # empty must also be deletable.
+    archived_status_id = (
+        select(SpoolStatus.id).where(SpoolStatus.key == "archived").scalar_subquery()
+    )
     result = await db.execute(
-        select(Spool).where(Spool.location_id == location_id).limit(1)
+        select(Spool)
+        .where(Spool.location_id == location_id)
+        .where(
+            or_(
+                Spool.status_id != archived_status_id,
+                # No "archived" status seeded — treat every spool as blocking
+                archived_status_id.is_(None),
+            )
+        )
+        .limit(1)
     )
     if result.scalar_one_or_none():
         raise HTTPException(
@@ -171,6 +225,11 @@ async def delete_location(
                 "message": "Location has spools, cannot delete",
             },
         )
+
+    # Detach archived spools so the FK does not block the delete
+    await db.execute(
+        update(Spool).where(Spool.location_id == location_id).values(location_id=None)
+    )
 
     await db.delete(location)
     await db.commit()
@@ -342,16 +401,43 @@ async def list_spools(
 
     if search:
         search_term = f"%{search}%"
-        conditions.append(
-            or_(
-                Filament.designation.ilike(search_term),
-                Filament.material_type.ilike(search_term),
-                Filament.manufacturer_color_name.ilike(search_term),
-                Manufacturer.name.ilike(search_term),
-                Spool.lot_number.ilike(search_term),
-                Spool.rfid_uid.ilike(search_term),
+        # RFID: match either slot, and also the separator-less spelling so a
+        # scale searching "04EF1410C82A81" finds the stored "04:EF:14:10:C8:2A:81".
+        compact_term = f"%{search.replace(':', '').replace('-', '').replace(' ', '')}%"
+        or_conditions = [
+            Filament.designation.ilike(search_term),
+            Filament.material_type.ilike(search_term),
+            Filament.manufacturer_color_name.ilike(search_term),
+            Manufacturer.name.ilike(search_term),
+            Spool.lot_number.ilike(search_term),
+            Spool.rfid_uid.ilike(search_term),
+            Spool.rfid_uid_2.ilike(search_term),
+            func.replace(Spool.rfid_uid, ":", "").ilike(compact_term),
+            func.replace(Spool.rfid_uid_2, ":", "").ilike(compact_term),
+        ]
+
+        # Match on the spool ID (optionally entered with a leading '#')
+        id_search = search.strip().lstrip("#").strip()
+        if id_search.isdigit() and len(id_search) <= 18:
+            or_conditions.append(Spool.id == int(id_search))
+
+        # Match on the *values* of defined spool extra fields (custom_fields JSON).
+        # custom_fields[key].as_string() compiles to json_extract(..., '$.key')
+        # on SQLite and custom_fields ->> 'key' on Postgres, so only values are
+        # searched, not the field keys themselves.
+        ef_keys = (
+            await db.execute(
+                select(SystemExtraField.key).where(
+                    SystemExtraField.target_type == "spool"
+                )
             )
-        )
+        ).scalars().all()
+        for key in ef_keys:
+            or_conditions.append(
+                Spool.custom_fields[key].as_string().ilike(search_term)
+            )
+
+        conditions.append(or_(*or_conditions))
         needs_filament_join = True
         needs_manufacturer_join = True
 
@@ -451,6 +537,8 @@ async def create_spool(
 
     spool_data = data.model_dump()
 
+    await _reject_driver_managed_create_location(db, spool_data)
+
     # Cascade fields from Filament if not provided
     if spool_data.get("empty_spool_weight_g") is None:
         spool_data["empty_spool_weight_g"] = (
@@ -485,16 +573,19 @@ async def create_spool(
     if "status_id" not in spool_data or spool_data["status_id"] is None:
         spool_data["status_id"] = status_obj.id
 
-    # Clear rfid_uid from other spools to prevent UNIQUE constraint violation
-    new_rfid = spool_data.get("rfid_uid")
-    if new_rfid:
-        dup_result = await db.execute(select(Spool).where(Spool.rfid_uid == new_rfid))
-        for dup in dup_result.scalars().all():
-            dup.rfid_uid = None
+    # RFID slots go through the service: normalised, and stolen from any
+    # other spool/location that currently holds the chip.
+    rfid_primary = spool_data.pop("rfid_uid", None)
+    rfid_secondary = spool_data.pop("rfid_uid_2", None)
 
     next_id = await get_next_available_id(db, Spool)
     spool = Spool(id=next_id, **spool_data)
     db.add(spool)
+    await db.flush()
+    if rfid_primary or rfid_secondary:
+        await SpoolService(db).set_rfid_uids(
+            spool, rfid_uid=rfid_primary, rfid_uid_2=rfid_secondary
+        )
     await db.commit()
     await event_bus.publish({"event": "spools_changed"})
 
@@ -543,6 +634,8 @@ async def create_spools_bulk(
 
     spool_data = data.model_dump(exclude={"quantity"})
 
+    await _reject_driver_managed_create_location(db, spool_data)
+
     # Cascade fields from Filament if not provided
     if spool_data.get("empty_spool_weight_g") is None:
         spool_data["empty_spool_weight_g"] = (
@@ -575,26 +668,28 @@ async def create_spools_bulk(
         spool_data["status_id"] = status_obj.id
 
     # Unique fields cannot be duplicated across multiple spools
+    rfid_primary = spool_data.pop("rfid_uid", None)
+    rfid_secondary = spool_data.pop("rfid_uid_2", None)
     if data.quantity > 1:
-        spool_data["rfid_uid"] = None
+        rfid_primary = None
+        rfid_secondary = None
         spool_data["external_id"] = None
-
-    # Clear rfid_uid from other spools to prevent UNIQUE constraint violation
-    new_rfid = spool_data.get("rfid_uid")
-    if new_rfid:
-        dup_result = await db.execute(select(Spool).where(Spool.rfid_uid == new_rfid))
-        for dup in dup_result.scalars().all():
-            dup.rfid_uid = None
 
     next_ids = await get_next_available_ids(db, Spool, data.quantity)
     spool_ids = []
     try:
+        created: list[Spool] = []
         for i in range(data.quantity):
             spool = Spool(id=next_ids[i], **spool_data.copy())
             db.add(spool)
+            created.append(spool)
             spool_ids.append(next_ids[i])
 
         await db.flush()
+        if rfid_primary or rfid_secondary:
+            await SpoolService(db).set_rfid_uids(
+                created[0], rfid_uid=rfid_primary, rfid_uid_2=rfid_secondary
+            )
         await db.commit()
     except Exception as e:
         await db.rollback()
@@ -640,6 +735,10 @@ async def update_spools_bulk(
             spool.low_weight_threshold_g = data.low_weight_threshold_g
         if data.empty_spool_weight_g is not None:
             spool.empty_spool_weight_g = data.empty_spool_weight_g
+        if data.clear_spool_core_weight:
+            spool.spool_core_weight_g = None
+        elif data.spool_core_weight_g is not None:
+            spool.spool_core_weight_g = data.spool_core_weight_g
         if data.purchase_price is not None:
             spool.purchase_price = data.purchase_price
         count += 1
@@ -690,11 +789,41 @@ async def list_all_spool_events(
 ):
     result = await db.execute(
         select(SpoolEvent)
+        .options(
+            selectinload(SpoolEvent.spool)
+            .selectinload(Spool.filament)
+            .options(
+                selectinload(Filament.manufacturer),
+                selectinload(Filament.filament_colors).selectinload(
+                    FilamentColor.color
+                ),
+            )
+        )
         .order_by(SpoolEvent.event_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    items = list(result.scalars().all())
+    events = list(result.scalars().all())
+
+    items: list[SpoolEventResponse] = []
+    for ev in events:
+        resp = SpoolEventResponse.model_validate(ev)
+        filament = ev.spool.filament if ev.spool else None
+        if filament is not None:
+            resp.manufacturer_name = (
+                filament.manufacturer.name if filament.manufacturer else None
+            )
+            resp.manufacturer_color_name = filament.manufacturer_color_name
+            resp.material_type = filament.material_type
+            resp.colors = [
+                SpoolEventColor(
+                    hex_code=fc.color.hex_code,
+                    name=fc.display_name_override or fc.color.name,
+                )
+                for fc in sorted(filament.filament_colors, key=lambda c: c.position)
+                if fc.color is not None
+            ]
+        items.append(resp)
 
     count_result = await db.execute(select(func.count()).select_from(SpoolEvent))
     total = count_result.scalar() or 0
@@ -738,15 +867,15 @@ async def update_spool(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    # Clear rfid_uid from other spools to prevent UNIQUE constraint violation
     update_data = data.model_dump(exclude_unset=True)
-    new_rfid = update_data.get("rfid_uid")
-    if new_rfid and new_rfid != spool.rfid_uid:
-        dup_result = await db.execute(
-            select(Spool).where(Spool.rfid_uid == new_rfid, Spool.id != spool_id)
-        )
-        for dup in dup_result.scalars().all():
-            dup.rfid_uid = None
+
+    # RFID slots are applied through the service after the plain fields:
+    # normalised, deduplicated, stolen from other owners, primary back-filled.
+    rfid_kwargs = {
+        key: update_data.pop(key)
+        for key in ("rfid_uid", "rfid_uid_2")
+        if key in update_data
+    }
 
     # Capture pre-update tara/remaining for tara-change propagation
     tara_in_payload = "empty_spool_weight_g" in update_data
@@ -755,6 +884,9 @@ async def update_spool(
 
     for key, value in update_data.items():
         setattr(spool, key, value)
+
+    if rfid_kwargs:
+        await SpoolService(db).set_rfid_uids(spool, **rfid_kwargs)
 
     # If tara (empty_spool_weight_g) changed on a spool that has a remaining
     # weight, shift remaining by -delta_tara so the brutto (initial_total_weight_g)
@@ -874,12 +1006,14 @@ async def permanently_delete_spool(
 async def change_statuses_bulk(
     data: BulkStatusChangeRequest,
     db: DBSession,
-    principal: PrincipalDep,
+    principal=RequirePermission("spool_events:create_status"),
 ):
-    """Change status for multiple spools (e.g. bulk archiving)."""
+    """Change status for multiple spools (e.g. bulk archiving).
+
+    Requires the same permission as the single-spool POST /{spool_id}/status:
+    what a role may not do one spool at a time it may not do in bulk either.
+    """
     service = SpoolService(db)
-    # Check permission (using a general update permission for now, or create a specific one if needed)
-    RequirePermission("spools:update")
 
     count = await service.change_statuses_bulk(
         spool_ids=data.spool_ids,
@@ -1097,3 +1231,219 @@ async def device_measurement(
     )
     await event_bus.publish({"event": "spools_changed"})
     return event
+
+
+class DefaultSlicerProfileBody(BaseModel):
+    base_name: str = Field(..., min_length=1)
+
+
+class ModelSlicerProfileBody(BaseModel):
+    base_name: str | None = None
+    clear_override: bool = False
+
+
+@router_spools.post("/{spool_id}/slicer-profile/default")
+@router_spools.put("/{spool_id}/slicer-profile/default")
+async def set_spool_default_slicer_profile(
+    spool_id: int,
+    body: DefaultSlicerProfileBody,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Set default Bambu cloud slicer profile for a spool (all connected models)."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/spools/{spool_id}/slicer-profile/default",
+            json_body=body.model_dump(),
+        )
+    spool = await db.get(Spool, spool_id)
+    if not spool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Spool not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "set_default_spool_profile", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support default slicer profiles",
+            },
+        )
+    result = await method(int(spool_id), base_name=body.base_name.strip())
+    return result
+
+
+@router_spools.post("/{spool_id}/slicer-profile/models/{model}")
+@router_spools.put("/{spool_id}/slicer-profile/models/{model}")
+async def set_spool_model_slicer_profile(
+    spool_id: int,
+    model: str,
+    body: ModelSlicerProfileBody,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Set or clear a per-model slicer profile override on a spool."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/spools/{spool_id}/slicer-profile/models/{model}",
+            json_body=body.model_dump(),
+        )
+    spool = await db.get(Spool, spool_id)
+    if not spool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Spool not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "set_spool_profile_for_model", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support per-model slicer profiles",
+            },
+        )
+    if body.clear_override:
+        result = await method(int(spool_id), model.strip().upper(), clear_override=True)
+    else:
+        if not body.base_name or not body.base_name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "invalid_params",
+                    "message": "base_name is required",
+                },
+            )
+        result = await method(
+            int(spool_id),
+            model.strip().upper(),
+            base_name=body.base_name.strip(),
+            link_others=False,
+        )
+    return result
+
+
+class BackfillToFilamentBody(BaseModel):
+    apply_to_sibling_spools: bool = False
+
+
+async def _sibling_spool_counts(db: DBSession, filament_id: int) -> dict[str, int]:
+    result = await db.execute(
+        select(Spool.id)
+        .join(SpoolStatus)
+        .where(
+            Spool.filament_id == int(filament_id),
+            SpoolStatus.key != "archived",
+        )
+    )
+    spool_ids = [row[0] for row in result.all()]
+    total = len(spool_ids)
+    return {
+        "total_count": total,
+        "other_count": max(0, total - 1),
+        "spool_ids": spool_ids,
+    }
+
+
+@router_spools.get("/{spool_id}/slicer-profile/backfill-preview")
+async def preview_backfill_spool_profiles(
+    spool_id: int,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Preview copying this spool's slicer profiles to its parent filament."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="GET",
+            path=f"/api/v1/spools/{spool_id}/slicer-profile/backfill-preview",
+        )
+    spool = await db.get(Spool, spool_id)
+    if not spool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Spool not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "preview_backfill_spool_profiles_to_filament", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support profile backfill preview",
+            },
+        )
+    preview = await method(int(spool_id))
+    if preview.get("filament_id"):
+        filament_result = await db.execute(
+            select(Filament, Manufacturer.name)
+            .outerjoin(Manufacturer, Filament.manufacturer_id == Manufacturer.id)
+            .where(Filament.id == preview["filament_id"])
+        )
+        row = filament_result.one_or_none()
+        if row:
+            filament, mfr_name = row
+            preview["filament_designation"] = filament.designation
+            preview["filament_manufacturer"] = mfr_name
+        siblings = await _sibling_spool_counts(db, int(preview["filament_id"]))
+        preview["sibling_spools"] = siblings
+    return preview
+
+
+@router_spools.post("/{spool_id}/slicer-profile/backfill-to-filament")
+async def backfill_spool_profiles_to_filament(
+    spool_id: int,
+    body: BackfillToFilamentBody,
+    request: Request,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    """Copy this spool's slicer profiles to its parent filament."""
+    if not _is_primary_worker():
+        return await _proxy_to_primary(
+            request,
+            method="POST",
+            path=f"/api/v1/spools/{spool_id}/slicer-profile/backfill-to-filament",
+            json_body=body.model_dump(),
+        )
+    spool = await db.get(Spool, spool_id)
+    if not spool:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_found", "message": "Spool not found"},
+        )
+    _printer_id, driver = await pick_bambuddy_driver(db)
+    method = getattr(driver, "backfill_spool_profiles_to_filament", None)
+    if not callable(method):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported",
+                "message": "Driver does not support profile backfill",
+            },
+        )
+    try:
+        result = await method(
+            int(spool_id),
+            apply_to_sibling_spools=body.apply_to_sibling_spools,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_state", "message": str(e)},
+        )
+    await event_bus.publish({"event": "filaments_changed"})
+    await event_bus.publish({"event": "spools_changed"})
+    return result

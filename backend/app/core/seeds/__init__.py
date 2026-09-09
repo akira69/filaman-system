@@ -5,10 +5,10 @@ import sys
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Permission, Role, SpoolStatus, User, UserRole
-from app.models.plugin import InstalledPlugin
 from app.core.config import settings
 from app.core.security import hash_password_async
+from app.models import Permission, Role, SpoolStatus, User, UserRole
+from app.models.plugin import InstalledPlugin
 from app.services.plugin_service import PLUGINS_DIR, PluginInstallService
 
 logger = logging.getLogger(__name__)
@@ -98,22 +98,11 @@ PERMISSIONS = [
     {"key": "spools:create", "description": "Create spools", "category": "spools"},
     {"key": "spools:update", "description": "Update spools", "category": "spools"},
     {"key": "spools:delete", "description": "Delete spools", "category": "spools"},
-    {
-        "key": "spools:adjust_weight",
-        "description": "Adjust spool weight",
-        "category": "spools",
-    },
-    {"key": "spools:archive", "description": "Archive spools", "category": "spools"},
-    {
-        "key": "spools:move_location",
-        "description": "Move spools to different location",
-        "category": "spools",
-    },
-    {
-        "key": "spools:consume",
-        "description": "Record spool consumption",
-        "category": "spools",
-    },
+    # Adjusting weight, archiving, moving and consuming a spool are all guarded
+    # by the matching spool_events:create_* permission below. The former
+    # spools:adjust_weight / spools:archive / spools:move_location /
+    # spools:consume duplicates were never checked anywhere and were removed in
+    # migration a4d1c8b7e903.
     {
         "key": "spool_events:read",
         "description": "View spool events",
@@ -162,6 +151,11 @@ PERMISSIONS = [
     },
     {"key": "printers:read", "description": "View printers", "category": "printers"},
     {
+        "key": "display:read",
+        "description": "Read the display feed (dashboards, swatch boards)",
+        "category": "display",
+    },
+    {
         "key": "printers:create",
         "description": "Create printers",
         "category": "printers",
@@ -176,9 +170,9 @@ PERMISSIONS = [
         "description": "Delete printers",
         "category": "printers",
     },
-    {"key": "ratings:read", "description": "View ratings", "category": "ratings"},
-    {"key": "ratings:write", "description": "Write ratings", "category": "ratings"},
-    {"key": "ratings:delete", "description": "Delete ratings", "category": "ratings"},
+    # ratings:read / ratings:write / ratings:delete were removed in migration
+    # a4d1c8b7e903: FilamentRating has no API endpoints, so nothing ever checked
+    # them. Re-add them here (and grant them) if ratings ever get an API.
     {
         "key": "user_api_keys:read_own",
         "description": "View own API keys",
@@ -224,6 +218,11 @@ PERMISSIONS = [
         "description": "Manage plugins (admin)",
         "category": "admin",
     },
+    {
+        "key": "admin:system",
+        "description": "Manage system configuration and extra fields (admin)",
+        "category": "admin",
+    },
 ]
 
 ROLES = [
@@ -247,7 +246,7 @@ VIEWER_PERMISSIONS = [
     "spools:read",
     "spool_events:read",
     "printers:read",
-    "ratings:read",
+    "display:read",
     "colors:read",
 ]
 
@@ -256,22 +255,16 @@ USER_PERMISSIONS = [
     "manufacturers:read",
     "locations:read",
     "printers:read",
-    "ratings:read",
+    "display:read",
     "spools:read",
     "spools:create",
     "spools:update",
-    "spools:adjust_weight",
-    "spools:move_location",
-    "spools:archive",
-    "spools:consume",
     "spool_events:read",
     "spool_events:create_measurement",
     "spool_events:create_adjustment",
     "spool_events:create_consumption",
     "spool_events:create_status",
     "spool_events:create_move_location",
-    "ratings:write",
-    "ratings:delete",
     "user_api_keys:read_own",
     "user_api_keys:create_own",
     "user_api_keys:update_own",

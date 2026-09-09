@@ -575,6 +575,12 @@ if not settings.debug:
                 os.path.join(static_files_path, "spools/detail/edit/index.html")
             )
 
+        @app.get("/spools/print")
+        async def serve_spools_print():
+            return FileResponse(
+                os.path.join(static_files_path, "spools/print/index.html")
+            )
+
         @app.get("/spools/{id}")
         async def serve_spool_detail(id: int):
             return FileResponse(
@@ -627,6 +633,24 @@ if not settings.debug:
         async def serve_filament_edit_placeholder():
             return FileResponse(
                 os.path.join(static_files_path, "filaments/detail/edit/index.html")
+            )
+
+        @app.get("/filaments/print")
+        async def serve_filaments_print():
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/print/index.html")
+            )
+
+        @app.get("/filaments/detail/print")
+        async def serve_filament_print_placeholder():
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/detail/print/index.html")
+            )
+
+        @app.get("/filaments/{id}/print")
+        async def serve_filament_print(id: int):
+            return FileResponse(
+                os.path.join(static_files_path, "filaments/detail/print/index.html")
             )
 
         @app.get("/filaments/{id}")

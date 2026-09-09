@@ -69,7 +69,8 @@ const { id } = Astro.params
           <label for="rfid-device-select" class="fm-label" data-i18n="rfid.selectDevice">Select Device</label>
           <select id="rfid-device-select" class="fm-select" style="margin-bottom: 16px;"></select>
         </div>
-        <div id="rfid-warning" class="fm-alert fm-alert-warning hidden" style="margin-bottom: 16px;" data-i18n="rfid.tagAlreadyExistsWarning"></div>
+        <div id="rfid-warning" class="fm-alert fm-alert-warning hidden" style="margin-bottom: 16px;"></div>
+        <div id="rfid-slot-choice" class="hidden" style="margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px;"></div>
       </div>
       <div id="rfid-status" class="fm-alert hidden" style="margin-bottom: 16px;"></div>
       <div style="display: flex; gap: 12px;">
@@ -100,6 +101,17 @@ const { id } = Astro.params
     </div>
   </div>
   
+
+  <div id="slicer-profile-section" class="hidden" style="margin-top: 32px;">
+    <h2 style="font-weight: 600; margin-bottom: 16px;" data-i18n="printers.slicerProfile">Slicer Profile</h2>
+    <div class="fm-card" style="padding: 24px;">
+      <label class="fm-label" data-i18n="printers.bambuSlicerProfile">Bambu Slicer Profile</label>
+      <div id="slicer-profile-picker"></div>
+      <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 8px;" data-i18n="printers.slicerProfileSpoolHint">Synced to this spool in Bambuddy across all Bambu printers.</p>
+      <div id="slicer-profile-coverage" class="hidden" style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px;"></div>
+      <span id="slicer-profile-msg" class="hidden" style="font-size: 0.85rem;"></span>
+    </div>
+  </div>
 
   <div id="printer-params-section" class="hidden" style="margin-top: 32px;">
     <h2 style="font-weight: 600; margin-bottom: 16px;" data-i18n="printers.printerParameters">Printer Parameters</h2>
@@ -165,8 +177,29 @@ const { id } = Astro.params
 
   <script>
     import { t, initI18n } from '../../../lib/i18n'
+    import { escapeHtml as escapeExtraFieldHtml, renderFieldDisplay } from '../../../lib/extra-fields'
+    import {
+      buildEntityExtraFieldsForPrint,
+      getExtraFieldValue,
+      renderEntityExtraFieldRows,
+      renderUnregisteredExtraFieldRows,
+    } from '../../../lib/entity-extra-fields'
     import { cachedFetchAllPages, fetchSequential, CACHE_KEYS } from '../../../lib/cache'
+    import { assignableLocations } from '../../../lib/driver-managed-locations'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
+    import { toColorSwatchBackground } from '../../../lib/colors'
+    import { initPerModelProfilePicker } from '../../../lib/cloud-profile-picker'
+    import {
+      isBuiltInLabelField,
+      scopeLabelExtraField,
+      type LabelExtraFieldValue,
+    } from '../../../lib/label-extra-fields'
+    import {
+      buildSpoolLabelDataFromApi,
+      buildSpoolPrintSearchParams,
+      buildSpoolStandardModelFields,
+    } from '../../../lib/spool-label-data'
+    import { writeScopedLabelFields } from '../../../lib/label-print-session'
     await initI18n()
 
     const id = window.location.pathname.split('/').filter(Boolean).pop()!
@@ -185,49 +218,18 @@ const { id } = Astro.params
     let fieldDefinitions: any[] = []
     let filamentPrinterParams: any[] = []
     let spoolSystemFieldMap: Record<string, any> = {}
+
+    // -- Bambu cloud profile picker (Option A) --
+    let currentDriverKey = ''
+    let currentPrinterId = 0
+    let cloudPresets: any[] = []
+    let cloudPresetsByCode: Record<string, any> = {}
     let filamentSystemFieldMap: Record<string, any> = {}
     // Pending slot assignment state (for animated ring feedback)
     let pendingSlotAssign: { slotIndex: string; printerId: number; expectedColor: string } | null = null
     let pendingSlotTimeout: ReturnType<typeof setTimeout> | null = null
     let pendingSlotPollTimer: ReturnType<typeof setTimeout> | null = null
     
-    function flattenObject(obj: any, prefix = '', res: Record<string, string> = {}) {
-      for (const key in obj) {
-        if (Object.prototype.hasOwnProperty.call(obj, key)) {
-          const val = obj[key]
-          const newKey = prefix ? `${prefix}.${key}` : key
-          if (typeof val === 'object' && val !== null) {
-            flattenObject(val, newKey, res)
-          } else {
-            res[newKey] = String(val)
-          }
-        }
-      }
-      return res
-    }
-
-    function unflattenObject(data: any) {
-      const result: Record<string, any> = {}
-      for (const key in data) {
-        if (Object.prototype.hasOwnProperty.call(data, key)) {
-          const keys = key.split('.')
-          let current: any = result
-          for (let i = 0; i < keys.length; i++) {
-            const k = keys[i]
-            if (i === keys.length - 1) {
-              const val = data[key]
-              const num = Number(val)
-              current[k] = !isNaN(num) && val.trim() !== '' ? num : val
-            } else {
-              current[k] = current[k] || {}
-              current = current[k]
-            }
-          }
-        }
-      }
-      return result
-    }
-
     function getCsrfToken() {
       const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
       return match ? decodeURIComponent(match[1]) : ''
@@ -285,6 +287,16 @@ const { id } = Astro.params
         renderSpool()
         loadPrinterSlotOverview()
         loadPrintersForParams()
+        initPerModelProfilePicker({
+          entityType: 'spool',
+          entityId: parseInt(id),
+          filamentId: spool.filament_id,
+          filamentLabel: spool.filament?.designation || `#${spool.filament_id}`,
+          t,
+          getCsrfToken,
+          getAbortSignal,
+          isAbortError,
+        })
         loadEvents()
         setupActions()
       } catch (error) {
@@ -325,7 +337,7 @@ const { id } = Astro.params
           </div>
           <div id="printer-slots-inline"></div>
           <div style="display: flex; gap: 8px;">
-            <button id="btn-rfid" class="fm-btn" style="border: 1px solid var(--border) !important; background: transparent; padding: 8px 12px; ${spool.rfid_uid ? 'color: #10b981;' : 'color: var(--text-muted);'}" title="${t('rfid.writeTag')}">
+            <button id="btn-rfid" class="fm-btn" style="border: 1px solid var(--border) !important; background: transparent; padding: 8px 12px; ${(spool.rfid_uid || spool.rfid_uid_2) ? 'color: #10b981;' : 'color: var(--text-muted);'}" title="${t('rfid.writeTag')}">
               <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 135.18028 115.18283" fill="currentColor" style="vertical-align: middle;"><g transform="translate(-37.583451,-63.372624)"><path d="m 70.222963,178.33313 c -2.040926,-0.39862 -7.168348,-4.13124 -11.835405,-8.61585 -11.236022,-10.7968 -18.197641,-24.54085 -20.318866,-40.11476 -0.914987,-6.71777 -0.506732,-16.35742 0.977968,-23.09161 2.31059,-10.480198 7.418829,-20.910018 14.204507,-29.002258 4.136212,-4.93262 11.33237,-11.25913 15.203175,-13.36589 3.228084,-1.75694 6.735163,-0.32453 7.658584,3.12804 0.247595,0.92573 0.239278,1.4288 -0.04012,2.4267 -0.455391,1.6265 -1.235816,2.52818 -3.546301,4.0973 -2.718612,1.84629 -6.655458,5.21243 -8.886438,7.5982 -8.337084,8.91553 -13.388674,19.334498 -15.242672,31.438188 -0.606927,3.96229 -0.606927,12.1773 0,16.13959 2.48356,16.21374 10.951629,29.82811 24.433921,39.28314 2.570726,1.80283 3.338858,2.98296 3.338858,5.12972 0,1.75821 -0.610733,3.02689 -1.972927,4.0984 -0.557741,0.43872 -2.492716,1.15289 -2.888792,1.06621 -0.07276,-0.0159 -0.561233,-0.11273 -1.085496,-0.21512 z m 67.475117,-0.10858 c -2.76471,-1.00625 -4.15566,-3.49487 -3.42065,-6.12008 0.4554,-1.6265 1.23582,-2.52818 3.54631,-4.0973 2.71861,-1.84629 6.65545,-5.21242 8.88643,-7.5982 8.33709,-8.91553 13.38868,-19.3345 15.24267,-31.43819 0.60693,-3.96229 0.60693,-12.1773 0,-16.13959 -2.48355,-16.213738 -10.95162,-29.828108 -24.43392,-39.283138 -2.57072,-1.80283 -3.33885,-2.98296 -3.33885,-5.12972 0,-1.31289 0.13178,-1.83293 0.66238,-2.61377 1.79517,-2.64183 4.51786,-3.15763 7.48598,-1.4182 3.97325,2.32848 10.82063,8.41172 14.77065,13.12229 6.78568,8.09224 11.89391,18.52206 14.2045,29.002258 1.94688,8.83047 1.94688,19.94969 0,28.78015 -2.31059,10.4802 -7.41882,20.91002 -14.2045,29.00226 -4.09611,4.8848 -11.38152,11.30257 -15.09913,13.30093 -1.58248,0.85065 -3.08971,1.07148 -4.30187,0.6303 z M 82.288667,161.67534 c -3.491247,-1.68198 -8.945231,-6.03926 -12.155513,-9.71126 -15.69411,-17.9513 -15.69411,-44.17488 0,-62.126188 3.158005,-3.6122 8.441186,-7.84766 12.143984,-9.73567 1.364318,-0.69565 1.767927,-0.78376 3.005287,-0.65605 2.768189,0.2857 4.656699,2.35691 4.633219,5.08147 -0.0205,2.38175 -0.69894,3.22509 -4.758319,5.91501 -13.124048,8.69656 -19.171491,24.366798 -15.297406,39.638898 2.336013,9.20883 8.368434,17.12576 17.197126,22.56943 1.931479,1.19093 2.847839,2.66732 2.847839,4.58826 0,2.34706 -1.26842,4.12548 -3.488509,4.89115 -1.40241,0.48366 -2.409749,0.37261 -4.127708,-0.45505 z m 41.616663,0.50371 c -3.64893,-1.09995 -4.70592,-6.19482 -1.79359,-8.64539 0.40793,-0.34325 1.79447,-1.32171 3.08118,-2.17434 13.12405,-8.69656 19.17149,-24.3668 15.2974,-39.6389 -2.33601,-9.20883 -8.36843,-17.125758 -17.19712,-22.569428 -1.93148,-1.19093 -2.84784,-2.66732 -2.84784,-4.58826 0,-2.93076 2.27423,-5.20186 5.2083,-5.20112 2.5604,6.6e-4 10.22581,5.51481 14.56343,10.47628 18.62084,21.298968 14.66924,53.543248 -8.53546,69.647668 -3.91854,2.71953 -5.67345,3.32738 -7.7763,2.69349 z M 94.724084,144.66857 c -3.73651,-1.3527 -9.494339,-6.42263 -11.818065,-10.40613 -2.593108,-4.44529 -3.525343,-7.97857 -3.525343,-13.36145 0,-5.38289 0.932235,-8.91617 3.525343,-13.36146 2.615066,-4.48295 8.952735,-9.782198 12.504665,-10.455808 3.29005,-0.62395 5.869456,1.55226 5.886596,4.966438 0.0113,2.24217 -0.84888,3.47505 -3.540876,5.07529 -5.15981,3.06723 -8.1917,8.16578 -8.1917,13.77554 0,2.55699 0.41151,4.28393 1.6279,6.83161 1.29069,2.70331 3.67713,5.22796 6.5638,6.94392 2.556196,1.51952 3.548696,2.8606 3.568316,4.82157 0.0196,1.96239 -0.71544,3.44776 -2.189346,4.42404 -0.6571,0.43525 -1.39755,0.79135 -1.64546,0.79135 -0.2479,0 -0.79303,0.0546 -1.21141,0.12123 -0.41837,0.0667 -1.11786,-0.008 -1.55442,-0.16614 z m 17.727076,-0.0383 c -2.33935,-0.92437 -3.38589,-2.42678 -3.3982,-4.87844 -0.0113,-2.24217 0.84888,-3.47505 3.54088,-5.07529 5.15981,-3.06722 8.1917,-8.16578 8.1917,-13.77553 0,-2.557 -0.41151,-4.28394 -1.6279,-6.83161 -1.29069,-2.70332 -3.67714,-5.22796 -6.5638,-6.94393 -2.5562,-1.51952 -3.5487,-2.8606 -3.56832,-4.82157 -0.0276,-2.752898 1.59828,-4.751878 4.27095,-5.251188 1.56093,-0.29162 2.45505,-0.0203 5.24011,1.59004 2.885,1.668138 7.21182,5.989688 8.90765,8.896798 2.5931,4.44529 3.52534,7.97857 3.52534,13.36146 0,4.12378 -0.31924,6.00292 -1.59701,9.4005 -2.99381,7.96053 -12.55285,16.05496 -16.9214,14.32876 z M 101.7884,127.76482 c -2.749906,-1.37415 -4.281026,-3.829 -4.281026,-6.86381 0,-3.03481 1.53112,-5.48967 4.281026,-6.86382 5.13008,-2.56353 11.04851,1.12319 11.05705,6.8877 0.008,5.70193 -5.95367,9.39012 -11.05705,6.83993 z" /></g></svg>
             </button>
             <a href="/spools/${id}/edit" class="fm-btn fm-btn-outline">${t('common.edit')}</a>
@@ -364,7 +376,12 @@ const { id } = Astro.params
           </div>
           <div class="fm-card">
             <div style="font-size: 0.85rem; color: var(--text-muted);">${t('spools.rfidUid')}</div>
-            <div style="font-size: 0.9rem; font-weight: 600; font-family: monospace;">${spool.rfid_uid || '-'}</div>
+            ${[[1, spool.rfid_uid], [2, spool.rfid_uid_2]].filter(([, uid]) => uid).map(([slot, uid]) => `
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 0.9rem; font-weight: 600; font-family: monospace;" title="${t('spools.rfidUid')} ${slot}">${uid}</span>
+                <button type="button" class="fm-btn" onclick="window.removeRfidTag(${slot}, '${uid}')" title="${t('rfid.removeTag')}"
+                        style="border: none !important; background: transparent; padding: 0 4px; line-height: 1; color: var(--text-muted); cursor: pointer;">&#x2715;</button>
+              </div>`).join('') || '<div style="font-size: 0.9rem; font-weight: 600; font-family: monospace;">-</div>'}
           </div>
           <div class="fm-card" style="${(() => {
             const hex = spool.filament?.colors?.[0]?.color?.hex_code;
@@ -374,7 +391,7 @@ const { id } = Astro.params
           })()}">
             <div style="font-size: 0.85rem; color: var(--text-muted);">${t('spools.filament')}</div>
             <div style="display: flex; align-items: center; gap: 10px;">
-              ${(spool.filament?.colors && spool.filament.colors.length > 0) ? spool.filament.colors.map((fc: any) => `<span style="display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: ${fc.color?.hex_code || 'var(--border)'}; border: 2px solid var(--border); flex-shrink: 0;"></span>`).join('') : '<span style="display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--bg-soft); border: 2px solid var(--border); flex-shrink: 0;"></span>'}
+              ${(spool.filament?.colors && spool.filament.colors.length > 0) ? spool.filament.colors.map((fc: any) => `<span style="display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: ${toColorSwatchBackground(fc.color?.hex_code, 'var(--border)')}; border: 2px solid var(--border); flex-shrink: 0;"></span>`).join('') : '<span style="display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--bg-soft); border: 2px solid var(--border); flex-shrink: 0;"></span>'}
               <div style="min-width: 0;">
                 <div style="font-size: 0.95rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${spool.filament?.designation || '-'}</div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${spool.filament?.manufacturer?.name || '-'} · ${spool.filament?.material_type || '-'}</div>
@@ -394,56 +411,69 @@ const { id } = Astro.params
           <div class="fm-card" style="margin-top: 16px;">
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">${t('common.extraFields')}</div>
             <div>
-              ${Object.entries(flattenObject(spool.custom_fields)).map(([key, value]) => {
-                const sysDef = spoolSystemFieldMap[key]
-                if (sysDef) {
-                  return `
+              ${(() => {
+                const sysKeys = new Set(Object.keys(spoolSystemFieldMap))
+                const entityDefs = spool.custom_field_definitions ?? {}
+                const sysRows = Object.values(spoolSystemFieldMap)
+                  .filter(sysDef => getExtraFieldValue(spool.custom_fields, sysDef.key) !== undefined)
+                  .map(sysDef => {
+                    const displayHtml = renderFieldDisplay(sysDef, getExtraFieldValue(spool.custom_fields, sysDef.key))
+                    return `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--accent-2) 5%, transparent); margin: 0 -8px; padding-left: 8px; padding-right: 8px;">
                       <span style="display: flex; align-items: center; gap: 6px;">
-                        <span style="color: var(--text-muted); font-weight: 500;">${sysDef.label}</span>
+                        <span style="color: var(--text-muted); font-weight: 500;">${escapeExtraFieldHtml(sysDef.label)}</span>
                         <span style="background: color-mix(in srgb, var(--accent-2) 20%, transparent); color: var(--accent-2); padding: 1px 6px; border-radius: 3px; font-size: 0.7rem; font-weight: 600; white-space: nowrap;">${t('common.systemField')}</span>
                       </span>
-                      <span style="font-family: monospace; word-break: break-all;">${value}</span>
+                      <span style="word-break: break-all;">${displayHtml}</span>
                     </div>
                   `
-                }
-                return `
-                  <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border);">
-                    <span style="color: var(--text-muted); font-weight: 500;">${key}</span>
-                    <span style="font-family: monospace; word-break: break-all;">${value}</span>
-                  </div>
-                `
-              }).join('')}
+                  }).join('')
+                const entityRows = renderEntityExtraFieldRows(spool.custom_fields, entityDefs, sysKeys)
+                const customRows = renderUnregisteredExtraFieldRows(
+                  spool.custom_fields,
+                  entityDefs,
+                  sysKeys,
+                )
+                return sysRows + entityRows + customRows
+              })()}
             </div>
           </div>
         ` : ''}
       `
       
-      const printUrl = `/spools/${spool.id}/print?designation=${encodeURIComponent(spool.filament?.designation || '')}&mfr=${encodeURIComponent(spool.filament?.manufacturer?.name || '')}&type=${encodeURIComponent(spool.filament?.material_type || '')}&subtype=${encodeURIComponent(spool.filament?.material_subgroup || '')}&color=${encodeURIComponent(spool.filament?.manufacturer_color_name || spool.filament?.colors?.[0]?.color?.name || '')}&mfr_id=${encodeURIComponent(spool.filament?.manufacturer?.id || '')}&hex_code=${encodeURIComponent(spool.filament?.colors?.[0]?.color?.hex_code || '')}&extruder_temp=${encodeURIComponent(spool.filament?.settings_extruder_temp ?? '')}&bed_temp=${encodeURIComponent(spool.filament?.settings_bed_temp ?? '')}&weight=${encodeURIComponent(spool.filament?.weight ?? '')}&diameter=${encodeURIComponent(spool.filament?.diameter_mm ?? '')}&finish=${encodeURIComponent(spool.filament?.finish_type || '')}&density=${encodeURIComponent(spool.filament?.density_g_cm3 ?? '')}&price=${encodeURIComponent(spool.filament?.price ?? '')}`
+      const printParams = buildSpoolPrintSearchParams(spool)
+      const printUrl = `/spools/${spool.id}/print?${printParams.toString()}`
 
       // Store extra fields for label printing (spool + filament).
       // Iterate ALL system-defined fields so they appear in the designer even when
       // the spool hasn't had a value set for a field yet.
-      const efForPrint: {key: string, label: string, value: string, source: string}[] = []
-      const spoolFlat = spool.custom_fields ? flattenObject(spool.custom_fields) : {}
-      for (const [key, def] of Object.entries(spoolSystemFieldMap)) {
-        const raw = spoolFlat[key]
-        efForPrint.push({ key: `spool.${key}`, label: def.label, value: raw !== undefined && raw !== null ? String(raw) : '', source: 'spool' })
+      const efForPrint: LabelExtraFieldValue[] = []
+
+      // ── Spool model fields (always included so they appear as label checkboxes) ──
+      const spoolModelFields = buildSpoolStandardModelFields(buildSpoolLabelDataFromApi(spool))
+      for (const { key, label, value } of spoolModelFields) {
+        efForPrint.push({ key, label, value: value !== undefined && value !== null ? String(value) : '', source: 'spool' })
       }
-      // Also include any spool custom fields not covered by system definitions
-      for (const [key, value] of Object.entries(spoolFlat)) {
-        if (!spoolSystemFieldMap[key]) efForPrint.push({ key: `spool.${key}`, label: key, value: value !== undefined && value !== null ? String(value) : '', source: 'spool' })
+
+      for (const field of buildEntityExtraFieldsForPrint(
+        spool.custom_fields,
+        spool.custom_field_definitions,
+        spoolSystemFieldMap,
+        true,
+      )) {
+        if (isBuiltInLabelField('spool', field.key, field.label)) continue
+        efForPrint.push(scopeLabelExtraField(field, 'spool'))
       }
-      const filamentFlat = spool.filament?.custom_fields ? flattenObject(spool.filament.custom_fields) : {}
-      for (const [key, def] of Object.entries(filamentSystemFieldMap)) {
-        const raw = filamentFlat[key]
-        efForPrint.push({ key: `filament.${key}`, label: def.label, value: raw !== undefined && raw !== null ? String(raw) : '', source: 'filament' })
+      for (const field of buildEntityExtraFieldsForPrint(
+        spool.filament?.custom_fields,
+        spool.filament?.custom_field_definitions,
+        filamentSystemFieldMap,
+        true,
+      )) {
+        if (isBuiltInLabelField('filament', field.key, field.label)) continue
+        efForPrint.push(scopeLabelExtraField(field, 'filament'))
       }
-      // Also include any filament custom fields not covered by system definitions
-      for (const [key, value] of Object.entries(filamentFlat)) {
-        if (!filamentSystemFieldMap[key]) efForPrint.push({ key: `filament.${key}`, label: key, value: value !== undefined && value !== null ? String(value) : '', source: 'filament' })
-      }
-      sessionStorage.setItem('filaman-label-extra-fields', JSON.stringify(efForPrint))
+      writeScopedLabelFields('filaman-label-extra-fields', spool.id, efForPrint)
 
       const printBtn = document.getElementById('btn-print-label') as HTMLAnchorElement
       if (printBtn) printBtn.href = printUrl
@@ -457,10 +487,28 @@ const { id } = Astro.params
       const deleteConfirmBtn = document.getElementById('btn-delete-confirm') as HTMLButtonElement
       
       document.getElementById('btn-duplicate-spool')?.addEventListener('click', () => {
+        // Copy physical/product fields only. Do NOT carry identity, RFID, AMS
+        // location, status, or remaining weight — those must be set by write-tag /
+        // weigh / driver assign-configure when the new spool is actually placed.
         const dupData = { ...spool }
-        delete dupData.rfid_uid
-        delete dupData.external_id
-        delete dupData.id
+        for (const key of [
+          'id',
+          'rfid_uid',
+          'external_id',
+          'location_id',
+          'location',
+          'status_id',
+          'status',
+          'remaining_weight_g',
+          'last_used_at',
+          'stocked_in_at',
+          'created_at',
+          'updated_at',
+          'printer_params',
+          'events',
+        ]) {
+          delete dupData[key]
+        }
         sessionStorage.setItem('filaman_duplicate_spool', JSON.stringify(dupData))
         window.location.href = '/spools/new'
       })
@@ -650,6 +698,24 @@ const { id } = Astro.params
       }
     })
     
+    // Remove one RFID tag (slot 1 or 2). The backend shifts tag 2 into slot 1 when slot 1 is cleared.
+    ;(window as any).removeRfidTag = async (slot: number, uid: string) => {
+      const msg = t('rfid.confirmRemoveTag', { uid })
+      const ok = (window as any).__fmConfirm ? await (window as any).__fmConfirm(msg) : confirm(msg)
+      if (!ok) return
+      const res = await fetch(`/api/v1/spools/${spool.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+        credentials: 'include',
+        body: JSON.stringify(slot === 1 ? { rfid_uid: null } : { rfid_uid_2: null }),
+      })
+      if (!res.ok) {
+        ;(window as any).__fmAlert?.(t('rfid.removeTagError'))
+        return
+      }
+      window.location.reload()
+    }
+
     // RFID Modal Logic
     ;(window as any).openRfidModal = () => {
       currentRfidSpoolId = spool.id
@@ -667,11 +733,30 @@ const { id } = Astro.params
       rfidCancelBtn.disabled = false
       rfidCancelBtn.textContent = t('common.cancel')
 
-      // Check if spool already has a tag
-      if (spool.rfid_uid) {
+      // A spool has two RFID slots: a write ADDS the chip; only a third chip replaces the second.
+      if (spool.rfid_uid && spool.rfid_uid_2) {
+        warning.textContent = t('rfid.bothTagsExistWarning')
+        warning.classList.remove('hidden')
+      } else if (spool.rfid_uid) {
+        warning.textContent = t('rfid.secondTagWillBeAdded')
         warning.classList.remove('hidden')
       } else {
         warning.classList.add('hidden')
+      }
+      const slotChoice = document.getElementById('rfid-slot-choice')!
+      if (spool && spool.rfid_uid && spool.rfid_uid_2) {
+        slotChoice.innerHTML = `
+          <div style="font-size: 0.9rem; font-weight: 600;">${t('rfid.replaceWhichTag')}</div>
+          <label style="display: flex; gap: 8px; align-items: center; cursor: pointer;">
+            <input type="radio" name="rfid-replace-slot" value="1"> <span>${t('rfid.replaceTagN', { n: 1, uid: spool.rfid_uid })}</span>
+          </label>
+          <label style="display: flex; gap: 8px; align-items: center; cursor: pointer;">
+            <input type="radio" name="rfid-replace-slot" value="2" checked> <span>${t('rfid.replaceTagN', { n: 2, uid: spool.rfid_uid_2 })}</span>
+          </label>`
+        slotChoice.classList.remove('hidden')
+      } else {
+        slotChoice.innerHTML = ''
+        slotChoice.classList.add('hidden')
       }
 
       if (activeDevices.length === 1) {
@@ -739,7 +824,10 @@ const { id } = Astro.params
           },
           credentials: 'include',
           signal: getAbortSignal(),
-          body: JSON.stringify({ spool_id: currentRfidSpoolId }),
+          body: JSON.stringify({
+            spool_id: currentRfidSpoolId,
+            replace_slot: Number((document.querySelector('input[name="rfid-replace-slot"]:checked') as HTMLInputElement | null)?.value) || null,
+          }),
         })
 
         const result = await response.json()
@@ -920,7 +1008,7 @@ const { id } = Astro.params
               <label class="fm-label">${t('spools.newLocation')}</label>
               <select id="field-location" class="fm-select">
                 <option value="">${t('spools.noLocation')}</option>
-                ${locations.map(l => `<option value="${l.id}">${l.name}</option>`).join('')}
+                ${assignableLocations(locations).map(l => `<option value="${l.id}">${l.name}</option>`).join('')}
               </select>
             </div>
             <div>
@@ -1026,12 +1114,19 @@ const { id } = Astro.params
           if (printerId) {
             const option = select.selectedOptions[0]
             const driverKey = option?.dataset.driver || ''
+            currentDriverKey = driverKey
+            currentPrinterId = parseInt(printerId)
             await loadFieldDefinitions(driverKey)
+            await loadCloudPresets(currentPrinterId, driverKey)
             await loadSpoolPrinterParams(parseInt(printerId))
           } else {
             fieldDefinitions = []
             currentPrinterParams = []
             filamentPrinterParams = []
+            currentDriverKey = ''
+            currentPrinterId = 0
+            cloudPresets = []
+            cloudPresetsByCode = {}
             renderPrinterParams()
           }
         })
@@ -1073,6 +1168,196 @@ const { id } = Astro.params
       }
     }
 
+    async function loadCloudPresets(printerId: number, driverKey: string) {
+      cloudPresets = []
+      cloudPresetsByCode = {}
+      if (driverKey !== 'bambuddy') return
+      try {
+        const res = await fetch(`/api/v1/printers/${printerId}/driver/cloud-presets`, { credentials: 'include', signal: getAbortSignal() })
+        if (!res.ok) return
+        const data = await res.json()
+        cloudPresets = data.presets || []
+        cloudPresetsByCode = {}
+        cloudPresets.forEach((p: any) => { cloudPresetsByCode[p.code] = p })
+      } catch (e) {
+        if (isAbortError(e)) return
+        console.error('Failed to load cloud presets:', e)
+      }
+    }
+
+    function escapeHtml(s: string): string {
+      return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
+    }
+
+    function presetLabel(code: string): string {
+      if (!code) return ''
+      const p = cloudPresetsByCode[code]
+      return p ? p.displayName : code
+    }
+
+    // Slicer profiles use driver actions (set_spool_profile): full preset →
+    // bambu_slicer_setting_id, generic AMS code → bambu_idx. Params PUT must not
+    // write PFUS codes into bambu_idx (standalone picker handles profiles).
+    const BAMBUDDY_PROFILE_PARAM_KEYS = ['bambu_idx', 'bambu_slicer_setting_id']
+    function isBambuddyCloudProfileManaged(): boolean {
+      return currentDriverKey === 'bambuddy' && cloudPresets.length > 0
+    }
+    function excludeManagedProfileParams(params: { param_key: string; param_value: string | null }[]) {
+      if (!isBambuddyCloudProfileManaged()) return params
+      return params.filter(p => !BAMBUDDY_PROFILE_PARAM_KEYS.includes(p.param_key))
+    }
+
+    // Codes reflected from the printer's AMS (e.g. "SUN20010") are not part of
+    // the selectable cloud-preset catalog, so the picker can't label them.
+    // Ask the driver to resolve the readable name and inject a display-only
+    // entry so presetLabel() shows the name instead of the raw code.
+    async function ensureCodeLabel(printerId: number, code: string): Promise<void> {
+      if (!code || cloudPresetsByCode[code]) return
+      try {
+        const res = await fetch(`/api/v1/printers/${printerId}/driver/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          signal: getAbortSignal(),
+          body: JSON.stringify({ action: 'resolve_preset_label', params: { code } }),
+        })
+        if (!res.ok) return
+        const json = await res.json()
+        const name = json && json.data && json.data.name
+        if (name && name !== code) cloudPresetsByCode[code] = { code, displayName: name, name }
+      } catch (e) {
+        if (!isAbortError(e)) console.error('Failed to resolve preset label:', e)
+      }
+    }
+
+    function renderCloudCombobox(key: string, code: string, placeholderLabel: string, inheritedStyle: string, forParamsSave = true): string {
+      const label = presetLabel(code)
+      const ph = placeholderLabel
+        ? escapeHtml(presetLabel(placeholderLabel))
+        : escapeHtml(t('printers.searchProfile') || 'Search profile…')
+      const hiddenClass = forParamsSave ? 'param-value' : 'slicer-profile-code'
+      return `<div class="cloud-combo" data-key="${key}" style="flex: 2; position: relative;${inheritedStyle}">
+        <input type="hidden" class="${hiddenClass}" data-key="${key}" value="${escapeHtml(code)}" />
+        <input type="text" class="fm-input cloud-combo-search" autocomplete="off" spellcheck="false"
+          placeholder="${ph}" value="${escapeHtml(label)}" style="width: 100%;" />
+        <div class="cloud-combo-list" style="display:none; position:absolute; z-index:50; left:0; right:0; max-height:260px; overflow-y:auto; background:var(--surface, #1e1e1e); border:1px solid var(--border, #444); border-radius:6px; margin-top:2px; box-shadow:0 4px 16px rgba(0,0,0,0.3);"></div>
+      </div>`
+    }
+
+    function wireCombo(combo: any, onSelect: ((code: string) => void) | null) {
+      const hidden = combo.querySelector('.param-value, .slicer-profile-code') as HTMLInputElement
+      const search = combo.querySelector('.cloud-combo-search') as HTMLInputElement
+      const list = combo.querySelector('.cloud-combo-list') as HTMLElement
+
+      const renderList = (query: string) => {
+        const q = query.trim().toLowerCase()
+        const matches = (q
+          ? cloudPresets.filter((p: any) => (p.displayName || '').toLowerCase().includes(q))
+          : cloudPresets).slice(0, 200)
+        if (matches.length === 0) {
+          list.innerHTML = `<div style="padding:8px 10px; color:var(--text-muted); font-size:0.85rem;">${escapeHtml(t('printers.noProfileMatches') || 'No matches')}</div>`
+          return
+        }
+        list.innerHTML = matches.map((p: any) => {
+          const sel = p.code === hidden.value ? ' style="background:var(--accent-muted, rgba(59,130,246,0.15));"' : ''
+          return `<div class="cloud-combo-opt" data-code="${escapeHtml(p.code)}"${sel}
+            style="padding:7px 10px; cursor:pointer; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+            title="${escapeHtml(p.displayName)}">${escapeHtml(p.displayName)}</div>`
+        }).join('')
+        list.querySelectorAll('.cloud-combo-opt').forEach((opt: any) => {
+          opt.addEventListener('mousedown', (ev: Event) => {
+            ev.preventDefault()
+            const code = opt.dataset.code
+            hidden.value = code
+            search.value = presetLabel(code)
+            list.style.display = 'none'
+            if (onSelect) onSelect(code)
+          })
+        })
+      }
+
+      search.addEventListener('focus', () => { renderList(''); list.style.display = 'block' })
+      search.addEventListener('input', () => { renderList(search.value); list.style.display = 'block' })
+      search.addEventListener('blur', () => {
+        setTimeout(() => {
+          list.style.display = 'none'
+          search.value = presetLabel(hidden.value)
+        }, 150)
+      })
+    }
+
+    function wireCloudComboboxes() {
+      document.querySelectorAll('#printer-params-list .cloud-combo').forEach((combo: any) =>
+        wireCombo(combo, (code: string) => onCloudProfileSelected(code, currentPrinterId)))
+    }
+
+    // -- Standalone per-model slicer profile picker (see cloud-profile-picker.ts) --
+
+    function showSlicerMsg(text: string, isError: boolean) {
+      const msg = document.getElementById('slicer-profile-msg')
+      if (!msg) return
+      msg.textContent = text
+      msg.style.color = isError ? 'var(--error-text)' : 'var(--success-text)'
+      msg.classList.remove('hidden')
+      setTimeout(() => msg.classList.add('hidden'), 3000)
+    }
+
+    function renderProfileCoverage(result: any) {
+      const el = document.getElementById('slicer-profile-coverage')
+      const data = result?.data ?? result
+      if (!el || !data?.coverage) return
+      const entries = Object.entries(data.coverage) as [string, any][]
+      if (entries.length === 0) { el.classList.add('hidden'); return }
+      el.innerHTML = entries.map(([model, c]) => {
+        const nozzle = c.nozzle_resolved != null ? ` ${c.nozzle_resolved} mm` : ''
+        let color = 'var(--success-text)'
+        let label = `${model}${nozzle} ok`
+        let title = c.code || ''
+        if (!c.mapped) {
+          color = 'var(--error-text, #c44)'
+          label = `${model} missing`
+          title = c.expected_name || 'Create matching variant in Bambu Studio'
+        } else if (c.fallback_nozzle) {
+          color = 'var(--warning-text, #b8860b)'
+          label = `${model}${nozzle} (fallback)`
+          title = (c.expected_name || '') + ' — using closest nozzle variant'
+        }
+        return `<span title="${title}" style="font-size:0.75rem;padding:2px 8px;border-radius:999px;border:1px solid ${color};color:${color}">${label}</span>`
+      }).join('')
+      el.classList.remove('hidden')
+    }
+
+    async function onCloudProfileSelected(code: string, printerId: number) {
+      if (!code || !printerId) return
+      try {
+        const res = await fetch(`/api/v1/printers/${printerId}/driver/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
+          credentials: 'include',
+          signal: getAbortSignal(),
+          body: JSON.stringify({ action: 'set_spool_profile', params: { spool_id: parseInt(id), code } }),
+        })
+        if (!res.ok) throw new Error('set_spool_profile failed')
+        const result = await res.json().catch(() => ({}))
+        renderProfileCoverage(result)
+        try {
+          const pr = await fetch(`/api/v1/spools/${id}/printer-params?printer_id=${printerId}`, { credentials: 'include', signal: getAbortSignal() })
+          if (pr.ok) currentPrinterParams = await pr.json()
+        } catch {}
+        const data = result?.data ?? result
+        if (data?.base_name) {
+          showSlicerMsg((t('common.saved') || 'Saved') + ` — ${data.base_name}`, false)
+        } else {
+          showSlicerMsg(t('common.saved') || 'Saved', false)
+        }
+        showParamsFeedback(true)
+      } catch (e) {
+        if (!isAbortError(e)) { console.error('Failed to set spool profile:', e); showSlicerMsg(t('printers.paramsSaveFailed') || 'Failed', true) }
+      }
+    }
+
+    /* removed initSlicerProfilePicker — replaced by initPerModelProfilePicker */
+
     function renderPrinterParams() {
       const container = document.getElementById('printer-params-list') as HTMLElement
       const actions = document.getElementById('printer-params-actions') as HTMLElement
@@ -1099,6 +1384,9 @@ const { id } = Astro.params
       }
 
       container.innerHTML = fieldDefinitions.map(fd => {
+        // Profile picker lives in the standalone slicer section; params save only handles AMS tuning fields.
+        if (isBambuddyCloudProfileManaged() && fd.key === 'bambu_idx') return ''
+
         const spoolValue = spoolValuesMap[fd.key] || ''
         const filamentValue = filamentValuesMap[fd.key] || ''
         const value = spoolValue || filamentValue
@@ -1136,6 +1424,8 @@ const { id } = Astro.params
           ${inputHtml}
         </div>`
       }).join('')
+
+      wireCloudComboboxes()
     }
 
     function showParamsFeedback(success: boolean) {
@@ -1163,8 +1453,10 @@ const { id } = Astro.params
         if (key) params.push({ param_key: key, param_value: value })
       })
 
-      // Filter out empty values for clean storage
-      const nonEmptyParams = params.filter(p => p.param_value !== null && p.param_value !== '')
+      // Filter out empty values for clean storage; never PUT cloud presets into bambu_idx
+      const nonEmptyParams = excludeManagedProfileParams(
+        params.filter(p => p.param_value !== null && p.param_value !== '')
+      )
 
       if (nonEmptyParams.length === 0) {
         try {
@@ -1557,6 +1849,31 @@ const { id } = Astro.params
       pendingSlotPollTimer = setTimeout(poll, 3000)
     }
 
+    async function getModelCoverageForPrinter(printerId: any): Promise<{ model: string, status: string } | null> {
+      try {
+        const [cmRes, covRes] = await Promise.all([
+          fetch(`/api/v1/printers/${printerId}/driver/connected-models`, { credentials: 'include', signal: getAbortSignal() }),
+          fetch(`/api/v1/printers/${printerId}/driver/profile-coverage?spool_id=${id}`, { credentials: 'include', signal: getAbortSignal() }),
+        ])
+        if (!cmRes.ok || !covRes.ok) return null
+        const cm = await cmRes.json().catch(() => ({}))
+        const cov = await covRes.json().catch(() => ({}))
+        if (cov?.per_model_profiles_enabled === false) return null
+        const models = cm?.models || []
+        let model: string | null = null
+        for (const m of models) {
+          const pids = (m.printer_ids || m.printerIds || []).map(Number)
+          if (pids.includes(Number(printerId))) { model = m.model; break }
+        }
+        if (!model) return null
+        const c = (cov?.coverage || {})[model]
+        return { model, status: c?.status || 'not_set' }
+      } catch (e) {
+        if (isAbortError(e)) throw e
+        return null
+      }
+    }
+
     async function handleAssignSpoolToTray(slot: any, printerId: any) {
       if (!spool) return
       const idx = slot.slot_index || ''
@@ -1564,6 +1881,22 @@ const { id } = Astro.params
       const amsId = parseInt(parts[0])
       const trayId = parseInt(parts[1])
       const slotIndex = `${amsId}-${trayId}`
+
+      // Warn before assigning when no Bambu cloud profile resolves for this
+      // printer's model — the slot would otherwise get generic settings silently.
+      try {
+        const mc = await getModelCoverageForPrinter(printerId)
+        if (mc && (mc.status === 'missing' || mc.status === 'not_set')) {
+          const proceed = window.confirm(
+            `No Bambu slicer profile resolves for ${mc.model} on this printer ` +
+            `(${mc.status}). The slot will be assigned with generic settings and ` +
+            `may not match in Bambu Studio.\n\nAssign anyway?`
+          )
+          if (!proceed) return
+        }
+      } catch (e) {
+        if (isAbortError(e)) return
+      }
 
       // Clear any previous pending state
       clearPendingSlotAssign()
@@ -1591,7 +1924,8 @@ const { id } = Astro.params
         spoolParams.forEach((p: any) => { if (p.param_value) valMap[p.param_key] = p.param_value })
 
         filamentData = {
-          tray_info_idx: valMap['bambu_tray_idx'] || 'GFL99',
+          tray_info_idx: valMap['bambu_idx'] || valMap['bambu_tray_idx'] || 'GFL99',
+          bambu_idx: valMap['bambu_idx'] || valMap['bambu_tray_idx'] || '',
           nozzle_temp_min: parseInt(valMap['bambu_nozzle_temp_min']) || 190,
           nozzle_temp_max: parseInt(valMap['bambu_nozzle_temp_max']) || 230,
           material_type: spool.filament?.material_type || 'PLA',
@@ -1602,6 +1936,7 @@ const { id } = Astro.params
         console.error('Failed to fetch params for assign:', e)
         filamentData = {
           tray_info_idx: 'GFL99',
+          bambu_idx: '',
           nozzle_temp_min: 190,
           nozzle_temp_max: 230,
           material_type: spool.filament?.material_type || 'PLA',
