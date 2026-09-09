@@ -2559,6 +2559,28 @@ describe('collection output binding', () => {
     expect(printLabelBrowserJob).not.toHaveBeenCalled()
   })
 
+  it('restores designer interaction after repeated print-preview returns', async () => {
+    const { controls } = bindCollectionOutputs([1], {
+      createPdf: async () => makePdfDocument(),
+      withPdfPreview: true,
+    })
+    const workspace = document.querySelector<HTMLElement>('.preview-scroll-area')!
+    workspace.id = 'freeform-designer-workspace'
+    controls.printPdfCheckbox.checked = true
+    const surface = document.querySelector<HTMLElement>('#temporary-pdf-preview')!
+    const back = document.querySelector<HTMLButtonElement>('#temporary-pdf-back')!
+
+    for (let cycle = 0; cycle < 2; cycle++) {
+      controls.printButton.click()
+      await vi.waitFor(() => expect(surface.hidden).toBe(false))
+      expect(workspace.inert).toBe(true)
+      back.click()
+      expect(workspace.inert).toBe(false)
+      expect(workspace.hasAttribute('aria-hidden')).toBe(false)
+      expect(surface.hidden).toBe(true)
+    }
+  })
+
   it('preserves a live aria-disabled change when the coordinator releases controls', async () => {
     let resolveCapture!: (value: string) => void
     const { controls } = bindCollectionOutputs([1], {

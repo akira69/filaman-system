@@ -126,40 +126,42 @@ export function bindPdfOutputActions(
   const execute = async (
     target: 'download' | 'print',
   ): Promise<void> => {
-    await coordinator.run(async () => {
-      try {
+    try {
+      let printPdf: LabelPdfDocument | undefined
+      await coordinator.run(async () => {
         const pdf = await options.createPdf()
         if (!pdf) return
 
-        if (target === 'download') {
-          pdf.save(options.getFilename())
-          return
-        }
+        if (target === 'download') pdf.save(options.getFilename())
+        else printPdf = pdf
+      })
 
+      // Snapshot and hide the editor only after its temporary output lock is released.
+      if (printPdf) {
         options.getPdfPreview().show({
-          blob: pdf.output('blob'),
+          blob: printPdf.output('blob'),
           filename: options.getFilename(),
           returnFocus: options.printButton,
         })
-      } catch (error) {
-        window.alert(
-          outputFailureMessage(options.getTranslation(
-            target === 'print'
-              ? 'labelPrint.printPdfFailed'
-              : 'labelPrint.pdfExportFailed',
-            target === 'print'
-              ? 'Print PDF generation failed.'
-              : 'PDF export failed.',
-          ), error),
-        )
-        console.error(
-          target === 'print'
-            ? 'Failed to create print PDF:'
-            : 'Failed to export label PDF:',
-          error,
-        )
       }
-    })
+    } catch (error) {
+      window.alert(
+        outputFailureMessage(options.getTranslation(
+          target === 'print'
+            ? 'labelPrint.printPdfFailed'
+            : 'labelPrint.pdfExportFailed',
+          target === 'print'
+            ? 'Print PDF generation failed.'
+            : 'PDF export failed.',
+        ), error),
+      )
+      console.error(
+        target === 'print'
+          ? 'Failed to create print PDF:'
+          : 'Failed to export label PDF:',
+        error,
+      )
+    }
   }
 
   const download = () => execute('download')
