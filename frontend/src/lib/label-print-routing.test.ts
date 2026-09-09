@@ -625,15 +625,36 @@ it('creates correctly sized labels in both editors and saves a named design back
     width.dispatchEvent(new Event('change'))
     expect(name.value).toBe('My sheet labels')
     const use = document.querySelector<HTMLButtonElement>('[data-sheet-use="designer"]')!
+    const save = document.querySelector<HTMLButtonElement>('#freeform-preset-save')!
+    expect(use.parentElement).toBe(save.parentElement)
+    expect(use.dataset.saved).toBe('false')
     failSave = true
     use.click()
     await vi.waitFor(() => expect(use.disabled).toBe(false))
     expect(tabs.getActiveMode()).toBe('designer')
+    expect(use.dataset.saved).toBe('false')
     failSave = false
     // Saving manually first must still allow returning to the sheet.
-    expect(await editor.savePreset()).toBe('My sheet labels')
+    save.click()
+    await vi.waitFor(() => expect(use.dataset.saved).toBe('true'))
+    name.value = 'Another name'
+    name.dispatchEvent(new Event('input'))
+    expect(use.dataset.saved).toBe('false')
+    name.value = 'My sheet labels'
+    name.dispatchEvent(new Event('input'))
+    expect(use.dataset.saved).toBe('true')
+    const originalWidth = width.value
+    width.value = '70'
+    width.dispatchEvent(new Event('change'))
+    await vi.waitFor(() => expect(use.dataset.saved).toBe('false'))
+    width.value = originalWidth
+    width.dispatchEvent(new Event('change'))
+    await vi.waitFor(() => expect(use.dataset.saved).toBe('true'))
+    const writes = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'PUT').length
+    const writesBeforeReturn = writes()
     use.click()
     await vi.waitFor(() => expect(tabs.getActiveMode()).toBe('sheets'))
+    expect(writes()).toBe(writesBeforeReturn)
     expect(controls.getSource()).toEqual({ type: 'designer', presetName: 'My sheet labels' })
     const saved = JSON.parse(localStorage.getItem(SPOOL_LABEL_PRESETS_KEY)!)
     expect(saved.presets.find((item: {name: string}) => item.name === name.value).data.design).toEqual(editor.getDesign())
