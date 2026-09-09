@@ -17,7 +17,9 @@ const {
     <div class="preview-zoom-options">
       <label for="preview-zoom-slider" data-i18n="labelPrint.zoomLabel">Preview zoom (%)</label>
       <input type="range" id="preview-zoom-slider" min={min} max="500" step="5" value="100" class="preview-zoom-slider">
-      <button type="button" class={`preview-zoom-btn ${resetClass}`} id="preview-zoom-reset" title="Reset zoom" aria-label="Reset zoom">100%</button>
+      <button type="button" class={`preview-zoom-btn ${resetClass}`} id="preview-zoom-reset" title="Reset zoom" aria-label="Reset zoom" data-i18n-title="labelPrint.zoomReset" data-i18n-aria-label="labelPrint.zoomReset">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7"/></svg>
+      </button>
     </div>
   </details>
   <button type="button" class="preview-zoom-btn" id="preview-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
@@ -32,5 +34,6 @@ const {
   .preview-zoom-options { align-items: center; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px #0003; display: grid; gap: 10px; grid-template-columns: 1fr auto; padding: 12px; position: absolute; right: -36px; top: calc(100% + 8px); width: 220px; z-index: 30; }
   .preview-zoom-options label { color: var(--text-muted); font-size: 0.75rem; grid-column: 1 / -1; }
   .preview-zoom-options #preview-zoom-slider { min-width: 0; width: 100%; }
-  .preview-zoom-options #preview-zoom-reset { font-size: 0.75rem; padding: 0 6px; width: auto; }
+  #preview-zoom-reset { display: grid; place-items: center; padding: 0; }
+  #preview-zoom-reset svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 </style>
