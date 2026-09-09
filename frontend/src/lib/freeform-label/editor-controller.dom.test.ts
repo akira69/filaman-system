@@ -1056,6 +1056,27 @@ describe('freeform editor DOM binding', () => {
     expect(state).toEqual({ bound: true, cursor: 'move', endpoints: 2 })
   })
 
+  it('restores keyboard selection when output rendering replaces label objects', async () => {
+    document.body.innerHTML = '<div id="freeform-canvas-host"><div class="label-preview"></div></div>'
+    const controller = makeController()
+    const element = controller.getDesign().elements[0]
+    const binding = bindFreeformEditorDom({ controller })
+    await binding.ready
+    controller.clearSelection()
+    const node = document.createElement('div')
+    node.dataset.labelElementId = element.id
+    node.dataset.labelElementType = element.type
+    document.querySelector('.label-preview')!.replaceChildren(node)
+
+    await binding.refreshInteractions()
+
+    expect(node.getAttribute('role')).toBe('button')
+    expect(node.tabIndex).toBe(0)
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(controller.getSelectedId()).toBe(element.id)
+    binding.destroy()
+  })
+
   it('destroys and rebinds interactions when editability changes', async () => {
     document.body.innerHTML = '<div id="freeform-canvas-host"><div class="label-preview"></div></div>'
     const controller = makeController()

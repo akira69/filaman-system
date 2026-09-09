@@ -621,7 +621,10 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   return {
     ready,
     refresh,
-    refreshInteractions: refreshInteraction,
+    async refreshInteractions() {
+      await refreshInteraction()
+      syncDom()
+    },
     sync: syncDom,
     async setEditable(next: boolean) {
       editable = next
