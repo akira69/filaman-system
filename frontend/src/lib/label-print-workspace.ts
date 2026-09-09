@@ -8,6 +8,7 @@ import {
 import type { LabelKind } from './freeform-label/types'
 import { bindPrintWorkspaceTabs, type createPrintWorkspaceCoordinator, type LabelOutputControls, type PrintWorkspaceMode } from './label-print-page'
 import { resizeLabelDesign } from './freeform-label/geometry'
+import { readStoredPresets } from './freeform-label/editor-storage'
 import type { SheetLabelSetup, LabelSheetControls, LabelSheetSource } from './label-sheet'
 import { getAbortSignal } from './abort'
 import { t } from './i18n'
@@ -81,15 +82,38 @@ export async function initPrintDesignerEditor(options: FreeformLabelDesignerEdit
 }) {
   const { sheetControls, activateDesigner, ...editorOptions } = options
   const events = new AbortController()
+  const returnButtons = document.querySelectorAll<HTMLButtonElement>('[data-sheet-use]')
+  const designerReturn = document.querySelector<HTMLButtonElement>('[data-sheet-use="designer"]')
+  const nameInput = document.getElementById('freeform-preset-name') as HTMLInputElement | null
+  let existingSheetPresetNames = new Set<string>()
+  // Only refresh after mutations settle; storage is optimistic while a save is pending.
+  let savedPresets = readStoredPresets(options.presetsKey)
+  let editor: Awaited<ReturnType<typeof initFreeformLabelDesignerEditor>>
+  const savedSheetPresetName = () => {
+    const name = nameInput?.value.trim() ?? ''
+    if (!editor || !designerReturn || designerReturn.hidden || existingSheetPresetNames.has(name)) return null
+    const saved = savedPresets.find(preset => preset.name === name)
+    return saved && JSON.stringify(saved.data.design) === JSON.stringify(editor.getDesign()) ? name : null
+  }
+  const syncSheetAction = () => {
+    if (designerReturn) designerReturn.dataset.saved = String(!!savedSheetPresetName())
+  }
   window.addEventListener('pagehide', () => events.abort(), { once: true, signal: events.signal })
   document.addEventListener('freeform-label-presets-changed', event => {
     const names = (event as CustomEvent<{ presets?: string[] }>).detail?.presets
     if (Array.isArray(names)) sheetControls.setDesignerPresets(names)
+    savedPresets = readStoredPresets(options.presetsKey)
+    syncSheetAction()
   }, { signal: events.signal })
 
-  let editor: Awaited<ReturnType<typeof initFreeformLabelDesignerEditor>>
   try {
-    editor = await initFreeformLabelDesignerEditor(editorOptions)
+    editor = await initFreeformLabelDesignerEditor({
+      ...editorOptions,
+      onChange: async () => {
+        syncSheetAction()
+        await editorOptions.onChange()
+      },
+    })
   } catch (error) {
     events.abort()
     throw error
@@ -109,10 +133,7 @@ export async function initPrintDesignerEditor(options: FreeformLabelDesignerEdit
     activateDesigner()
   }, { signal: events.signal })
 
-  const returnButtons = document.querySelectorAll<HTMLButtonElement>('[data-sheet-use]')
-  const nameInput = document.getElementById('freeform-preset-name') as HTMLInputElement | null
   let suggestedName = ''
-  let existingSheetPresetNames = new Set<string>()
   const activateTab = (mode: PrintWorkspaceMode) => document.querySelector<HTMLButtonElement>(`[data-workspace-mode="${mode}"]`)?.click()
   document.addEventListener('label-sheet-create', event => {
     const setup = (event as CustomEvent<SheetLabelSetup>).detail
@@ -140,7 +161,9 @@ export async function initPrintDesignerEditor(options: FreeformLabelDesignerEdit
       activateTab('standard')
     }
     returnButtons.forEach(button => { button.hidden = button.dataset.sheetUse !== setup.type })
+    syncSheetAction()
   }, { signal: events.signal })
+  nameInput?.addEventListener('input', syncSheetAction, { signal: events.signal })
   nameInput?.addEventListener('focus', () => {
     if (nameInput.value === suggestedName) nameInput.select()
   }, { signal: events.signal })
@@ -149,7 +172,8 @@ export async function initPrintDesignerEditor(options: FreeformLabelDesignerEdit
     button.disabled = true
     try {
       if (button.dataset.sheetUse === 'designer') {
-        const name = await editor.savePreset(existingSheetPresetNames.has(nameInput?.value.trim() ?? ''))
+        const name = savedSheetPresetName()
+          ?? await editor.savePreset(existingSheetPresetNames.has(nameInput?.value.trim() ?? ''))
         if (!name) return
         sheetControls.setDesignerPresets(getFreeformLabelPresetNames(options.presetsKey), name)
         sheetControls.setSource({ type: 'designer', presetName: name })
