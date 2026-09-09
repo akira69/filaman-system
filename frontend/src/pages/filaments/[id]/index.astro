@@ -100,11 +100,13 @@ const { id } = Astro.params
       renderUnregisteredExtraFieldRows,
     } from '../../../lib/entity-extra-fields'
     import { cachedFetchAllPages, fetchSequential, CACHE_KEYS } from '../../../lib/cache'
+    import { toColorSwatchBackground } from '../../../lib/colors'
     import { formatPrice, getCurrency, initCurrency } from '../../../lib/format'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
     import { initPerModelProfilePicker } from '../../../lib/cloud-profile-picker'
     import { buildFilamentExtraFieldsForPrint, buildFilamentPrintSearchParams } from '../../../lib/filament-label-data'
     import { buildFilamentHeroStyle, getVisibleHexColor } from '../../../lib/filament-appearance'
+    import { writeScopedLabelFields } from '../../../lib/label-print-session'
     await initI18n()
     await initCurrency()
 
@@ -203,7 +205,7 @@ const { id } = Astro.params
         if (!c) return ''
         const label = fc.display_name_override || c.name
         return `<span style="display: inline-flex; align-items: center; gap: 6px; margin-right: 10px;">
-          <span style="display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: ${getVisibleHexColor(c.hex_code)}; border: 2px solid var(--border); vertical-align: middle;"></span>
+          <span style="display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: ${toColorSwatchBackground(c.hex_code)}; border: 2px solid var(--border); vertical-align: middle;"></span>
           <span>${label}</span>
         </span>`
       }).join('')
@@ -382,7 +384,7 @@ const { id } = Astro.params
         const printParams = buildFilamentPrintSearchParams(f)
         printBtn.href = `/filaments/${f.id}/print?${printParams.toString()}`
         const efForPrint = buildFilamentExtraFieldsForPrint(f, systemFieldMap)
-        try { sessionStorage.setItem('filaman-filament-label-extra-fields', JSON.stringify(efForPrint)) } catch {}
+        writeScopedLabelFields('filaman-filament-label-extra-fields', f.id, efForPrint)
       }
 
 

@@ -15,6 +15,7 @@
  *   [size=120]text[/size]  — inline relative size in percent (50..300)
  *   [size=120%]text[/size] — same as above; percent sign is optional
  *   {color_swatch[8]}      — inline color bar using filament color(s); width is in ch units (default 1)
+ *                            8-digit colors use their visible RGB portion.
  *   \n                     — line-break (<br>)
  *
  * SpoolData is a flat object passed from the print page; the "extra" key holds
@@ -22,6 +23,7 @@
  */
 
 import { formatDateDisplay } from './extra-fields'
+import { toOpaqueRgbHex } from './colors'
 
 export interface SpoolData {
   id: string | number
@@ -66,9 +68,11 @@ export interface SpoolData {
   remaining_weight_g?: string
   initial_total_weight_g?: string
   empty_spool_weight_g?: string
+  spool_core_weight_g?: string
   low_weight_threshold_g?: string
   stocked_in_at?: string
   last_used_at?: string
+  created_at?: string
   extra?: Record<string, string>
   /** Unformatted values used by token modifiers such as |date. */
   extraRaw?: Record<string, unknown>
@@ -82,16 +86,9 @@ const MAX_TEMPLATE_CHARS = 8000
 const MAX_MARKUP_CHARS = 12000
 
 export function normalizeHexColor(raw: unknown): string | null {
-
   if (raw === undefined || raw === null) return null
-  const hex = String(raw).trim().replace(/^#/, '')
-  if (!hex) return null
-  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
-    const [a, b, c] = hex.split('')
-    return `#${(a + a + b + b + c + c).toUpperCase()}`
-  }
-  if (/^[0-9a-fA-F]{6}$/.test(hex)) return `#${hex.toUpperCase()}`
-  return null
+  const hex = toOpaqueRgbHex(String(raw), '')
+  return /^#[0-9A-F]{6}$/.test(hex) ? hex : null
 }
 
 export function getFilamentSwatchColors(colorHexes: unknown, fallbackHex?: unknown): string[] {
