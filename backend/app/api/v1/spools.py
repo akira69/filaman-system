@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import String, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload
 
@@ -45,6 +45,7 @@ from app.models import (
     Spool,
     SpoolEvent,
     SpoolStatus,
+    SystemExtraField,
 )
 from app.services.spool_service import SpoolService
 
@@ -302,16 +303,43 @@ async def list_spools(
 
     if search:
         search_term = f"%{search}%"
-        conditions.append(
-            or_(
-                Filament.designation.ilike(search_term),
-                Filament.material_type.ilike(search_term),
-                Filament.manufacturer_color_name.ilike(search_term),
-                Manufacturer.name.ilike(search_term),
-                Spool.lot_number.ilike(search_term),
-                Spool.rfid_uid.ilike(search_term),
+        # RFID: match either slot, and also the separator-less spelling so a
+        # scale searching "04EF1410C82A81" finds the stored "04:EF:14:10:C8:2A:81".
+        compact_term = f"%{search.replace(':', '').replace('-', '').replace(' ', '')}%"
+        or_conditions = [
+            Filament.designation.ilike(search_term),
+            Filament.material_type.ilike(search_term),
+            Filament.manufacturer_color_name.ilike(search_term),
+            Manufacturer.name.ilike(search_term),
+            Spool.lot_number.ilike(search_term),
+            Spool.rfid_uid.ilike(search_term),
+            Spool.rfid_uid_2.ilike(search_term),
+            func.replace(Spool.rfid_uid, ":", "").ilike(compact_term),
+            func.replace(Spool.rfid_uid_2, ":", "").ilike(compact_term),
+        ]
+
+        # Match on the spool ID (optionally entered with a leading '#')
+        id_search = search.strip().lstrip("#").strip()
+        if id_search.isdigit() and len(id_search) <= 18:
+            or_conditions.append(Spool.id == int(id_search))
+
+        # Match on the *values* of defined spool extra fields (custom_fields JSON).
+        # custom_fields[key].as_string() compiles to json_extract(..., '$.key')
+        # on SQLite and custom_fields ->> 'key' on Postgres, so only values are
+        # searched, not the field keys themselves.
+        ef_keys = (
+            await db.execute(
+                select(SystemExtraField.key).where(
+                    SystemExtraField.target_type == "spool"
+                )
             )
-        )
+        ).scalars().all()
+        for key in ef_keys:
+            or_conditions.append(
+                Spool.custom_fields[key].as_string().ilike(search_term)
+            )
+
+        conditions.append(or_(*or_conditions))
         needs_filament_join = True
         needs_manufacturer_join = True
 
@@ -447,16 +475,19 @@ async def create_spool(
     if "status_id" not in spool_data or spool_data["status_id"] is None:
         spool_data["status_id"] = status_obj.id
 
-    # Clear rfid_uid from other spools to prevent UNIQUE constraint violation
-    new_rfid = spool_data.get("rfid_uid")
-    if new_rfid:
-        dup_result = await db.execute(select(Spool).where(Spool.rfid_uid == new_rfid))
-        for dup in dup_result.scalars().all():
-            dup.rfid_uid = None
+    # RFID slots go through the service: normalised, and stolen from any
+    # other spool/location that currently holds the chip.
+    rfid_primary = spool_data.pop("rfid_uid", None)
+    rfid_secondary = spool_data.pop("rfid_uid_2", None)
 
     next_id = await get_next_available_id(db, Spool)
     spool = Spool(id=next_id, **spool_data)
     db.add(spool)
+    await db.flush()
+    if rfid_primary or rfid_secondary:
+        await SpoolService(db).set_rfid_uids(
+            spool, rfid_uid=rfid_primary, rfid_uid_2=rfid_secondary
+        )
     await db.commit()
     await event_bus.publish({"event": "spools_changed"})
 
@@ -539,26 +570,28 @@ async def create_spools_bulk(
         spool_data["status_id"] = status_obj.id
 
     # Unique fields cannot be duplicated across multiple spools
+    rfid_primary = spool_data.pop("rfid_uid", None)
+    rfid_secondary = spool_data.pop("rfid_uid_2", None)
     if data.quantity > 1:
-        spool_data["rfid_uid"] = None
+        rfid_primary = None
+        rfid_secondary = None
         spool_data["external_id"] = None
-
-    # Clear rfid_uid from other spools to prevent UNIQUE constraint violation
-    new_rfid = spool_data.get("rfid_uid")
-    if new_rfid:
-        dup_result = await db.execute(select(Spool).where(Spool.rfid_uid == new_rfid))
-        for dup in dup_result.scalars().all():
-            dup.rfid_uid = None
 
     next_ids = await get_next_available_ids(db, Spool, data.quantity)
     spool_ids = []
     try:
+        created: list[Spool] = []
         for i in range(data.quantity):
             spool = Spool(id=next_ids[i], **spool_data.copy())
             db.add(spool)
+            created.append(spool)
             spool_ids.append(next_ids[i])
 
         await db.flush()
+        if rfid_primary or rfid_secondary:
+            await SpoolService(db).set_rfid_uids(
+                created[0], rfid_uid=rfid_primary, rfid_uid_2=rfid_secondary
+            )
         await db.commit()
     except Exception as e:
         await db.rollback()
@@ -736,15 +769,15 @@ async def update_spool(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    # Clear rfid_uid from other spools to prevent UNIQUE constraint violation
     update_data = data.model_dump(exclude_unset=True)
-    new_rfid = update_data.get("rfid_uid")
-    if new_rfid and new_rfid != spool.rfid_uid:
-        dup_result = await db.execute(
-            select(Spool).where(Spool.rfid_uid == new_rfid, Spool.id != spool_id)
-        )
-        for dup in dup_result.scalars().all():
-            dup.rfid_uid = None
+
+    # RFID slots are applied through the service after the plain fields:
+    # normalised, deduplicated, stolen from other owners, primary back-filled.
+    rfid_kwargs = {
+        key: update_data.pop(key)
+        for key in ("rfid_uid", "rfid_uid_2")
+        if key in update_data
+    }
 
     # Capture pre-update tara/remaining for tara-change propagation
     tara_in_payload = "empty_spool_weight_g" in update_data
@@ -753,6 +786,9 @@ async def update_spool(
 
     for key, value in update_data.items():
         setattr(spool, key, value)
+
+    if rfid_kwargs:
+        await SpoolService(db).set_rfid_uids(spool, **rfid_kwargs)
 
     # If tara (empty_spool_weight_g) changed on a spool that has a remaining
     # weight, shift remaining by -delta_tara so the brutto (initial_total_weight_g)
@@ -872,12 +908,14 @@ async def permanently_delete_spool(
 async def change_statuses_bulk(
     data: BulkStatusChangeRequest,
     db: DBSession,
-    principal: PrincipalDep,
+    principal=RequirePermission("spool_events:create_status"),
 ):
-    """Change status for multiple spools (e.g. bulk archiving)."""
+    """Change status for multiple spools (e.g. bulk archiving).
+
+    Requires the same permission as the single-spool POST /{spool_id}/status:
+    what a role may not do one spool at a time it may not do in bulk either.
+    """
     service = SpoolService(db)
-    # Check permission (using a general update permission for now, or create a specific one if needed)
-    RequirePermission("spools:update")
 
     count = await service.change_statuses_bulk(
         spool_ids=data.spool_ids,
