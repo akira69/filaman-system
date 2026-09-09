@@ -82,7 +82,7 @@ export function getStaticPaths() {
     mergeMissingSpoolLabelData,
   } from '../../../lib/spool-label-data'
   import { buildEntityExtraFieldsForPrint } from '../../../lib/entity-extra-fields'
-  import { type SystemExtraFieldDef } from '../../../lib/extra-fields'
+  import { renderFieldPlainText, type SystemExtraFieldDef } from '../../../lib/extra-fields'
   import { consumeScopedLabelFields } from '../../../lib/label-print-session'
 
   bindPrintPageSidebarCollapse()
@@ -96,7 +96,7 @@ export function getStaticPaths() {
 
   async function fetchSpoolApiData() {
     try {
-      const response = await fetch(`/api/v1/spools/${id}`, { credentials: 'include' })
+      const response = await fetch(`/api/v1/spools/${id}?derived_for=template`, { credentials: 'include' })
       if (!response.ok) return null
       const spool = await response.json()
       return spool
@@ -339,10 +339,14 @@ export function getStaticPaths() {
   const extraFieldGroups = new Map<string, { title: HTMLElement; container: HTMLElement }>()
 
   function getExtraFieldSource(source?: string) {
+    if (source === 'filament-derived') return 'filament-derived'
+    if (source === 'spool-derived') return 'spool-derived'
     return source === 'filament' ? 'filament' : 'spool'
   }
 
   function getExtraFieldGroupTitle(source: string) {
+    if (source === 'filament-derived') return `${translate('spools.filament', 'Filament')} ${translate('common.derivedFields', 'Derived Fields')}`
+    if (source === 'spool-derived') return `${translate('spools.dsSpool', 'Spool')} ${translate('common.derivedFields', 'Derived Fields')}`
     return source === 'filament'
       ? translate('filaments.extraFieldsLabel', 'Filament Extra Fields')
       : translate('spools.extraFieldsLabel', 'Spool Extra Fields')
@@ -390,7 +394,7 @@ export function getStaticPaths() {
     extraFieldChecks.push({ key: ef.key, label: ef.label, value: ef.value, checkbox: cb })
   }
 
-  for (const source of ['spool', 'filament']) {
+  for (const source of ['spool', 'spool-derived', 'filament', 'filament-derived']) {
     for (const ef of extraFields.filter(item => getExtraFieldSource(item.source) === source)) {
       addExtraFieldCheckbox(ef)
     }
@@ -621,17 +625,42 @@ export function getStaticPaths() {
           fetch('/api/v1/system-extra-fields?target_type=spool', { credentials: 'include' }).then(r => r.ok ? r.json() : []),
           fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' }).then(r => r.ok ? r.json() : []),
         ])
-        const toDefinitionMap = (definitions: unknown): Record<string, SystemExtraFieldDef> => (
-          Object.fromEntries(
-            (Array.isArray(definitions) ? definitions : [])
-              .map((definition: SystemExtraFieldDef) => [
-                definition.key,
-                { ...definition, field_type: definition.field_type || 'text' },
-              ]),
+        const normalizeDefinitions = (
+          definitions: unknown,
+          targetType: 'spool' | 'filament',
+        ): (SystemExtraFieldDef & { target_type: 'spool' | 'filament' })[] => (
+          (Array.isArray(definitions) ? definitions : []).map(
+            (definition: SystemExtraFieldDef) => ({
+              ...definition,
+              field_type: definition.field_type || 'text',
+              target_type: targetType,
+            }),
           )
         )
-        const spoolSystemDefinitions = toDefinitionMap(spoolDefs)
-        const filamentSystemDefinitions = toDefinitionMap(filamentDefs)
+        const allDefinitions = [
+          ...normalizeDefinitions(spoolDefs, 'spool'),
+          ...normalizeDefinitions(filamentDefs, 'filament'),
+        ].filter(definition =>
+          (!definition.formula || definition.show_in_template === true)
+          && !isBuiltInLabelField(
+            definition.target_type,
+            definition.key,
+            definition.label,
+          ),
+        )
+        const toDefinitionMap = (
+          definitions: (SystemExtraFieldDef & { target_type: string })[],
+        ): Record<string, SystemExtraFieldDef> => (
+          Object.fromEntries(
+            definitions.map(definition => [definition.key, definition]),
+          )
+        )
+        const spoolSystemDefinitions = toDefinitionMap(
+          allDefinitions.filter(definition => definition.target_type === 'spool'),
+        )
+        const filamentSystemDefinitions = toDefinitionMap(
+          allDefinitions.filter(definition => definition.target_type === 'filament'),
+        )
 
         const sd = apiSpoolData ?? await fetchSpoolApiData()
         if (!sd) return
@@ -650,6 +679,22 @@ export function getStaticPaths() {
             filamentSystemDefinitions,
             true,
           ).map(field => scopeLabelExtraField(field, 'filament')),
+          ...allDefinitions
+            .filter(definition => definition.formula)
+            .map(definition => {
+              const rawValue = definition.target_type === 'spool'
+                ? sd.derived?.[definition.key]
+                : sd.filament?.derived?.[definition.key]
+              return {
+                key: `${definition.target_type}.${definition.key}`,
+                label: definition.label,
+                value: renderFieldPlainText(definition, rawValue),
+                rawValue,
+                fieldType: definition.field_type,
+                source: definition.target_type,
+                origin: 'system' as const,
+              }
+            }),
         ].filter(field => !isBuiltInLabelField(field.source, field.key, field.label))
         if (fallbackFields.length === 0) return
 

@@ -77,7 +77,7 @@ export function getStaticPaths() {
     SPOOL_LABEL_PRESETS_KEY,
   } from '../../../lib/label-preset-storage'
   import { buildEntityExtraFieldsForPrint } from '../../../lib/entity-extra-fields'
-  import { type SystemExtraFieldDef } from '../../../lib/extra-fields'
+  import { renderFieldPlainText, type SystemExtraFieldDef } from '../../../lib/extra-fields'
   import { consumeScopedLabelFields } from '../../../lib/label-print-session'
 
   bindPrintPageSidebarCollapse()
@@ -482,8 +482,16 @@ export function getStaticPaths() {
     if (extraFields.length === 0) {
       let definitions: unknown = []
       try {
-        const response = await fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' })
-        if (response.ok) definitions = await response.json()
+        const [defsResponse, filamentResponse] = await Promise.all([
+          fetch('/api/v1/system-extra-fields?target_type=filament', { credentials: 'include' }),
+          fetch(`/api/v1/filaments/${id}?derived_for=template`, { credentials: 'include' }),
+        ])
+        if (defsResponse.ok) definitions = await defsResponse.json()
+        if (filamentResponse.ok) {
+          const fullFilament = await filamentResponse.json() as Record<string, unknown>
+          apiFilament = fullFilament
+          mergeMissingFilamentLabelData(labelData, buildFilamentLabelDataFromApi(fullFilament, id))
+        }
       } catch { /* custom fields remain optional */ }
 
       const definitionList = Array.isArray(definitions)
@@ -506,9 +514,30 @@ export function getStaticPaths() {
             true,
           ).filter(field => !isBuiltInLabelField('filament', field.key, field.label))
         : []
+      const derivedPrintFields = (Array.isArray(definitionList) ? definitionList : [])
+        .filter((definition): definition is SystemExtraFieldDef => !!definition && typeof definition === 'object')
+        .map((definition) => ({ ...definition, field_type: definition.field_type || 'text' }))
+        .filter(definition =>
+          !!definition.formula
+          && definition.show_in_template === true
+          && !isBuiltInLabelField('filament', definition.key, definition.label),
+        )
+        .map((definition) => {
+          const fullFilament = apiFilament as { derived?: Record<string, unknown> } | null
+          const rawValue = fullFilament?.derived?.[definition.key]
+          return {
+            key: `filament.${definition.key}`,
+            label: definition.label,
+            value: renderFieldPlainText(definition, rawValue),
+            rawValue,
+            fieldType: definition.field_type,
+            source: 'filament' as const,
+            origin: 'system' as const,
+          }
+        })
       const standardFilamentFields = buildReducedStandardFilamentExtraFieldsFromLabelData(labelData)
 
-      if (standardFilamentFields.length > 0 || customPrintFields.length > 0) {
+      if (standardFilamentFields.length > 0 || customPrintFields.length > 0 || derivedPrintFields.length > 0) {
         function makeEfCheckbox(ef: FilamentExtraField) {
           extraFields.push({ ...ef, source: ef.source ?? 'filament' })
           const cb = appendLabelSettingsCheckbox({
@@ -527,6 +556,10 @@ export function getStaticPaths() {
 
         for (const field of customPrintFields) {
           makeEfCheckbox(scopeLabelExtraField(field, 'filament'))
+        }
+
+        for (const field of derivedPrintFields) {
+          makeEfCheckbox(field)
         }
 
         extraFieldsTitle.style.display = ''

@@ -81,7 +81,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     loadSpoolLabelLookups,
     type SpoolLabelLookups,
   } from '../../lib/spool-label-lookups'
-  import { type SystemExtraFieldDef } from '../../lib/extra-fields'
+  import { renderFieldPlainText, type SystemExtraFieldDef } from '../../lib/extra-fields'
   import {
     buildSystemExtraFieldDefinitionMap,
     getExtraFieldValue,
@@ -116,11 +116,13 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
   type ApiFilament = ApiObject & {
     custom_fields?: Record<string, unknown>
     custom_field_definitions?: EntityExtraFieldDefinitions
+    derived?: Record<string, unknown>
   }
   type ApiSpool = ApiObject & {
     id?: string | number
     custom_fields?: Record<string, unknown>
     custom_field_definitions?: EntityExtraFieldDefinitions
+    derived?: Record<string, unknown>
     filament?: ApiFilament
     location_id?: unknown
     status_id?: unknown
@@ -186,6 +188,10 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
       def => systemFieldKeys.has(efMapKey('filament', def.key)),
     )
     return maps
+  }
+
+  function isPrintableExtraFieldDef(def: ExtraFieldDef) {
+    return !def.formula || def.show_in_template === true
   }
 
   function saveSettings() {
@@ -278,7 +284,14 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
       if (!cb?.checked) continue
 
       let rendered: { label: string; value: string } | null = null
-      if (def.target_type === 'spool' && spool.custom_fields) {
+      if (def.formula) {
+        const raw = def.target_type === 'spool'
+          ? spool.derived?.[def.key]
+          : spool.filament?.derived?.[def.key]
+        if (raw !== undefined && raw !== null) {
+          rendered = { label: def.label, value: renderFieldPlainText(def, raw) }
+        }
+      } else if (def.target_type === 'spool' && spool.custom_fields) {
         const raw = getExtraFieldValue(spool.custom_fields, def.key)
         if (raw !== undefined && raw !== null) {
           rendered = renderRecordExtraField(
@@ -455,7 +468,10 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
       const allDefs = [
         ...normalizeExtraFieldDefs(spoolDefs, 'spool'),
         ...normalizeExtraFieldDefs(filamentDefs, 'filament'),
-      ].filter(def => !isBuiltInLabelField(def.target_type, def.key, def.label))
+      ].filter(def =>
+        isPrintableExtraFieldDef(def)
+        && !isBuiltInLabelField(def.target_type, def.key, def.label),
+      )
       systemFieldKeys.clear()
       allDefs.forEach(def => systemFieldKeys.add(efMapKey(def.target_type, def.key)))
       if (allDefs.length === 0) return
@@ -474,10 +490,14 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
       let lastExtraFieldGroupNode: Element = container
 
       function getExtraFieldSource(source?: string) {
+        if (source === 'filament-derived') return 'filament-derived'
+        if (source === 'spool-derived') return 'spool-derived'
         return source === 'filament' ? 'filament' : 'spool'
       }
 
       function getExtraFieldGroupTitle(source: string) {
+        if (source === 'filament-derived') return `${t('spools.filament') || 'Filament'} ${t('common.derivedFields') || 'Derived Fields'}`
+        if (source === 'spool-derived') return `${t('spools.dsSpool') || 'Spool'} ${t('common.derivedFields') || 'Derived Fields'}`
         return source === 'filament'
           ? (t('filaments.dsSystemExtraFieldsLabel') || 'Filament System Extra Fields')
           : (t('spools.dsSystemExtraFieldsLabel') || 'Spool System Extra Fields')
@@ -667,7 +687,7 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
 
     const [spoolResults, loadedLookups] = await Promise.all([
       Promise.allSettled(ids.map(async id => {
-        const r = await fetch(`/api/v1/spools/${id}`, { credentials: 'include' })
+        const r = await fetch(`/api/v1/spools/${id}?derived_for=template`, { credentials: 'include' })
         if (!r.ok) throw new Error(`Failed to load spool ${id}: ${r.status}`)
         return await r.json()
       })),

@@ -86,6 +86,7 @@
     "errorLoadingData": "Error loading data",
     "copied": "Copied!",
     "systemFieldsUnavailable": "System Extra Fields could not be loaded. Reload the page before saving.",
+    "derivedFields": "Derived Fields",
     "showAllCustomFields": "Show all {count} Custom Fields",
     "showFewerCustomFields": "Show fewer Custom Fields"
   },
