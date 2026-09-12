@@ -97,6 +97,7 @@ import Layout from '../../layouts/Layout.astro'
     import { copyText } from '../../lib/clipboard'
     import { api } from '../../lib/api'
     import { escapeHtml } from '../../lib/extra-fields'
+    import { fetchAllPages } from '../../lib/api'
     await initI18n()
 
     interface DeviceRecord {
@@ -121,12 +122,16 @@ import Layout from '../../layouts/Layout.astro'
     
     async function loadDevices() {
       try {
-        const response = await fetch('/api/v1/admin/devices', { credentials: 'include', signal: getAbortSignal() })
-        devices = await response.json().then(d => d.items)
+        devices = (await fetchAllPages<DeviceRecord>('/api/v1/admin/devices')).items
         renderDevices()
       } catch (error) {
         if (isAbortError(error)) return
         console.error('Failed to load devices:', error)
+        document.getElementById('devices-table')!.innerHTML = `
+          <tr><td colspan="6" role="alert" style="text-align: center; color: var(--error-text);">
+            ${t('admin.failedLoadDevices')}
+          </td></tr>
+        `
       }
     }
     

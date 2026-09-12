@@ -986,6 +986,7 @@
     "lastUsed": "Last Used",
     "ipAddress": "IP Address",
     "noDevices": "No devices found",
+    "failedLoadDevices": "Failed to load devices",
     "rotateToken": "Rotate Token",
     "rotateConfirm": "Are you sure? The old token will stop working immediately.",
     "failedRotate": "Failed to rotate token",

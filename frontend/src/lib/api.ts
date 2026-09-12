@@ -124,8 +124,11 @@ export async function fetchAllPages<T = unknown>(baseUrl: string): Promise<{ ite
       const pageUrl = `${baseUrl}${separator}page=${p}&page_size=200`
       pagePromises.push(
         fetch(pageUrl, { credentials: 'include', signal })
-          .then(res => res.ok ? res.json() : null)
-          .then(d => d ? d.items : [])
+          .then(res => {
+            if (!res.ok) throw new Error(`Failed to fetch ${baseUrl}`)
+            return res.json()
+          })
+          .then(d => d.items)
       )
     }
     const additionalPages = await Promise.all(pagePromises)

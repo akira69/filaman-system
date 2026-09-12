@@ -486,7 +486,7 @@ async def list_devices(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
-    query = select(Device).where(Device.deleted_at.is_(None)).order_by(Device.name)
+    query = select(Device).where(Device.deleted_at.is_(None)).order_by(Device.name, Device.id)
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
