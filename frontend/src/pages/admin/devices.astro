@@ -95,14 +95,28 @@ import Layout from '../../layouts/Layout.astro'
     import { t, initI18n } from '../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { copyText } from '../../lib/clipboard'
+    import { api } from '../../lib/api'
     await initI18n()
 
-    let devices: any[] = []
-    
-    function getCsrfToken(): string {
-      const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/)
-      return match ? decodeURIComponent(match[1]) : ''
+    interface DeviceRecord {
+      id: number
+      name: string
+      is_active: boolean
+      token_hash: string | null
+      ip_address: string | null
+      auto_assign_enabled: boolean
+      auto_assign_timeout: number
+      last_used_at: string | null
+      is_online: boolean
     }
+
+    type DeviceAdminWindow = {
+      __fmAlert: (message: string) => Promise<boolean>
+      __fmConfirm: (message: string) => Promise<boolean>
+    }
+
+    const dialogWindow = window as unknown as DeviceAdminWindow
+    let devices: DeviceRecord[] = []
     
     async function loadDevices() {
       try {
@@ -174,26 +188,17 @@ import Layout from '../../layouts/Layout.astro'
           const button = e.currentTarget as HTMLButtonElement
           const id = parseInt(button.dataset.id!)
           
-          if (!(await (window as any).__fmConfirm(t('admin.confirmDeleteDevice')))) return
+          if (!(await dialogWindow.__fmConfirm(t('admin.confirmDeleteDevice')))) return
           
           try {
-            const response = await fetch(`/api/v1/admin/devices/${id}`, {
-              method: 'DELETE',
-              headers: { 'X-CSRF-Token': getCsrfToken() },
-              credentials: 'include',
-              signal: getAbortSignal(),
-            })
-            
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({}))
-              throw new Error(errorData.message || 'Failed to delete device')
-            }
-            
+            await api.delete(`/admin/devices/${id}`)
             loadDevices()
-          } catch (err: any) {
+          } catch (err: unknown) {
             if (isAbortError(err)) return
             console.error('Delete device error:', err)
-            await (window as any).__fmAlert(err.message || t('admin.failedDeleteDevice'))
+            await dialogWindow.__fmAlert(
+              err instanceof Error ? err.message : t('admin.failedDeleteDevice'),
+            )
           }
         })
       })
@@ -262,24 +267,17 @@ import Layout from '../../layouts/Layout.astro'
       submitBtn.textContent = t('common.saving')
       
       try {
-        const response = await fetch(`/api/v1/admin/devices/${deviceId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
-          credentials: 'include',
-          body: JSON.stringify({ name, auto_assign_enabled: autoAssign, auto_assign_timeout: timeout }),
-          signal: getAbortSignal(),
+        await api.put(`/admin/devices/${deviceId}`, {
+          name,
+          auto_assign_enabled: autoAssign,
+          auto_assign_timeout: timeout,
         })
-        
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}))
-          throw new Error(data.message || t('admin.failedUpdateDevice'))
-        }
         
         document.getElementById('edit-modal')!.classList.remove('open')
         loadDevices()
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (isAbortError(err)) return
-        error.textContent = err.message
+        error.textContent = err instanceof Error ? err.message : t('admin.failedUpdateDevice')
         error.classList.remove('hidden')
       } finally {
         submitBtn.disabled = false
@@ -309,26 +307,13 @@ import Layout from '../../layouts/Layout.astro'
       submitBtn.textContent = t('common.creating')
       
       try {
-        const response = await fetch('/api/v1/admin/devices', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken() },
-          credentials: 'include',
-          body: JSON.stringify({ name }),
-          signal: getAbortSignal(),
-        })
-        
-        if (!response.ok) {
-          const data = await response.json()
-          throw new Error(data.message || t('admin.failedCreateDevice'))
-        }
-        
-        const data = await response.json()
+        const data = await api.post<{ device_code: string }>('/admin/devices', { name })
         document.getElementById('modal-container')!.classList.remove('open')
         showToken(data.device_code)
         loadDevices()
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (isAbortError(err)) return
-        error.textContent = err.message
+        error.textContent = err instanceof Error ? err.message : t('admin.failedCreateDevice')
         error.classList.remove('hidden')
       } finally {
         submitBtn.disabled = false
