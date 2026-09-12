@@ -1,7 +1,9 @@
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.api.v1.devices import _device_url
 from app.core.security import hash_password, hash_token, verify_password_async
 from app.models import Device, Filament, Location, Manufacturer, Spool, SpoolStatus
 
@@ -104,6 +106,14 @@ async def _create_location(db_session, name: str = "Shelf A", identifier: str | 
     await db_session.commit()
     await db_session.refresh(location)
     return location
+
+
+def test_device_url_rejects_invalid_legacy_address():
+    with pytest.raises(HTTPException) as error:
+        _device_url("printer.local", "/api/v1/rfid/write")
+
+    assert error.value.status_code == 400
+    assert error.value.detail["code"] == "unsafe_device_address"
 
 
 class TestDeviceRegistration:
@@ -345,19 +355,39 @@ class TestActiveDevices:
         )
         assert heartbeat.status_code == 200
 
-        response = await client.get("/api/v1/devices/active")
+        response = await auth.get("/api/v1/devices/active")
         assert response.status_code == 200
         data = response.json()
         assert any(item["id"] == device_id for item in data)
 
     @pytest.mark.asyncio
-    async def test_list_active_devices_empty(self, client):
+    async def test_list_active_devices_empty(self, auth_client):
+        client, _ = auth_client
         response = await client.get("/api/v1/devices/active")
         assert response.status_code == 200
         assert response.json() == []
 
+    @pytest.mark.asyncio
+    async def test_list_active_devices_requires_authentication(self, client):
+        response = await client.get("/api/v1/devices/active")
+
+        assert response.status_code == 401
+
 
 class TestWriteTag:
+    @pytest.mark.asyncio
+    async def test_write_tag_requires_authentication(self, client, db_session):
+        device = await _create_device(db_session, ip_address="192.168.1.10")
+
+        with patch("app.api.v1.devices.httpx.AsyncClient") as mock_httpx:
+            response = await client.post(
+                f"/api/v1/devices/{device.id}/write-tag",
+                json={"spool_id": 123},
+            )
+
+        assert response.status_code == 401
+        mock_httpx.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_write_tag_success(self, auth_client, db_session):
         client, csrf_token = auth_client
@@ -412,8 +442,59 @@ class TestWriteTag:
         assert response.status_code == 404
         assert response.json()["detail"]["code"] == "not_found"
 
+    @pytest.mark.asyncio
+    async def test_write_tag_formats_ipv6_device_url(self, auth_client, db_session):
+        client, csrf_token = auth_client
+        device = await _create_device(
+            db_session,
+            ip_address="2606:4700:4700::1111",
+        )
+        mock_response = MagicMock(status_code=200)
+
+        with patch("app.api.v1.devices.httpx.AsyncClient") as mock_httpx:
+            mock_client = AsyncMock()
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx.return_value = mock_client
+
+            response = await client.post(
+                f"/api/v1/devices/{device.id}/write-tag",
+                json={"spool_id": 123},
+                headers={"X-CSRF-Token": csrf_token},
+            )
+
+        assert response.status_code == 200
+        requested_url = mock_client.post.await_args.args[0]
+        assert str(requested_url) == "http://[2606:4700:4700::1111]/api/v1/rfid/write"
+        assert mock_httpx.call_args.kwargs["follow_redirects"] is False
+
+    @pytest.mark.asyncio
+    async def test_write_tag_rejects_unsafe_device_address(self, auth_client, db_session):
+        client, csrf_token = auth_client
+        device = await _create_device(db_session, ip_address="127.0.0.1")
+
+        with patch("app.api.v1.devices.httpx.AsyncClient") as mock_httpx:
+            response = await client.post(
+                f"/api/v1/devices/{device.id}/write-tag",
+                json={"spool_id": 123},
+                headers={"X-CSRF-Token": csrf_token},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "unsafe_device_address"
+        mock_httpx.assert_not_called()
+
 
 class TestWriteStatus:
+    @pytest.mark.asyncio
+    async def test_write_status_requires_authentication(self, client, db_session):
+        device = await _create_device(db_session)
+
+        response = await client.get(f"/api/v1/devices/{device.id}/write-status")
+
+        assert response.status_code == 401
+
     @pytest.mark.asyncio
     async def test_write_status_none(self, auth_client, db_session):
         client, _ = auth_client
@@ -626,6 +707,48 @@ class TestWeighSpool:
 
 
 class TestTagScan:
+    @pytest.mark.asyncio
+    async def test_tag_scan_result_requires_authentication(self, client, db_session):
+        device = await _create_device(db_session)
+
+        response = await client.get(
+            f"/api/v1/devices/{device.id}/tag-scan-result",
+        )
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_request_tag_scan_requires_authentication(self, client, db_session):
+        device = await _create_device(db_session, ip_address="192.168.1.10")
+
+        with patch("app.api.v1.devices.httpx.AsyncClient") as mock_httpx:
+            response = await client.post(
+                f"/api/v1/devices/{device.id}/request-tag-scan",
+            )
+
+        assert response.status_code == 401
+        mock_httpx.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_request_tag_scan_rejects_unsafe_address_without_pending_state(
+        self,
+        auth_client,
+        db_session,
+    ):
+        client, csrf_token = auth_client
+        device = await _create_device(db_session, ip_address="127.0.0.1")
+
+        with patch("app.api.v1.devices.httpx.AsyncClient") as mock_httpx:
+            response = await client.post(
+                f"/api/v1/devices/{device.id}/request-tag-scan",
+                headers={"X-CSRF-Token": csrf_token},
+            )
+
+        assert response.status_code == 400
+        await db_session.refresh(device)
+        assert "last_tag_scan" not in (device.custom_fields or {})
+        mock_httpx.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_request_tag_scan_success(self, auth_client, db_session):
         client, csrf_token = auth_client
