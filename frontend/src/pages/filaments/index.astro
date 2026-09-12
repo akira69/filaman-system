@@ -148,6 +148,7 @@ import Layout from '../../layouts/Layout.astro'
       isColumnFilterActive,
       matchesColumnFilter,
       multiColumnFilter,
+      normalizeColorFilter,
       syncHeaderSortButtons,
       systemExtraFieldFilterValue,
       systemExtraFieldHeaderFilter,
@@ -157,7 +158,7 @@ import Layout from '../../layouts/Layout.astro'
       type HeaderFilterOption,
     } from '../../lib/table-column-filters'
     import { formatPrice, getCurrency, initCurrency } from '../../lib/format'
-    import { toColorSwatchBackground } from '../../lib/colors'
+    import { filamentColorValues, toColorSwatchBackground } from '../../lib/colors'
     await initI18n()
 
     let currentPage = 1
@@ -234,6 +235,7 @@ import Layout from '../../layouts/Layout.astro'
     if (!columnFilters.type) columnFilters.type = multiColumnFilter(normalizeSavedValues(savedFilterState?.type))
     if (!columnFilters.colors) columnFilters.colors = multiColumnFilter(normalizeSavedValues(savedFilterState?.color))
     if (filterManufacturerId) columnFilters.manufacturer = multiColumnFilter([filterManufacturerId])
+    if (columnFilters.colorRange?.type === 'color') columnFilters.colorRange = normalizeColorFilter(columnFilters.colorRange)
     Object.keys(columnFilters).forEach((key) => {
       if (!isColumnFilterActive(columnFilters[key])) delete columnFilters[key]
     })
@@ -345,7 +347,8 @@ import Layout from '../../layouts/Layout.astro'
       if (key === 'manufacturer') return String(filament.manufacturer_id)
       if (key === 'type') return filament.material_type
       if (key === 'designation') return filament.designation
-      if (key === 'colors') return (filament.colors || []).map((fc: any) => fc.color?.name).filter(Boolean)
+      if (key === 'colors') return filamentColorValues(filament, 'name')
+      if (key === 'colorRange') return filamentColorValues(filament, 'hex_code')
       if (key === 'diameter') return filament.diameter_mm
       if (key === 'spools') return filament.spool_count
       if (key === 'spoolStatus') return (filament.spool_status_ids || []).map(String)
@@ -815,6 +818,15 @@ import Layout from '../../layouts/Layout.astro'
           options: [],
           initialValue: columnFilters.colors,
           onApply: (value) => applyColumnFilter('colors', value),
+        },
+        {
+          key: 'colorRange',
+          label: t('filters.colorRange'),
+          columnSelector: 'th.col-colors',
+          type: 'color',
+          icon: 'gear',
+          initialValue: columnFilters.colorRange,
+          onApply: (value) => applyColumnFilter('colorRange', value),
         },
         {
           key: 'diameter',

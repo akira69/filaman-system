@@ -107,6 +107,7 @@ import Layout from '../../layouts/Layout.astro'
           <th data-i18n="spools.manufacturer" data-sort="manufacturer" class="sortable col-manufacturer">Manufacturer</th>
           <th data-i18n="spools.material" data-sort="material" class="sortable col-material">Material</th>
           <th data-i18n="spools.status" data-sort="status_id" class="sortable col-status">Status</th>
+          <th data-i18n="filaments.colors" data-sort="colors" class="sortable col-colors">Colors</th>
           <th data-i18n="spools.remaining" data-sort="remaining_weight_g" class="sortable col-remaining">Remaining</th>
           <th data-i18n="spools.location" data-sort="location_id" class="sortable col-location">Location</th>
           <th data-i18n="spools.colPrice" data-sort="purchase_price" class="sortable col-price">Price</th>
@@ -121,7 +122,7 @@ import Layout from '../../layouts/Layout.astro'
       </thead>
       <tbody id="spools-table">
         <tr>
-          <td colspan="16" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
+          <td colspan="17" style="text-align: center; color: var(--text-muted);" data-i18n="common.loading">Loading...</td>
         </tr>
       </tbody>
     </table>
@@ -206,7 +207,7 @@ import Layout from '../../layouts/Layout.astro'
     import { t, initI18n, translatePage } from '../../lib/i18n'
     import { cachedFetch, CACHE_KEYS, fetchSequential, invalidateCache } from '../../lib/cache'
     import { assignableLocations } from '../../lib/driver-managed-locations'
-    import { toColorSwatchBackground } from '../../lib/colors'
+    import { filamentColorValues, toColorSwatchBackground } from '../../lib/colors'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
     import { initColumnReorder } from '../../lib/column-reorder'
     import { initColumnResize } from '../../lib/column-resize'
@@ -217,6 +218,7 @@ import Layout from '../../layouts/Layout.astro'
       isColumnFilterActive,
       matchesColumnFilter,
       multiColumnFilter,
+      normalizeColorFilter,
       syncHeaderSortButtons,
       systemExtraFieldFilterValue,
       systemExtraFieldHeaderFilter,
@@ -310,6 +312,7 @@ import Layout from '../../layouts/Layout.astro'
     if (filterManufacturerId) columnFilters.manufacturer = multiColumnFilter([filterManufacturerId])
     if (filterLocationId) columnFilters.location = multiColumnFilter([filterLocationId])
     if (filterMaterial) columnFilters.material = multiColumnFilter([filterMaterial])
+    if (columnFilters.colorRange?.type === 'color') columnFilters.colorRange = normalizeColorFilter(columnFilters.colorRange)
     Object.keys(columnFilters).forEach((key) => {
       if (!isColumnFilterActive(columnFilters[key])) delete columnFilters[key]
     })
@@ -379,6 +382,7 @@ import Layout from '../../layouts/Layout.astro'
       if (key === 'location_id') return getLocationName(item.location_id)
       if (key === 'manufacturer') return getManufacturerName(item)
       if (key === 'material') return getMaterialType(item)
+      if (key === 'colors') return filamentColorValues(getFilamentForSpool(item), 'name')[0]?.toLowerCase() || ''
       if (key === 'mfr_color') return getFilamentForSpool(item)?.manufacturer_color_name ?? ''
       if (key.startsWith('cf_')) {
         const cfKey = key.slice(3)
@@ -423,12 +427,18 @@ import Layout from '../../layouts/Layout.astro'
       return Object.entries(columnFilters).some(([key, value]) => isColumnFilterActive(value) && !serverKeys.has(key))
     }
 
+    function needsAllSpoolData(): boolean {
+      return hasLocalColumnFilters() || sortKey === 'colors'
+    }
+
     function getSpoolFilterValue(spool: any, key: string): unknown {
       const filament = getFilamentForSpool(spool)
       if (key === 'id') return spool.id
       if (key === 'filament') return filament ? `${filament.designation} ${filament.material_type}` : ''
       if (key === 'manufacturer') return String(filament?.manufacturer_id ?? filament?.manufacturer?.id ?? '')
       if (key === 'material') return filament?.material_type
+      if (key === 'colors') return filamentColorValues(filament, 'name')
+      if (key === 'colorRange') return filamentColorValues(filament, 'hex_code')
       if (key === 'status') return String(spool.status_id)
       if (key === 'remaining') return spool.remaining_weight_g
       if (key === 'location') return spool.location_id == null ? '' : String(spool.location_id)
@@ -473,7 +483,7 @@ import Layout from '../../layouts/Layout.astro'
         renderGroupedSpools(sorted)
         document.getElementById('pagination-top')!.innerHTML = ''
         document.getElementById('pagination')!.innerHTML = `<div style="font-size: 0.85rem; color: var(--text-muted);">${t('spools.spoolCount', { count: totalSpools })}</div>`
-      } else if (hasLocalColumnFilters()) {
+      } else if (needsAllSpoolData()) {
         const sorted = sortSpools(allSpools)
         const startIndex = (currentPage - 1) * pageSize
         renderSpools(sorted.slice(startIndex, startIndex + pageSize))
@@ -592,6 +602,26 @@ import Layout from '../../layouts/Layout.astro'
         console.error('Failed to load filters:', error)
       }
     }
+
+    async function loadSpoolColorOptions() {
+      const signal = getAbortSignal()
+      const options = await cachedFetch<{
+        colors: Array<{ value: string; label: string; color_hexes: string[] }>
+        has_empty_colors: boolean
+      }>(CACHE_KEYS.FILAMENT_FILTER_OPTIONS, async () => {
+        const response = await fetch('/api/v1/filaments/filter-options', { credentials: 'include', signal })
+        if (!response.ok) throw new Error(`Failed to load color filter options (${response.status})`)
+        return response.json()
+      })
+      const colorOptions: HeaderFilterOption[] = options.colors.map(color => ({
+        value: color.value,
+        label: color.label,
+        colorHexes: color.color_hexes,
+      }))
+      if (options.has_empty_colors) colorOptions.unshift({ value: '', label: t('common.empty') })
+      splHeaderFilters?.setOptions('colors', colorOptions)
+    }
+
     
     async function loadSpools() {
       const requestId = ++filterRequestId
@@ -609,7 +639,7 @@ import Layout from '../../layouts/Layout.astro'
       locationIds.forEach((id) => params.append('location_id', id))
       materials.forEach((item) => params.append('type', item))
       if (search) params.set('search', search)
-      if (sortKey && sortDirection) {
+      if (sortKey && sortDirection && sortKey !== 'colors') {
         params.set('sort_by', sortKey)
         params.set('sort_order', sortDirection)
       }
@@ -617,7 +647,7 @@ import Layout from '../../layouts/Layout.astro'
       try {
         const signal = getAbortSignal()
 
-        if (groupBy || hasLocalColumnFilters()) {
+        if (groupBy || needsAllSpoolData()) {
           // Grouping and client-side typed filters require the complete backend-filtered result.
           params.set('page', '1')
           params.set('page_size', '200')
@@ -688,7 +718,7 @@ import Layout from '../../layouts/Layout.astro'
         console.error('Failed to load spools:', error)
         document.getElementById('spools-table')!.innerHTML = `
           <tr>
-            <td colspan="16" style="text-align: center; color: var(--error-text);">${t('spools.failedLoad')}</td>
+            <td colspan="17" style="text-align: center; color: var(--error-text);">${t('spools.failedLoad')}</td>
           </tr>
         `
       }
@@ -769,9 +799,10 @@ import Layout from '../../layouts/Layout.astro'
         <tr class="${selectedSpoolIds.has(s.id) ? 'bulk-selected' : ''}" style="cursor: pointer;" onclick="window.location='/spools/${s.id}'">
           <td style="padding: 12px; text-align: center;" onclick="event.stopPropagation()"><input type="checkbox" class="fm-checkbox bulk-checkbox" data-spool-id="${s.id}" ${selectedSpoolIds.has(s.id) ? 'checked' : ''} onchange="window.__toggleSpoolSelection(${s.id}, this.checked)" /></td>
           <td class="col-id" style="padding: 12px; font-weight: 500;">${t('spools.spoolId', { id: s.id })}</td>
-          <td class="col-filament" style="padding: 12px;">${colorDots} ${getFilamentName(s)}</td>
+          <td class="col-filament" style="padding: 12px;">${getFilamentName(s)}</td>
           <td class="col-manufacturer" style="padding: 12px; color: var(--text-muted);">${getManufacturerName(s)}</td>
           <td class="col-material" style="padding: 12px; color: var(--text-muted);">${getMaterialType(s)}</td>
+          <td class="col-colors" style="padding: 12px;">${colorDots || '-'}</td>
           <td class="col-status" style="padding: 12px;">${getStatusLabel(s.status_id)}</td>
           <td class="col-remaining" style="padding: 12px; font-family: monospace; ${weightStyle}">
             ${s.remaining_weight_g !== null ? s.remaining_weight_g.toFixed(0) + 'g' : '-'}
@@ -801,7 +832,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || Object.values(columnFilters).some(isColumnFilterActive)
         tbody.innerHTML = `
           <tr>
-            <td colspan="16" style="text-align: center; color: var(--text-muted);">
+            <td colspan="17" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('spools.noResults') : `${t('spools.noSpools')} <a href="/spools/new" style="color: var(--accent);">${t('spools.addOne')}</a>.`}
             </td>
           </tr>
@@ -823,7 +854,7 @@ import Layout from '../../layouts/Layout.astro'
         const hasFilters = search || Object.values(columnFilters).some(isColumnFilterActive)
         tbody.innerHTML = `
           <tr>
-            <td colspan="16" style="text-align: center; color: var(--text-muted);">
+            <td colspan="17" style="text-align: center; color: var(--text-muted);">
               ${hasFilters ? t('spools.noResults') : `${t('spools.noSpools')} <a href="/spools/new" style="color: var(--accent);">${t('spools.addOne')}</a>.`}
             </td>
           </tr>
@@ -856,7 +887,7 @@ import Layout from '../../layouts/Layout.astro'
         const gid = `group-${groupIdx}`
         html += `
           <tr data-group="${gid}" style="background: var(--group-header-bg); font-weight: 600; cursor: pointer; user-select: none; border-left: 3px solid var(--group-header-border);" onmouseenter="this.style.background='var(--group-header-bg-hover)'" onmouseleave="this.style.background='var(--group-header-bg)'">
-            <td colspan="16" style="padding: 10px 12px; color: var(--text);">
+            <td colspan="17" style="padding: 10px 12px; color: var(--text);">
               <span data-toggle="${gid}" style="display: inline-block;">&#9660; ${group.colorDots} ${group.label}</span>
               <span style="margin-left: 12px; font-weight: 400; color: var(--text-muted); font-size: 0.85rem;">${group.manufacturer} &middot; ${group.material} &middot; ${t('spools.spoolsInGroup', { count: group.spools.length })}</span>
             </td>
@@ -1044,6 +1075,25 @@ import Layout from '../../layouts/Layout.astro'
           onApply: (value) => applyColumnFilter('material', value, 'material'),
         },
         {
+          key: 'colors',
+          label: t('filaments.colors'),
+          columnSelector: 'th.col-colors',
+          type: 'multi',
+          multiDisplay: 'colors',
+          options: [],
+          initialValue: columnFilters.colors,
+          onApply: (value) => applyColumnFilter('colors', value),
+        },
+        {
+          key: 'colorRange',
+          label: t('filters.colorRange'),
+          columnSelector: 'th.col-colors',
+          type: 'color',
+          icon: 'gear',
+          initialValue: columnFilters.colorRange,
+          onApply: (value) => applyColumnFilter('colorRange', value),
+        },
+        {
           key: 'remaining',
           label: t('spools.remaining'),
           columnSelector: 'th.col-remaining',
@@ -1164,6 +1214,7 @@ import Layout from '../../layouts/Layout.astro'
           { key: 'id', label: t('spools.id') },
           { key: 'manufacturer', label: t('spools.manufacturer') },
           { key: 'material', label: t('spools.material') },
+          { key: 'colors', label: t('filaments.colors') },
           { key: 'status', label: t('spools.status') },
           { key: 'remaining', label: t('spools.remaining') },
           { key: 'location', label: t('spools.location') },
@@ -1184,7 +1235,7 @@ import Layout from '../../layouts/Layout.astro'
     ]
     const splPicker = initColumnPicker({
       storageKey: 'filaman-columns-spools',
-      defaultVisible: ['id', 'manufacturer', 'material', 'status', 'remaining', 'location'],
+      defaultVisible: ['id', 'manufacturer', 'material', 'colors', 'status', 'remaining', 'location'],
       groups: splColumnGroups,
       btnId: 'btn-columns',
       dropdownId: 'columns-dropdown',
@@ -1248,8 +1299,9 @@ import Layout from '../../layouts/Layout.astro'
       (document.getElementById('filter-group') as HTMLInputElement).checked = true
     }
     Promise.all([initCurrency(), loadSpoolExtraFieldColumns()])
-      .then(() => {
+      .then(async () => {
         setupHeaderFilters()
+        await loadSpoolColorOptions()
         return loadFilters()
       })
       .then(() => loadSpools())
@@ -1266,6 +1318,7 @@ import Layout from '../../layouts/Layout.astro'
       const { event } = (e as CustomEvent).detail ?? {}
       if (event === 'spools_changed' || event === 'filaments_changed' || event === 'manufacturers_changed' || event === 'locations_changed') {
         invalidateCache(CACHE_KEYS.SPOOL_FILTER_OPTIONS)
+        invalidateCache(CACHE_KEYS.FILAMENT_FILTER_OPTIONS)
         if (_spoolsReloadTimer) clearTimeout(_spoolsReloadTimer)
         _spoolsReloadTimer = setTimeout(async () => {
           await refreshSpoolFilterOptions()
