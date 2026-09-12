@@ -103,7 +103,7 @@ import Layout from '../../layouts/Layout.astro'
       id: number
       name: string
       is_active: boolean
-      token_hash: string | null
+      registration_pending: boolean
       ip_address: string | null
       auto_assign_enabled: boolean
       auto_assign_timeout: number
@@ -144,7 +144,7 @@ import Layout from '../../layouts/Layout.astro'
         let statusColor = 'var(--accent-2)' // Green
         
         if (!d.is_active) {
-          if (d.token_hash === 'pending_registration') {
+          if (d.registration_pending) {
             statusLabel = t('admin.pending')
             statusColor = 'orange'
           } else {
