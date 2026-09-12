@@ -17,7 +17,9 @@ export async function copyText(text: string): Promise<boolean> {
   textarea.select()
 
   try {
-    return document.execCommand('copy')
+    const execCommand = (document as unknown as { execCommand?: (command: string) => boolean })
+      .execCommand
+    return execCommand?.call(document, 'copy') ?? false
   } finally {
     textarea.remove()
   }

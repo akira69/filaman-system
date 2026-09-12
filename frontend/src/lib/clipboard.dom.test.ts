@@ -31,4 +31,16 @@ describe('copyText', () => {
     expect(copiedText).toBe('ABC123')
     expect(document.querySelector('textarea')).toBeNull()
   })
+
+  it('returns false when no clipboard method is available', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+    Reflect.deleteProperty(document, 'execCommand')
+
+    await expect(copyText('ABC123')).resolves.toBe(false)
+
+    expect(document.querySelector('textarea')).toBeNull()
+  })
 })
