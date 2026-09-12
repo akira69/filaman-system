@@ -94,6 +94,7 @@ import Layout from '../../layouts/Layout.astro'
   <script>
     import { t, initI18n } from '../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
+    import { copyText } from '../../lib/clipboard'
     await initI18n()
 
     let devices: any[] = []
@@ -222,10 +223,11 @@ import Layout from '../../layouts/Layout.astro'
       modal.classList.add('open')
     }
     
-    document.getElementById('token-copy')?.addEventListener('click', () => {
+    document.getElementById('token-copy')?.addEventListener('click', async () => {
       const token = document.getElementById('token-display')!.textContent!
-      navigator.clipboard.writeText(token)
-      ;(document.getElementById('token-copy') as HTMLButtonElement).textContent = t('admin.copied')
+      if (await copyText(token)) {
+        ;(document.getElementById('token-copy') as HTMLButtonElement).textContent = t('admin.copied')
+      }
     })
     
     document.getElementById('token-close')?.addEventListener('click', () => {
