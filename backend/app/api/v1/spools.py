@@ -292,6 +292,7 @@ async def list_spool_filter_options(db: DBSession, principal: PrincipalDep):
         .join(Filament, Filament.id == Spool.filament_id)
         .join(Manufacturer, Manufacturer.id == Filament.manufacturer_id)
         .outerjoin(Location, Location.id == Spool.location_id)
+        .distinct()
     )
 
     scopes: dict[int, dict[str, Any]] = {}

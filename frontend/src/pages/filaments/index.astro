@@ -222,6 +222,7 @@ import Layout from '../../layouts/Layout.astro'
     let filterRequestId = 0
     let columnFilters: Record<string, ColumnFilterValue> = { ...(savedFilterState?.columns || {}) }
     let filHeaderFilters: HeaderFilterController | null = null
+    let allSpoolStatusIds: string[] = []
 
     const urlParams = new URLSearchParams(window.location.search)
     const filterManufacturerId = urlParams.get('manufacturer_id')
@@ -328,7 +329,16 @@ import Layout from '../../layouts/Layout.astro'
 
     function hasLocalColumnFilters(): boolean {
       return Object.entries(columnFilters).some(([key, value]) =>
-        isColumnFilterActive(value) && key !== 'manufacturer' && key !== 'type')
+        isEffectiveColumnFilterActive(key, value) && key !== 'manufacturer' && key !== 'type')
+    }
+
+    // A "select all" spoolStatus (its default) is equivalent to no filter at all.
+    function isEffectiveColumnFilterActive(key: string, value: ColumnFilterValue | undefined): boolean {
+      if (!isColumnFilterActive(value)) return false
+      if (key === 'spoolStatus' && value?.type === 'multi' && allSpoolStatusIds.length > 0) {
+        return value.values.length < allSpoolStatusIds.length
+      }
+      return true
     }
 
     function getFilamentFilterValue(filament: any, key: string): unknown {
@@ -338,6 +348,7 @@ import Layout from '../../layouts/Layout.astro'
       if (key === 'colors') return (filament.colors || []).map((fc: any) => fc.color?.name).filter(Boolean)
       if (key === 'diameter') return filament.diameter_mm
       if (key === 'spools') return filament.spool_count
+      if (key === 'spoolStatus') return (filament.spool_status_ids || []).map(String)
       if (key === 'price') return filament.price
       if (key === 'mfr_color') return filament.manufacturer_color_name
       if (key === 'finish') return filament.finish_type
@@ -354,7 +365,7 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function filterFilaments(filaments: any[]): any[] {
-      const activeFilters = Object.entries(columnFilters).filter(([, value]) => isColumnFilterActive(value))
+      const activeFilters = Object.entries(columnFilters).filter(([key, value]) => isEffectiveColumnFilterActive(key, value))
       return filaments.filter((filament) => activeFilters.every(([key, filter]) =>
         matchesColumnFilter(getFilamentFilterValue(filament, key), filter)))
     }
@@ -415,6 +426,26 @@ import Layout from '../../layouts/Layout.astro'
         }))
         if (options.has_empty_colors) colorOptions.unshift({ value: '', label: t('common.empty') })
         filHeaderFilters?.setOptions('colors', colorOptions)
+
+        const statuses = await cachedFetch<Array<{ id: number; key: string; label: string }>>(
+          CACHE_KEYS.STATUSES,
+          async () => {
+            const response = await fetch('/api/v1/spools/statuses', { credentials: 'include', signal })
+            if (!response.ok) throw new Error(`Failed to load spool statuses (${response.status})`)
+            return response.json()
+          },
+        )
+        filHeaderFilters?.setOptions('spoolStatus', statuses.map((s) => {
+          const i18nKey = `spools.status${s.key.charAt(0).toUpperCase() + s.key.slice(1)}`
+          return { value: String(s.id), label: t(i18nKey) || s.label }
+        }))
+        // Default to "all statuses selected" so the filter only takes effect once the user deselects one.
+        allSpoolStatusIds = statuses.map((s) => String(s.id))
+        if (!columnFilters.spoolStatus) {
+          const defaultFilter = multiColumnFilter(allSpoolStatusIds)
+          columnFilters.spoolStatus = defaultFilter
+          filHeaderFilters?.setValue('spoolStatus', defaultFilter)
+        }
       } catch (e) {
         if (isAbortError(e)) return
         console.error('Failed to populate filter dropdowns:', e)
@@ -534,7 +565,7 @@ import Layout from '../../layouts/Layout.astro'
       
       if (filaments.length === 0) {
         const { search } = getFilterValues()
-        const hasFilters = search || Object.values(columnFilters).some(isColumnFilterActive)
+        const hasFilters = search || Object.entries(columnFilters).some(([key, value]) => isEffectiveColumnFilterActive(key, value))
         tbody.innerHTML = `
           <tr>
             <td colspan="13" style="text-align: center; color: var(--text-muted);">
@@ -584,7 +615,7 @@ import Layout from '../../layouts/Layout.astro'
 
       if (filaments.length === 0) {
         const { search } = getFilterValues()
-        const hasFilters = search || Object.values(columnFilters).some(isColumnFilterActive)
+        const hasFilters = search || Object.entries(columnFilters).some(([key, value]) => isEffectiveColumnFilterActive(key, value))
         tbody.innerHTML = `
           <tr>
             <td colspan="13" style="text-align: center; color: var(--text-muted);">
@@ -800,6 +831,15 @@ import Layout from '../../layouts/Layout.astro'
           type: 'number',
           initialValue: columnFilters.spools,
           onApply: (value) => applyColumnFilter('spools', value),
+        },
+        {
+          key: 'spoolStatus',
+          label: t('filaments.spoolStatus'),
+          columnSelector: 'th.col-spools',
+          type: 'multi',
+          icon: 'gear',
+          initialValue: columnFilters.spoolStatus,
+          onApply: (value) => applyColumnFilter('spoolStatus', value),
         },
         {
           key: 'price',

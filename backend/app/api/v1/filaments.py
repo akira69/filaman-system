@@ -846,6 +846,7 @@ async def list_filament_filter_options(db: DBSession, principal: PrincipalDep):
         .join(Manufacturer, Manufacturer.id == Filament.manufacturer_id)
         .outerjoin(FilamentColor, FilamentColor.filament_id == Filament.id)
         .outerjoin(Color, Color.id == FilamentColor.color_id)
+        .distinct()
     )
 
     manufacturers: dict[int, str] = {}
@@ -997,6 +998,7 @@ async def list_filaments(
     # Compute spool counts for the fetched filaments (excluding archived spools)
     filament_ids = [f.id for f in items]
     spool_counts: dict[int, int] = {}
+    spool_status_ids: dict[int, list[int]] = {}
     if filament_ids:
         spool_count_query = (
             select(Spool.filament_id, func.count(Spool.id))
@@ -1008,12 +1010,22 @@ async def list_filaments(
         spool_result = await db.execute(spool_count_query)
         spool_counts = {row[0]: row[1] for row in spool_result.all()}
 
+        status_query = (
+            select(Spool.filament_id, Spool.status_id)
+            .where(Spool.filament_id.in_(filament_ids))
+            .distinct()
+        )
+        status_result = await db.execute(status_query)
+        for filament_id, status_id in status_result.all():
+            spool_status_ids.setdefault(filament_id, []).append(status_id)
+
     items_with_count = [
         FilamentDetailResponse.model_validate(
             {
                 **f.__dict__,
                 "manufacturer": f.manufacturer,
                 "spool_count": spool_counts.get(f.id, 0),
+                "spool_status_ids": spool_status_ids.get(f.id, []),
                 "colors": sorted(f.filament_colors, key=lambda fc: fc.position),
             }
         )
