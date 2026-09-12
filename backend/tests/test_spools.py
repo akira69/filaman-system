@@ -422,6 +422,45 @@ class TestSpoolCRUD:
         assert data["total"] >= 1
 
     @pytest.mark.asyncio
+    async def test_list_spools_filter_by_unassigned_location(self, auth_client, db_session):
+        client, _ = auth_client
+        manufacturer = await _create_manufacturer(db_session)
+        filament = await _create_filament(db_session, manufacturer.id)
+        location = await _create_location(db_session)
+        status = await _get_status(db_session, "new")
+        unassigned = await _create_spool(db_session, filament.id, status.id)
+        await _create_spool(db_session, filament.id, status.id, location_id=location.id)
+
+        response = await client.get("/api/v1/spools?location_unassigned=true")
+
+        assert response.status_code == 200
+        assert {item["id"] for item in response.json()["items"]} == {unassigned.id}
+
+    @pytest.mark.asyncio
+    async def test_list_spools_filter_by_location_or_unassigned(self, auth_client, db_session):
+        client, _ = auth_client
+        manufacturer = await _create_manufacturer(db_session)
+        filament = await _create_filament(db_session, manufacturer.id)
+        selected_location = await _create_location(db_session, name="Selected")
+        other_location = await _create_location(db_session, name="Other")
+        status = await _get_status(db_session, "new")
+        unassigned = await _create_spool(db_session, filament.id, status.id)
+        selected = await _create_spool(
+            db_session, filament.id, status.id, location_id=selected_location.id
+        )
+        await _create_spool(db_session, filament.id, status.id, location_id=other_location.id)
+
+        response = await client.get(
+            f"/api/v1/spools?location_id={selected_location.id}&location_unassigned=true"
+        )
+
+        assert response.status_code == 200
+        assert {item["id"] for item in response.json()["items"]} == {
+            unassigned.id,
+            selected.id,
+        }
+
+    @pytest.mark.asyncio
     async def test_list_spools_filter_by_filament(self, auth_client, db_session):
         client, _ = auth_client
 

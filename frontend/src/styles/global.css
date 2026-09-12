@@ -552,6 +552,11 @@ th.sort-desc .fm-header-sort-icon-desc {
   transform: scale(1.06);
 }
 
+.fm-header-filter-color-option input:focus-visible + .fm-header-filter-color-tile {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .fm-header-filter-color-option input:checked + .fm-header-filter-color-tile {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
@@ -717,9 +722,7 @@ th.sort-desc .fm-header-sort-icon-desc {
   --color-saturation-inner: 20%;
   --color-saturation-outer: 100%;
   --color-wheel-darkness: 0;
-  background:
-    radial-gradient(circle, #777 0%, rgb(128 128 128 / 70%) 30%, transparent 100%),
-    conic-gradient(from 90deg, #f00, #f0f, #00f, #0ff, #0f0, #ff0, #f00);
+  background: var(--bg-soft);
   border: 1px solid var(--border);
   border-radius: 50%;
   height: 180px;
@@ -738,6 +741,16 @@ th.sort-desc .fm-header-sort-icon-desc {
   inset: 0;
   pointer-events: none;
   position: absolute;
+  z-index: 1;
+}
+
+.fm-header-color-wheel-surface {
+  border-radius: inherit;
+  height: 100%;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
 }
 
 .fm-header-color-wheel:focus-visible {
@@ -771,7 +784,7 @@ th.sort-desc .fm-header-sort-icon-desc {
   );
   pointer-events: none;
   position: absolute;
-  z-index: 1;
+  z-index: 2;
 }
 
 .fm-header-color-range {

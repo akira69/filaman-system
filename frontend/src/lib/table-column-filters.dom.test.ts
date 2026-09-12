@@ -2,11 +2,39 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { initHeaderColumnFilters } from './table-column-filters'
+import { initHeaderColumnFilters, normalizeColorFilter } from './table-column-filters'
+import { setLang } from './i18n'
 
 afterEach(() => {
   document.body.innerHTML = ''
+  setLang('en')
   vi.restoreAllMocks()
+})
+
+describe('header filter accessibility', () => {
+  it('localizes accessible names and closes the controlled panel with Escape', () => {
+    setLang('de')
+    document.body.innerHTML = '<table><thead><tr><th class="col-name">Name</th></tr></thead></table>'
+    initHeaderColumnFilters(document.querySelector('table')!, [{
+      key: 'name', label: 'Name', columnSelector: 'th.col-name', type: 'text', onApply: vi.fn(),
+    }])
+
+    const trigger = document.querySelector<HTMLButtonElement>('.fm-header-filter-trigger')!
+    const panel = document.querySelector<HTMLElement>('.fm-header-filter-panel')!
+    trigger.click()
+
+    expect(trigger.getAttribute('aria-label')).toBe('Name filtern')
+    expect(trigger.getAttribute('aria-controls')).toBe(panel.id)
+    expect(panel.getAttribute('role')).toBe('dialog')
+    expect(document.querySelector('.fm-header-filter-operator')?.getAttribute('aria-label'))
+      .toBe('Filteroperator für Name')
+
+    panel.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }))
+
+    expect(panel.classList.contains('open')).toBe(false)
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(trigger)
+  })
 })
 
 describe('color range header filter', () => {
@@ -78,6 +106,7 @@ describe('color range header filter', () => {
     expect(transparent.type).toBe('checkbox')
     expect(transparent.parentElement?.textContent).toContain('Include transparent hex')
     expect(document.querySelector('.fm-header-color-wheel')).not.toBeNull()
+    expect(document.querySelector('.fm-header-color-wheel-surface')).toBeInstanceOf(HTMLCanvasElement)
 
     color.click()
     expect(color.getAttribute('aria-pressed')).toBe('true')
@@ -130,7 +159,7 @@ describe('color range header filter', () => {
 
     expect(onApply).toHaveBeenCalledWith({
       type: 'color',
-      chromatic: true,
+      mode: 'color',
       hueFrom: 30,
       hueTo: 45,
       saturationFrom: 40,
@@ -139,7 +168,6 @@ describe('color range header filter', () => {
       valueTo: 75,
       valuePreview: 60,
       includeTransparent: true,
-      neutrals: [],
     })
   })
 
@@ -162,9 +190,8 @@ describe('color range header filter', () => {
     expect(document.querySelector<HTMLInputElement>('[data-color-transparent]')!.checked).toBe(false)
     expect(document.querySelector('.fm-header-color-transparent')?.classList.contains('is-muted')).toBe(true)
     expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({
-      chromatic: false,
+      mode: 'none',
       includeTransparent: false,
-      neutrals: [],
     }))
   })
 
@@ -221,11 +248,11 @@ describe('color range header filter', () => {
       columnSelector: 'th.col-colors',
       type: 'color',
       icon: 'gear',
-      initialValue: {
-        type: 'color', chromatic: true, hueFrom: 0, hueTo: 360,
+      initialValue: normalizeColorFilter({
+        type: 'color', mode: 'color', hueFrom: 0, hueTo: 360,
         saturationFrom: 0, saturationTo: 100, valueFrom: 0, valueTo: 100,
-        valuePreview: 100, includeTransparent: false, neutrals: [],
-      },
+        valuePreview: 100, includeTransparent: false,
+      }),
       onApply: vi.fn(),
     }])
     document.querySelector<HTMLButtonElement>('.fm-header-filter-trigger')!.click()
@@ -257,8 +284,7 @@ describe('color range header filter', () => {
 
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
       type: 'color',
-      chromatic: false,
-      neutrals: ['black'],
+      mode: 'black',
     }))
   })
 
@@ -271,9 +297,8 @@ describe('color range header filter', () => {
       columnSelector: 'th.col-colors',
       type: 'color',
       icon: 'gear',
-      initialValue: {
+      initialValue: normalizeColorFilter({
         type: 'color',
-        chromatic: true,
         hueFrom: 10,
         hueTo: 45,
         saturationFrom: 20,
@@ -282,8 +307,9 @@ describe('color range header filter', () => {
         valueTo: 100,
         valuePreview: 100,
         includeTransparent: false,
+        chromatic: true,
         neutrals: ['black', 'white'],
-      },
+      }),
       onApply,
     }])
 
@@ -293,6 +319,6 @@ describe('color range header filter', () => {
     expect(document.querySelector('[data-color-neutral="white"]')?.getAttribute('aria-pressed')).toBe('false')
     expect(document.activeElement).toBe(black)
     document.querySelector<HTMLButtonElement>('.fm-header-filter-actions .fm-btn-primary')!.click()
-    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ chromatic: false, neutrals: ['black'] }))
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ mode: 'black' }))
   })
 })

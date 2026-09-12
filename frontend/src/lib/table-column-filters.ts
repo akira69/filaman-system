@@ -12,9 +12,10 @@ export type TextFilterOperator = 'contains' | 'equals' | 'startsWith' | 'endsWit
 export type NumberFilterOperator = 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'between' | 'isEmpty' | 'isNotEmpty'
 export type DateFilterOperator = 'on' | 'before' | 'after' | 'between' | 'isEmpty' | 'isNotEmpty'
 export type ColorNeutral = 'black' | 'white' | 'grey'
+export type ColorFilterMode = 'none' | 'color' | ColorNeutral
 export type ColorFilterValue = {
   type: 'color'
-  chromatic: boolean
+  mode: ColorFilterMode
   hueFrom: number
   hueTo: number
   saturationFrom: number
@@ -23,7 +24,11 @@ export type ColorFilterValue = {
   valueTo: number
   valuePreview: number
   includeTransparent: boolean
-  neutrals: ColorNeutral[]
+}
+
+type LegacyColorFilterValue = Omit<ColorFilterValue, 'mode'> & {
+  chromatic?: boolean
+  neutrals?: unknown
 }
 
 export type ColumnFilterValue =
@@ -137,11 +142,13 @@ const DATE_OPERATORS: { value: DateFilterOperator; labelKey: string }[] = [
   { value: 'isNotEmpty', labelKey: 'filters.isNotEmpty' },
 ]
 
+let nextPanelId = 0
+
 export function emptyColumnFilter(type: ColumnFilterValue['type']): ColumnFilterValue {
   if (type === 'multi') return { type, values: [] }
   if (type === 'text') return { type, operator: 'contains', value: '' }
   if (type === 'number') return { type, operator: 'eq', value: '', valueTo: '' }
-  if (type === 'color') return { type, chromatic: false, hueFrom: 10, hueTo: 45, saturationFrom: 20, saturationTo: 100, valueFrom: 0, valueTo: 100, valuePreview: 100, includeTransparent: false, neutrals: [] }
+  if (type === 'color') return { type, mode: 'none', hueFrom: 10, hueTo: 45, saturationFrom: 20, saturationTo: 100, valueFrom: 0, valueTo: 100, valuePreview: 100, includeTransparent: false }
   return { type, operator: 'on', value: '', valueTo: '' }
 }
 
@@ -211,7 +218,7 @@ export function systemExtraFieldHeaderFilter(
 export function isColumnFilterActive(value: ColumnFilterValue | null | undefined): boolean {
   if (!value) return false
   if (value.type === 'multi') return value.values.length > 0
-  if (value.type === 'color') return value.chromatic || value.includeTransparent || value.neutrals.length > 0
+  if (value.type === 'color') return value.mode !== 'none' || value.includeTransparent
   if (value.operator === 'isEmpty' || value.operator === 'isNotEmpty') return true
   if (value.operator === 'between') return value.value !== '' && value.valueTo !== ''
   return value.value !== ''
@@ -316,17 +323,19 @@ export function matchesColorFilter(rawValue: unknown, filter: ColorFilterValue):
     const hueMatches = filter.hueFrom <= filter.hueTo
       ? hue >= filter.hueFrom && hue <= filter.hueTo
       : hue >= filter.hueFrom || hue <= filter.hueTo
-    const chromatic = filter.chromatic
+    const chromatic = filter.mode === 'color'
       && hueMatches
       && saturation >= Math.min(filter.saturationFrom, filter.saturationTo)
       && saturation <= Math.max(filter.saturationFrom, filter.saturationTo)
       && brightness >= Math.min(filter.valueFrom, filter.valueTo)
       && brightness <= Math.max(filter.valueFrom, filter.valueTo)
-    const neutral = filter.neutrals.some((name) => {
-      if (name === 'black') return brightness <= 15 && saturation <= 20
-      if (name === 'white') return brightness >= 85 && saturation <= 10
-      return brightness >= 35 && brightness <= 65 && saturation <= 10
-    })
+    const neutral = filter.mode === 'black'
+      ? brightness <= 15 && saturation <= 20
+      : filter.mode === 'white'
+        ? brightness >= 85 && saturation <= 10
+        : filter.mode === 'grey'
+          ? brightness >= 35 && brightness <= 65 && saturation <= 10
+          : false
     const transparent = filter.includeTransparent
       && normalized.length === 9
       && normalized.slice(-2) !== 'FF'
@@ -334,16 +343,29 @@ export function matchesColorFilter(rawValue: unknown, filter: ColorFilterValue):
   })
 }
 
-export function normalizeColorFilter(value: ColorFilterValue): ColorFilterValue {
-  const neutral = Array.isArray(value.neutrals)
-    ? value.neutrals.find((item): item is ColorNeutral => item === 'black' || item === 'white' || item === 'grey')
+export function normalizeColorFilter(value: ColorFilterValue | LegacyColorFilterValue): ColorFilterValue {
+  const legacy = value as LegacyColorFilterValue
+  const neutral = Array.isArray(legacy.neutrals)
+    ? legacy.neutrals.find(
+      (item): item is ColorNeutral => item === 'black' || item === 'white' || item === 'grey',
+    )
     : undefined
-  const neutrals = neutral ? [neutral] : []
+  const suppliedMode = (value as ColorFilterValue).mode
+  const mode: ColorFilterMode = neutral
+    ?? (suppliedMode === 'none' || suppliedMode === 'color' || suppliedMode === 'black' || suppliedMode === 'white' || suppliedMode === 'grey'
+      ? suppliedMode
+      : legacy.chromatic ? 'color' : 'none')
   const valueLow = Math.min(value.valueFrom, value.valueTo)
   const valueHigh = Math.max(value.valueFrom, value.valueTo)
   const preview = Number.isFinite(value.valuePreview) ? value.valuePreview : valueHigh
   const valuePreview = Math.max(valueLow, Math.min(valueHigh, preview))
-  return { ...value, chromatic: neutrals.length ? false : Boolean(value.chromatic), valuePreview, neutrals }
+  return {
+    type: 'color', mode,
+    hueFrom: value.hueFrom, hueTo: value.hueTo,
+    saturationFrom: value.saturationFrom, saturationTo: value.saturationTo,
+    valueFrom: value.valueFrom, valueTo: value.valueTo, valuePreview,
+    includeTransparent: value.includeTransparent,
+  }
 }
 
 function hexToHsv(hex: string): { hue: number; saturation: number; value: number } {
@@ -367,13 +389,62 @@ function hexToHsv(hex: string): { hue: number; saturation: number; value: number
   }
 }
 
+export function colorWheelPixels(size: number): Uint8ClampedArray {
+  const pixels = new Uint8ClampedArray(size * size * 4)
+  const radius = size / 2
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = x + 0.5 - radius
+      const dy = y + 0.5 - radius
+      const saturation = Math.hypot(dx, dy) / radius
+      if (saturation > 1) continue
+
+      const sector = ((360 - Math.atan2(dy, dx) * 180 / Math.PI) % 360) / 60
+      const chroma = saturation
+      const secondary = chroma * (1 - Math.abs(sector % 2 - 1))
+      const match = 1 - chroma
+      const [red, green, blue] = sector < 1 ? [chroma, secondary, 0]
+        : sector < 2 ? [secondary, chroma, 0]
+          : sector < 3 ? [0, chroma, secondary]
+            : sector < 4 ? [0, secondary, chroma]
+              : sector < 5 ? [secondary, 0, chroma]
+                : [chroma, 0, secondary]
+      const offset = (y * size + x) * 4
+      pixels.set([
+        Math.round((red + match) * 255),
+        Math.round((green + match) * 255),
+        Math.round((blue + match) * 255),
+        255,
+      ], offset)
+    }
+  }
+
+  return pixels
+}
+
+function paintColorWheel(canvas: HTMLCanvasElement) {
+  const size = Math.round(180 * (window.devicePixelRatio || 1))
+  const context = canvas.getContext('2d')
+  if (!context) return
+  canvas.width = size
+  canvas.height = size
+  const image = context.createImageData(size, size)
+  image.data.set(colorWheelPixels(size))
+  context.putImageData(image, 0, 0)
+}
+
 function normalizeDate(value: unknown): string {
   if (!value) return ''
   const text = String(value)
-  const match = text.match(/^\d{4}-\d{2}-\d{2}/)
-  if (match) return match[0]
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
   const parsed = new Date(text)
-  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10)
+  if (Number.isNaN(parsed.getTime())) return ''
+  return [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, '0'),
+    String(parsed.getDate()).padStart(2, '0'),
+  ].join('-')
 }
 
 function cloneFilter(value: ColumnFilterValue): ColumnFilterValue {
@@ -446,13 +517,18 @@ export function initHeaderColumnFilters(
     const trigger = document.createElement('button')
     trigger.type = 'button'
     trigger.className = 'fm-header-filter-trigger'
-    trigger.setAttribute('aria-label', `Filter ${def.label}`)
+    trigger.setAttribute('aria-label', t('filters.filterColumn', { label: def.label }))
     trigger.setAttribute('aria-expanded', 'false')
-    trigger.title = `Filter ${def.label}`
+    trigger.setAttribute('aria-haspopup', 'dialog')
+    trigger.title = t('filters.filterColumn', { label: def.label })
     trigger.innerHTML = def.icon === 'gear' ? GEAR_ICON : FILTER_ICON
 
     const panel = document.createElement('div')
     panel.className = 'fm-header-filter-panel'
+    panel.id = `fm-header-filter-panel-${nextPanelId++}`
+    panel.setAttribute('role', 'dialog')
+    panel.setAttribute('aria-label', t('filters.filterColumn', { label: def.label }))
+    trigger.setAttribute('aria-controls', panel.id)
 
     const initial = def.initialValue?.type === def.type
       ? cloneFilter(def.initialValue)
@@ -523,6 +599,12 @@ export function initHeaderColumnFilters(
 
     panel.addEventListener('click', (event) => event.stopPropagation())
     panel.addEventListener('dragstart', (event) => event.preventDefault())
+    panel.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      closePanel(panel)
+      trigger.focus()
+    })
 
     applyBtn.addEventListener('click', () => {
       state.applied = cloneFilter(state.working)
@@ -645,7 +727,7 @@ function buildMultiControls(state: FilterState) {
   search.className = 'fm-input fm-header-filter-search'
   search.type = 'text'
   search.placeholder = t('filters.searchOptions', { label: state.def.label })
-  search.setAttribute('aria-label', `Search ${state.def.label} options`)
+  search.setAttribute('aria-label', t('filters.searchOptions', { label: state.def.label }))
 
   const selectionActions = document.createElement('div')
   selectionActions.className = 'fm-header-filter-selection-actions'
@@ -730,8 +812,7 @@ function buildColorControls(state: FilterState) {
   colorButton.append(t('filaments.color'))
   colorButton.addEventListener('click', () => {
     if (state.working.type !== 'color') return
-    state.working.chromatic = true
-    state.working.neutrals = []
+    state.working.mode = 'color'
     syncColorControls(state)
     updateTrigger(state)
   })
@@ -744,9 +825,8 @@ function buildColorControls(state: FilterState) {
     button.setAttribute('aria-pressed', 'false')
     button.addEventListener('click', () => {
       if (state.working.type !== 'color') return
-      const selected = state.working.neutrals[0] === neutral
-      state.working.neutrals = selected ? [] : [neutral]
-      state.working.chromatic = selected
+      const selected = state.working.mode === neutral
+      state.working.mode = selected ? 'color' : neutral
       syncColorControls(state)
       updateTrigger(state)
     })
@@ -766,9 +846,13 @@ function buildColorControls(state: FilterState) {
   wheel.setAttribute('aria-label', t('filters.moveHueArc'))
   wheel.setAttribute('aria-valuemin', '0')
   wheel.setAttribute('aria-valuemax', '359')
+  const surface = document.createElement('canvas')
+  surface.className = 'fm-header-color-wheel-surface'
+  surface.setAttribute('aria-hidden', 'true')
+  paintColorWheel(surface)
   const selection = document.createElement('span')
   selection.className = 'fm-header-color-wheel-selection'
-  wheel.appendChild(selection)
+  wheel.append(surface, selection)
   const wheelWrap = document.createElement('div')
   wheelWrap.className = 'fm-header-color-wheel-wrap'
   wheelWrap.appendChild(wheel)
@@ -779,8 +863,7 @@ function buildColorControls(state: FilterState) {
     if (Math.abs(state.working.hueTo - state.working.hueFrom) >= 360) return
     state.working.hueFrom = ((state.working.hueFrom + delta) % 360 + 360) % 360
     state.working.hueTo = ((state.working.hueTo + delta) % 360 + 360) % 360
-    state.working.chromatic = true
-    state.working.neutrals = []
+    state.working.mode = 'color'
     syncColorControls(state)
     updateTrigger(state)
   }
@@ -796,20 +879,19 @@ function buildColorControls(state: FilterState) {
       state.working.hueFrom = Math.round((center - span / 2 + 360) % 360)
       state.working.hueTo = Math.round((state.working.hueFrom + span) % 360)
     }
-    state.working.chromatic = true
-    state.working.neutrals = []
+    state.working.mode = 'color'
     syncColorControls(state)
     updateTrigger(state)
   }
   const centerHueArcAtPointer = (event: PointerEvent) => {
-    if (state.working.type !== 'color' || !state.working.chromatic || state.working.neutrals.length) return
+    if (state.working.type !== 'color' || state.working.mode !== 'color') return
     const rect = wheel.getBoundingClientRect()
     const angle = Math.atan2(event.clientY - (rect.top + rect.height / 2), event.clientX - (rect.left + rect.width / 2)) * 180 / Math.PI
     centerHueArc((360 - angle + 360) % 360)
   }
   let wheelDragging = false
   wheel.addEventListener('pointerdown', (event) => {
-    if (state.working.type !== 'color' || !state.working.chromatic || state.working.neutrals.length) return
+    if (state.working.type !== 'color' || state.working.mode !== 'color') return
     wheelDragging = true
     wheel.setPointerCapture?.(event.pointerId)
     centerHueArcAtPointer(event)
@@ -821,7 +903,7 @@ function buildColorControls(state: FilterState) {
   wheel.addEventListener('pointerup', stopWheelDrag)
   wheel.addEventListener('pointercancel', stopWheelDrag)
   wheel.addEventListener('keydown', (event) => {
-    if (state.working.type !== 'color' || !state.working.chromatic || state.working.neutrals.length) return
+    if (state.working.type !== 'color' || state.working.mode !== 'color') return
     const delta = event.key === 'ArrowLeft' || event.key === 'ArrowDown'
       ? -1
       : event.key === 'ArrowRight' || event.key === 'ArrowUp'
@@ -866,8 +948,7 @@ function buildColorControls(state: FilterState) {
         if (range.from === 'valueFrom') {
           state.working.valuePreview = Math.max(state.working.valueFrom, Math.min(state.working.valueTo, state.working.valuePreview))
         }
-        state.working.chromatic = true
-        state.working.neutrals = []
+        state.working.mode = 'color'
         syncColorControls(state)
         updateTrigger(state)
       })
@@ -886,7 +967,7 @@ function buildColorControls(state: FilterState) {
       let dragging = false
       let startX = 0
       grab.addEventListener('pointerdown', (event) => {
-        if (state.working.type !== 'color' || !state.working.chromatic || state.working.neutrals.length) return
+        if (state.working.type !== 'color' || state.working.mode !== 'color') return
         dragging = true
         startX = event.clientX
         grab.setPointerCapture?.(event.pointerId)
@@ -910,7 +991,7 @@ function buildColorControls(state: FilterState) {
           : event.key === 'ArrowRight' || event.key === 'ArrowUp'
             ? 1
             : 0
-        if (!delta || state.working.type !== 'color' || !state.working.chromatic || state.working.neutrals.length) return
+        if (!delta || state.working.type !== 'color' || state.working.mode !== 'color') return
         event.preventDefault()
         shiftHueArc(delta * (event.shiftKey ? 10 : 1))
       })
@@ -928,8 +1009,7 @@ function buildColorControls(state: FilterState) {
       preview.addEventListener('input', () => {
         if (state.working.type !== 'color') return
         state.working.valuePreview = Math.max(state.working.valueFrom, Math.min(state.working.valueTo, Number(preview.value)))
-        state.working.chromatic = true
-        state.working.neutrals = []
+        state.working.mode = 'color'
         syncColorControls(state)
         updateTrigger(state)
       })
@@ -962,7 +1042,7 @@ function buildTypedControls(state: FilterState) {
 
   const operator = document.createElement('select')
   operator.className = 'fm-select fm-header-filter-operator'
-  operator.setAttribute('aria-label', `${state.def.label} filter operator`)
+  operator.setAttribute('aria-label', t('filters.filterOperator', { label: state.def.label }))
 
   const operators = state.def.type === 'text'
     ? TEXT_OPERATORS
@@ -976,13 +1056,13 @@ function buildTypedControls(state: FilterState) {
   value.type = state.def.type === 'number' ? 'number' : state.def.type === 'date' ? 'date' : 'text'
   if (state.def.type === 'number') value.step = 'any'
   value.placeholder = t('filters.filterValue', { label: state.def.label })
-  value.setAttribute('aria-label', `${state.def.label} filter value`)
+  value.setAttribute('aria-label', t('filters.filterInput', { label: state.def.label }))
 
   const valueTo = document.createElement('input')
   valueTo.className = 'fm-input fm-header-filter-value'
   valueTo.type = state.def.type === 'number' ? 'number' : 'date'
   if (state.def.type === 'number') valueTo.step = 'any'
-  valueTo.setAttribute('aria-label', `${state.def.label} upper filter value`)
+  valueTo.setAttribute('aria-label', t('filters.upperFilterInput', { label: state.def.label }))
 
   operator.addEventListener('change', () => {
     setWorkingOperator(state, operator.value)
@@ -1051,12 +1131,11 @@ function syncColorControls(state: FilterState) {
     if (slider) slider.dataset.wrap = String(from === 'hueFrom' && value.hueFrom > value.hueTo)
   })
   state.panel.querySelectorAll<HTMLButtonElement>('[data-color-neutral]').forEach((button) => {
-    const selected = value.neutrals.includes(button.dataset.colorNeutral as ColorNeutral)
+    const selected = value.mode === button.dataset.colorNeutral
     button.setAttribute('aria-pressed', String(selected))
     button.classList.toggle('active', selected)
   })
-  const neutralMode = value.neutrals.length > 0
-  const chromaticMode = value.chromatic && !neutralMode
+  const chromaticMode = value.mode === 'color'
   const controlsMuted = !chromaticMode
   const colorButton = state.panel.querySelector<HTMLButtonElement>('[data-color-mode="color"]')
   colorButton?.setAttribute('aria-pressed', String(chromaticMode))
@@ -1073,7 +1152,7 @@ function syncColorControls(state: FilterState) {
     transparent.checked = value.includeTransparent
     transparent.closest('.fm-header-color-transparent')?.classList.toggle(
       'is-muted',
-      !value.chromatic && !neutralMode && !value.includeTransparent,
+      value.mode === 'none' && !value.includeTransparent,
     )
   }
   const wheel = state.panel.querySelector<HTMLElement>('.fm-header-color-wheel')
@@ -1213,5 +1292,8 @@ function updateTrigger(state: FilterState) {
   const pending = !sameFilter(state.applied, state.working)
   state.trigger.classList.toggle('active', active)
   state.trigger.classList.toggle('pending', pending)
-  state.trigger.setAttribute('aria-label', active ? `Filter ${state.def.label}, active` : `Filter ${state.def.label}`)
+  state.trigger.setAttribute(
+    'aria-label',
+    t(active ? 'filters.filterColumnActive' : 'filters.filterColumn', { label: state.def.label }),
+  )
 }

@@ -61,7 +61,7 @@ import Layout from '../../layouts/Layout.astro'
         data-i18n-placeholder="filaments.searchPlaceholder"
         placeholder="Search designation, color, manufacturer..."
       />
-      <button id="filter-search-clear" class="fm-filter-search-clear" type="button" aria-label="Clear search" title="Clear search" data-i18n-title="common.clearSearch">&times;</button>
+      <button id="filter-search-clear" class="fm-filter-search-clear" type="button" aria-label="Clear search" title="Clear search" data-i18n-aria-label="common.clearSearch" data-i18n-title="common.clearSearch">&times;</button>
     </div>
     <label style="display: flex; align-items: center; gap: 10px; font-size: 0.85rem; cursor: pointer; white-space: nowrap;">
       <input type="checkbox" id="filter-group" class="fm-checkbox" />
@@ -137,6 +137,7 @@ import Layout from '../../layouts/Layout.astro'
   <script>
     import { t, initI18n, translatePage } from '../../lib/i18n'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
+    import { fetchAllPages } from '../../lib/api'
     import { cachedFetch, CACHE_KEYS, invalidateCache } from '../../lib/cache'
     import { initColumnPicker, type ColumnGroup } from '../../lib/column-picker'
     import { initColumnReorder } from '../../lib/column-reorder'
@@ -482,30 +483,10 @@ import Layout from '../../layouts/Layout.astro'
 
         if (needsAllData) {
           // Load all matching filaments for client-side color filter / group-by
-          params.set('page', '1')
-          params.set('page_size', '200')
-          const response = await fetch(`/api/v1/filaments?${params}`, { credentials: 'include', signal })
-          if (!response.ok) throw new Error('Failed to fetch filaments')
-          const data = await response.json()
+          const data = await fetchAllPages<any>(`/api/v1/filaments?${params}`)
           if (requestId !== filterRequestId) return
           allFilaments = data.items
           totalFilaments = data.total
-          if (data.total > 200) {
-            const totalPages = Math.ceil(data.total / 200)
-            const pagePromises: Promise<any[]>[] = []
-            for (let p = 2; p <= totalPages; p++) {
-              const pParams = new URLSearchParams(params)
-              pParams.set('page', String(p))
-              pagePromises.push(
-                fetch(`/api/v1/filaments?${pParams}`, { credentials: 'include', signal })
-                  .then(res => res.ok ? res.json() : null)
-                  .then(d => d ? d.items : [])
-              )
-            }
-            const additionalPages = await Promise.all(pagePromises)
-            if (requestId !== filterRequestId) return
-            additionalPages.forEach(pageItems => { allFilaments = allFilaments.concat(pageItems) })
-          }
           if (hasLocalColumnFilters()) {
             allFilaments = filterFilaments(allFilaments)
             totalFilaments = allFilaments.length
@@ -1055,7 +1036,7 @@ import Layout from '../../layouts/Layout.astro'
     let _filamentsReloadTimer: ReturnType<typeof setTimeout> | null = null
     window.addEventListener('filaman:data-changed', (e: Event) => {
       const { event } = (e as CustomEvent).detail ?? {}
-      if (event === 'filaments_changed' || event === 'manufacturers_changed' || event === 'colors_changed') {
+      if (event === 'filaments_changed' || event === 'spools_changed' || event === 'manufacturers_changed' || event === 'colors_changed') {
         invalidateCache(CACHE_KEYS.FILAMENT_FILTER_OPTIONS)
         if (_filamentsReloadTimer) clearTimeout(_filamentsReloadTimer)
         _filamentsReloadTimer = setTimeout(async () => {

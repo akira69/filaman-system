@@ -30,12 +30,16 @@ def parse_multi_int(
 
     parsed: list[int] = []
     for item in items:
-        if not item.isdigit():
+        try:
+            value = int(item) if item.isdigit() else None
+        except ValueError:
+            value = None
+        if value is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={"message": f"Invalid integer value for {field_name}: {item}"},
             )
-        parsed.append(int(item))
+        parsed.append(value)
     return parsed
 
 

@@ -360,6 +360,7 @@ async def list_spools(
     filament_id: list[str] | None = Query(None),
     status_id: list[str] | None = Query(None),
     location_id: list[str] | None = Query(None),
+    location_unassigned: bool = Query(False),
     manufacturer_id: list[str] | None = Query(None),
     type: list[str] | None = Query(None),
     include_archived: bool = Query(False),
@@ -400,8 +401,12 @@ async def list_spools(
         conditions.append(SpoolStatus.key != "archived")
         needs_status_join = True
 
-    if location_ids:
+    if location_ids and location_unassigned:
+        conditions.append(or_(Spool.location_id.in_(location_ids), Spool.location_id.is_(None)))
+    elif location_ids:
         conditions.append(Spool.location_id.in_(location_ids))
+    elif location_unassigned:
+        conditions.append(Spool.location_id.is_(None))
 
     if search:
         search_term = f"%{search}%"

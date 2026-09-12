@@ -118,22 +118,18 @@ export async function fetchAllPages<T = any>(baseUrl: string): Promise<{ items: 
   const response = await fetch(firstUrl, { credentials: 'include', signal })
   if (!response.ok) throw new Error(`Failed to fetch ${baseUrl}`)
   const data = await response.json()
-  let items: T[] = data.items
+  const items: T[] = data.items
   const total: number = data.total
 
   if (total > 200) {
     const totalPages = Math.ceil(total / 200)
-    const pagePromises: Promise<T[]>[] = []
     for (let p = 2; p <= totalPages; p++) {
       const pageUrl = `${baseUrl}${separator}page=${p}&page_size=200`
-      pagePromises.push(
-        fetch(pageUrl, { credentials: 'include', signal })
-          .then(res => res.ok ? res.json() : null)
-          .then(d => d ? d.items : [])
-      )
+      const pageResponse = await fetch(pageUrl, { credentials: 'include', signal })
+      if (!pageResponse.ok) throw new Error(`Failed to fetch ${baseUrl}`)
+      const pageData = await pageResponse.json()
+      items.push(...pageData.items)
     }
-    const additionalPages = await Promise.all(pagePromises)
-    additionalPages.forEach(pageItems => { items = items.concat(pageItems) })
   }
 
   return { items, total }

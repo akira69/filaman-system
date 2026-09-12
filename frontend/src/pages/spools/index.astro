@@ -76,7 +76,7 @@ import Layout from '../../layouts/Layout.astro'
         data-i18n-placeholder="spools.searchPlaceholder"
         placeholder="Search filament, manufacturer..."
       />
-      <button id="filter-search-clear" class="fm-filter-search-clear" type="button" aria-label="Clear search" title="Clear search" data-i18n-title="common.clearSearch">&times;</button>
+      <button id="filter-search-clear" class="fm-filter-search-clear" type="button" aria-label="Clear search" title="Clear search" data-i18n-aria-label="common.clearSearch" data-i18n-title="common.clearSearch">&times;</button>
     </div>
     <label style="display: flex; align-items: center; gap: 10px; font-size: 0.85rem; cursor: pointer; white-space: nowrap;">
       <input type="checkbox" id="filter-group" class="fm-checkbox" />
@@ -229,6 +229,7 @@ import Layout from '../../layouts/Layout.astro'
     } from '../../lib/table-column-filters'
     import { formatPrice, formatRfidUid, getCurrency, initCurrency } from '../../lib/format'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
+    import { fetchAllPages } from '../../lib/api'
     await initI18n()
 
     let currentPage = 1
@@ -240,7 +241,8 @@ import Layout from '../../layouts/Layout.astro'
         return allowedPageSizes.includes(saved) ? saved : 50
       } catch { return 50 }
     })()
-    let statuses: any[] = []
+    type SpoolStatus = { id: number; key: string; label: string }
+    let statuses: SpoolStatus[] = []
     let locations: any[] = []
     type SpoolFilterScope = {
       manufacturers: HeaderFilterOption[]
@@ -307,10 +309,16 @@ import Layout from '../../layouts/Layout.astro'
     if (!columnFilters.manufacturer) columnFilters.manufacturer = multiColumnFilter(normalizeSavedValues(savedFilterState?.manufacturer))
     if (!columnFilters.material) columnFilters.material = multiColumnFilter(normalizeSavedValues(savedFilterState?.material))
     const filterManufacturerId = urlParams.get('manufacturer_id')
-    const filterLocationId = urlParams.get('location_id')
+    const filterLocationIds = urlParams.getAll('location_id')
+    const filterLocationUnassigned = urlParams.get('location_unassigned') === 'true'
     const filterMaterial = urlParams.get('material')
     if (filterManufacturerId) columnFilters.manufacturer = multiColumnFilter([filterManufacturerId])
-    if (filterLocationId) columnFilters.location = multiColumnFilter([filterLocationId])
+    if (filterLocationIds.length || filterLocationUnassigned) {
+      columnFilters.location = multiColumnFilter([
+        ...filterLocationIds,
+        ...(filterLocationUnassigned ? [''] : []),
+      ])
+    }
     if (filterMaterial) columnFilters.material = multiColumnFilter([filterMaterial])
     if (columnFilters.colorRange?.type === 'color') columnFilters.colorRange = normalizeColorFilter(columnFilters.colorRange)
     Object.keys(columnFilters).forEach((key) => {
@@ -511,7 +519,7 @@ import Layout from '../../layouts/Layout.astro'
         ? selectedStatusFilter.values
         : []
       const archivedStatusIds = new Set(
-        statuses.filter((status: any) => status.key === 'archived').map((status: any) => String(status.id))
+        statuses.filter((status) => status.key === 'archived').map((status) => String(status.id))
       )
       const scopeIds = selectedStatusIds.length > 0
         ? selectedStatusIds
@@ -591,22 +599,27 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     async function loadSpoolColorOptions() {
-      const signal = getAbortSignal()
-      const options = await cachedFetch<{
-        colors: Array<{ value: string; label: string; color_hexes: string[] }>
-        has_empty_colors: boolean
-      }>(CACHE_KEYS.FILAMENT_FILTER_OPTIONS, async () => {
-        const response = await fetch('/api/v1/filaments/filter-options', { credentials: 'include', signal })
-        if (!response.ok) throw new Error(`Failed to load color filter options (${response.status})`)
-        return response.json()
-      })
-      const colorOptions: HeaderFilterOption[] = options.colors.map(color => ({
-        value: color.value,
-        label: color.label,
-        colorHexes: color.color_hexes,
-      }))
-      if (options.has_empty_colors) colorOptions.unshift({ value: '', label: t('common.empty') })
-      splHeaderFilters?.setOptions('colors', colorOptions)
+      try {
+        const signal = getAbortSignal()
+        const options = await cachedFetch<{
+          colors: Array<{ value: string; label: string; color_hexes: string[] }>
+          has_empty_colors: boolean
+        }>(CACHE_KEYS.FILAMENT_FILTER_OPTIONS, async () => {
+          const response = await fetch('/api/v1/filaments/filter-options', { credentials: 'include', signal })
+          if (!response.ok) throw new Error(`Failed to load color filter options (${response.status})`)
+          return response.json()
+        })
+        const colorOptions: HeaderFilterOption[] = options.colors.map(color => ({
+          value: color.value,
+          label: color.label,
+          colorHexes: color.color_hexes,
+        }))
+        if (options.has_empty_colors) colorOptions.unshift({ value: '', label: t('common.empty') })
+        splHeaderFilters?.setOptions('colors', colorOptions)
+      } catch (error) {
+        if (isAbortError(error)) return
+        console.error('Failed to load spool color options:', error)
+      }
     }
 
     async function loadSpoolStatuses() {
@@ -614,7 +627,7 @@ import Layout from '../../layouts/Layout.astro'
         const response = await fetch('/api/v1/spools/statuses', { credentials: 'include', signal: getAbortSignal() })
         if (!response.ok) throw new Error(`Failed to load spool statuses (${response.status})`)
         statuses = await response.json()
-        splHeaderFilters?.setOptions('status', statuses.map((status: any) => {
+        splHeaderFilters?.setOptions('status', statuses.map((status) => {
           const i18nKey = `spools.status${status.key.charAt(0).toUpperCase() + status.key.slice(1)}`
           return { value: String(status.id), label: t(i18nKey) || status.label }
         }))
@@ -630,7 +643,7 @@ import Layout from '../../layouts/Layout.astro'
       const { search, statusIds, locationIds, manufacturerIds, materials, groupBy } = getFilterValues()
 
       // Check if archived status is selected
-      const archivedStatus = statuses.find((s: any) => s.key === 'archived')
+      const archivedStatus = statuses.find((s) => s.key === 'archived')
       const isArchivedSelected = !!archivedStatus && statusIds.includes(String(archivedStatus.id))
 
       // Build query params for backend
@@ -638,7 +651,8 @@ import Layout from '../../layouts/Layout.astro'
       statusIds.forEach((id) => params.append('status_id', id))
       if (isArchivedSelected) params.set('include_archived', 'true')
       manufacturerIds.forEach((id) => params.append('manufacturer_id', id))
-      locationIds.forEach((id) => params.append('location_id', id))
+      locationIds.filter(Boolean).forEach((id) => params.append('location_id', id))
+      if (locationIds.includes('')) params.set('location_unassigned', 'true')
       materials.forEach((item) => params.append('type', item))
       if (search) params.set('search', search)
       if (sortKey && sortDirection && sortKey !== 'colors' && sortKey !== 'status') {
@@ -651,30 +665,10 @@ import Layout from '../../layouts/Layout.astro'
 
         if (groupBy || needsAllSpoolData()) {
           // Grouping and client-side typed filters require the complete backend-filtered result.
-          params.set('page', '1')
-          params.set('page_size', '200')
-          const response = await fetch(`/api/v1/spools?${params}`, { credentials: 'include', signal })
-          if (!response.ok) throw new Error('Failed to fetch spools')
-          const data = await response.json()
+          const data = await fetchAllPages<any>(`/api/v1/spools?${params}`)
           if (requestId !== filterRequestId) return
           allSpools = data.items
           totalSpools = data.total
-          if (data.total > 200) {
-            const totalPages = Math.ceil(data.total / 200)
-            const pagePromises = []
-            for (let p = 2; p <= totalPages; p++) {
-              const pParams = new URLSearchParams(params)
-              pParams.set('page', String(p))
-              pagePromises.push(
-                fetch(`/api/v1/spools?${pParams}`, { credentials: 'include', signal })
-                  .then(res => res.ok ? res.json() : null)
-                  .then(d => d ? d.items : [])
-              )
-            }
-            const additionalPages = await Promise.all(pagePromises)
-            if (requestId !== filterRequestId) return
-            additionalPages.forEach(items => { allSpools = allSpools.concat(items) })
-          }
           if (hasLocalColumnFilters()) {
             allSpools = filterSpools(allSpools)
             totalSpools = allSpools.length
@@ -732,7 +726,7 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function getStatusLabel(statusId: number): string {
-      const s = statuses.find((s: any) => String(s.id) === String(statusId))
+      const s = statuses.find((s) => String(s.id) === String(statusId))
       if (!s) return '-'
       const i18nKey = `spools.status${s.key.charAt(0).toUpperCase() + s.key.slice(1)}`
       return t(i18nKey) || s.label
@@ -1177,6 +1171,7 @@ import Layout from '../../layouts/Layout.astro'
       else delete columnFilters[key]
       if (key === 'status') updateSpoolFilterOptions()
       if (urlParam) removeFilterUrlParams(urlParam)
+      if (key === 'location') removeFilterUrlParams('location_unassigned')
       applyFiltersAndRender()
     }
 
@@ -1197,13 +1192,13 @@ import Layout from '../../layouts/Layout.astro'
       onClearColumns: () => {
         columnFilters = {}
         splHeaderFilters?.resetAll()
-        removeFilterUrlParams('manufacturer_id', 'location_id', 'material')
+        removeFilterUrlParams('manufacturer_id', 'location_id', 'location_unassigned', 'material')
         applyFiltersAndRender()
       },
       onClearAll: () => {
         columnFilters = {}
         splHeaderFilters?.resetAll()
-        removeFilterUrlParams('manufacturer_id', 'location_id', 'material')
+        removeFilterUrlParams('manufacturer_id', 'location_id', 'location_unassigned', 'material')
         applyFiltersAndRender()
       },
     })
@@ -1303,8 +1298,7 @@ import Layout from '../../layouts/Layout.astro'
     Promise.all([initCurrency(), loadSpoolExtraFieldColumns(), loadActiveDevices()])
       .then(async () => {
         setupHeaderFilters()
-        await loadSpoolStatuses()
-        await loadSpoolColorOptions()
+        await Promise.allSettled([loadSpoolStatuses(), loadSpoolColorOptions()])
         return loadFilters()
       })
       .then(() => loadSpools())
@@ -1317,12 +1311,13 @@ import Layout from '../../layouts/Layout.astro'
     let _spoolsReloadTimer: ReturnType<typeof setTimeout> | null = null
     window.addEventListener('filaman:data-changed', (e: Event) => {
       const { event } = (e as CustomEvent).detail ?? {}
-      if (event === 'spools_changed' || event === 'filaments_changed' || event === 'manufacturers_changed' || event === 'locations_changed') {
+      if (event === 'spools_changed' || event === 'filaments_changed' || event === 'manufacturers_changed' || event === 'locations_changed' || event === 'colors_changed') {
         invalidateCache(CACHE_KEYS.SPOOL_FILTER_OPTIONS)
         invalidateCache(CACHE_KEYS.FILAMENT_FILTER_OPTIONS)
         if (_spoolsReloadTimer) clearTimeout(_spoolsReloadTimer)
         _spoolsReloadTimer = setTimeout(async () => {
           await refreshSpoolFilterOptions()
+          if (event === 'colors_changed' || event === 'filaments_changed') await loadSpoolColorOptions()
           await loadSpools()
         }, 300)
       }
@@ -1504,7 +1499,7 @@ import Layout from '../../layouts/Layout.astro'
     // Set Status
     document.getElementById('bulk-btn-status')?.addEventListener('click', async () => {
       if (selectedSpoolIds.size === 0) return
-      const options = statuses.map((s: any) => {
+      const options = statuses.map((s) => {
         const i18nKey = `spools.status${s.key.charAt(0).toUpperCase() + s.key.slice(1)}`
         return `<option value="${s.id}">${t(i18nKey) || s.label}</option>`
       }).join('')
@@ -1888,26 +1883,7 @@ import Layout from '../../layouts/Layout.astro'
       }
 
       // Load all empty spools with pagination (API limit: 200 per page)
-      const firstRes = await fetch(`/api/v1/spools?page=1&page_size=200&status_id=${emptyStatus.id}`, { credentials: 'include', signal })
-      if (!firstRes.ok) {
-        console.error('Failed to load empty spools:', firstRes.status, firstRes.statusText)
-        throw new Error(`HTTP ${firstRes.status}`)
-      }
-      const firstData = await firstRes.json()
-      let emptySpools: any[] = firstData.items || []
-      if (firstData.total > 200) {
-        const totalPages = Math.ceil(firstData.total / 200)
-        const pagePromises = []
-        for (let p = 2; p <= totalPages; p++) {
-          pagePromises.push(
-            fetch(`/api/v1/spools?page=${p}&page_size=200&status_id=${emptyStatus.id}`, { credentials: 'include', signal })
-              .then(r => r.ok ? r.json() : null)
-              .then(d => d ? d.items : [])
-          )
-        }
-        const additionalPages = await Promise.all(pagePromises)
-        additionalPages.forEach(items => { emptySpools = emptySpools.concat(items) })
-      }
+      const { items: emptySpools } = await fetchAllPages<any>(`/api/v1/spools?status_id=${emptyStatus.id}`)
 
       if (emptySpools.length === 0) {
         fromEmptyNone.style.display = ''
