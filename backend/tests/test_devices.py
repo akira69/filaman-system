@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import select
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.core.security import hash_token
+from app.core.security import hash_password, hash_token, verify_password_async
 from app.models import Device, Filament, Location, Manufacturer, Spool, SpoolStatus
 
 
@@ -202,6 +202,130 @@ class TestDeviceHeartbeat:
 
         assert response.status_code == 401
         assert response.json()["detail"]["code"] == "unauthenticated"
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_rejects_wrong_device_secret(self, auth_client, db_session):
+        client, csrf_token = auth_client
+        await _create_device(db_session, device_code="ABC123")
+        token, device_id = await _register_device(client, "ABC123", csrf_token)
+        prefix, _, _ = token.split(".")
+
+        response = await client.post(
+            "/api/v1/devices/heartbeat",
+            json={"ip_address": "10.0.0.5"},
+            headers={
+                "Authorization": f"Device {prefix}.{device_id}.wrong-secret",
+                "X-CSRF-Token": csrf_token,
+            },
+        )
+
+        assert response.status_code == 401
+        result = await db_session.execute(select(Device).where(Device.id == device_id))
+        assert result.scalar_one().ip_address is None
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_rechecks_persisted_token_on_every_request(
+        self,
+        auth_client,
+        db_session,
+    ):
+        client, csrf_token = auth_client
+        device = await _create_device(db_session, device_code="ABC123")
+        token, _ = await _register_device(client, "ABC123", csrf_token)
+
+        warm_response = await client.post(
+            "/api/v1/devices/heartbeat",
+            json={"ip_address": "10.0.0.5"},
+            headers=_device_headers(token),
+        )
+        assert warm_response.status_code == 200
+
+        device.token_hash = hash_token("rotated-secret")
+        await db_session.commit()
+        client.cookies.clear()
+
+        rejected_response = await client.post(
+            "/api/v1/devices/heartbeat",
+            json={"ip_address": "10.0.0.6"},
+            headers=_device_headers(token),
+        )
+        assert rejected_response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_migrates_legacy_device_token(self, client, db_session):
+        secret = "legacy-secret"
+        device = await _create_device(db_session)
+        device.token_hash = hash_password(secret)
+        await db_session.commit()
+
+        response = await client.post(
+            "/api/v1/devices/heartbeat",
+            json={"ip_address": "10.0.0.5"},
+            headers=_device_headers(f"dev.{device.id}.{secret}"),
+        )
+
+        assert response.status_code == 200
+        await db_session.refresh(device)
+        assert device.token_hash == hash_token(secret)
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_accepts_token_migrated_by_concurrent_request(
+        self,
+        client,
+        db_session,
+    ):
+        secret = "legacy-secret"
+        device = await _create_device(db_session)
+        device.token_hash = hash_password(secret)
+        await db_session.commit()
+
+        async def migrate_while_verifying(candidate: str, stored_hash: str) -> bool:
+            device.token_hash = hash_token(secret)
+            await db_session.commit()
+            return await verify_password_async(candidate, stored_hash)
+
+        with patch(
+            "app.core.middleware.verify_password_async",
+            side_effect=migrate_while_verifying,
+        ):
+            response = await client.post(
+                "/api/v1/devices/heartbeat",
+                json={"ip_address": "10.0.0.5"},
+                headers=_device_headers(f"dev.{device.id}.{secret}"),
+            )
+
+        assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_does_not_restore_token_rotated_during_legacy_migration(
+        self,
+        client,
+        db_session,
+    ):
+        old_secret = "legacy-secret"
+        new_hash = hash_token("rotated-secret")
+        device = await _create_device(db_session)
+        device.token_hash = hash_password(old_secret)
+        await db_session.commit()
+
+        async def rotate_while_verifying(secret: str, stored_hash: str) -> bool:
+            device.token_hash = new_hash
+            await db_session.commit()
+            return await verify_password_async(secret, stored_hash)
+
+        with patch(
+            "app.core.middleware.verify_password_async",
+            side_effect=rotate_while_verifying,
+        ):
+            response = await client.post(
+                "/api/v1/devices/heartbeat",
+                json={"ip_address": "10.0.0.5"},
+                headers=_device_headers(f"dev.{device.id}.{old_secret}"),
+            )
+
+        assert response.status_code == 401
+        await db_session.refresh(device)
+        assert device.token_hash == new_hash
 
 
 class TestActiveDevices:

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import DBSession
+from app.api.deps import DBSession, PrincipalDep
 from app.utils.colors import visible_rgb_hex_or_legacy
 
 logger = logging.getLogger(__name__)
@@ -112,41 +112,23 @@ router = APIRouter(prefix="/devices", tags=["devices"])
 
 async def get_current_device(
     db: DBSession,
-    authorization: str = Header(..., alias="Authorization"),
+    principal: PrincipalDep,
 ) -> Device:
-    # Parse "Device <token>"
-    if not authorization.startswith("Device "):
+    if principal.auth_type != "device" or principal.device_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "unauthenticated", "message": "Invalid authorization header"},
+            detail={"code": "unauthenticated", "message": "Device authentication required"},
         )
-    
-    token = authorization[7:] # Remove "Device "
-    
-    # Use existing logic from middleware to parse token
-    from app.core.security import parse_token
-    parsed = parse_token(token)
-    if parsed is None or parsed[0] != "dev":
-         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "unauthenticated", "message": "Invalid token format"},
-        )
-    
-    _, device_id, _ = parsed
-    
-    result = await db.execute(select(Device).where(Device.id == device_id))
+
+    result = await db.execute(select(Device).where(Device.id == principal.device_id))
     device = result.scalar_one_or_none()
-    
+
     if not device or not device.is_active or device.deleted_at:
-         raise HTTPException(
+        raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "unauthenticated", "message": "Device not found or inactive"},
         )
-    
-    # Update last_used_at
-    device.last_used_at = datetime.now(timezone.utc)
-    await db.commit()
-    
+
     return device
 
 
