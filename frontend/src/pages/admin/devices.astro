@@ -96,6 +96,7 @@ import Layout from '../../layouts/Layout.astro'
     import { getAbortSignal, isAbortError } from '../../lib/abort'
     import { copyText } from '../../lib/clipboard'
     import { api } from '../../lib/api'
+    import { escapeHtml } from '../../lib/extra-fields'
     await initI18n()
 
     interface DeviceRecord {
@@ -157,17 +158,18 @@ import Layout from '../../layouts/Layout.astro'
           statusLabel = t('common.offline')
           statusColor = 'var(--text-muted)'
         }
+        const deviceHost = d.ip_address?.includes(':') ? `[${d.ip_address}]` : d.ip_address
         
         return `
         <tr>
-          <td>${d.name}</td>
+          <td>${escapeHtml(d.name)}</td>
           <td>
             <span style="padding: 2px 8px; font-size: 0.75rem; border-radius: 999px; background: var(--bg-soft); color: ${statusColor}; border: 1px solid ${statusColor}40;">
               ${statusLabel}
             </span>
           </td>
           <td style="font-family: monospace; font-size: 0.85rem;">
-            ${d.ip_address ? `<a href="http://${d.ip_address}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">${d.ip_address}</a>` : '-'}
+            ${deviceHost ? `<a href="http://${escapeHtml(deviceHost)}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">${escapeHtml(d.ip_address!)}</a>` : '-'}
           </td>
           <td>
             <span style="padding: 2px 8px; font-size: 0.75rem; border-radius: 999px; background: var(--bg-soft); color: ${d.auto_assign_enabled ? 'var(--accent-2)' : 'var(--text-muted)'}; border: 1px solid ${d.auto_assign_enabled ? 'var(--accent-2)' : 'var(--text-muted)'}40;">

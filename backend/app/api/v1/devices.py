@@ -187,7 +187,7 @@ async def device_heartbeat(
     db: DBSession,
     device: Device = Depends(get_current_device),
 ):
-    device.ip_address = data.ip_address
+    device.ip_address = str(data.ip_address)
     device.last_seen_at = datetime.now(timezone.utc)
     await db.commit()
     return {"status": "ok"}

@@ -174,6 +174,25 @@ class TestDeviceHeartbeat:
         assert device.last_seen_at is not None
 
     @pytest.mark.asyncio
+    async def test_heartbeat_rejects_non_ip_address(self, auth_client, db_session):
+        client, csrf_token = auth_client
+        await _create_device(db_session, device_code="ABC123")
+        token, device_id = await _register_device(client, "ABC123", csrf_token)
+
+        response = await client.post(
+            "/api/v1/devices/heartbeat",
+            json={"ip_address": '\"><img src=x onerror=alert(1)>'},
+            headers={
+                **_device_headers(token),
+                "X-CSRF-Token": csrf_token,
+            },
+        )
+
+        assert response.status_code == 422
+        result = await db_session.execute(select(Device).where(Device.id == device_id))
+        assert result.scalar_one().ip_address is None
+
+    @pytest.mark.asyncio
     async def test_heartbeat_unauthenticated(self, client):
         response = await client.post(
             "/api/v1/devices/heartbeat",
