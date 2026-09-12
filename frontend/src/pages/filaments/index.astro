@@ -334,7 +334,7 @@ import Layout from '../../layouts/Layout.astro'
         isEffectiveColumnFilterActive(key, value) && key !== 'manufacturer' && key !== 'type')
     }
 
-    // A "select all" spoolStatus (its default) is equivalent to no filter at all.
+    // Selecting every status is equivalent to no status filter.
     function isEffectiveColumnFilterActive(key: string, value: ColumnFilterValue | undefined): boolean {
       if (!isColumnFilterActive(value)) return false
       if (key === 'spoolStatus' && value?.type === 'multi' && allSpoolStatusIds.length > 0) {
@@ -430,20 +430,22 @@ import Layout from '../../layouts/Layout.astro'
         if (options.has_empty_colors) colorOptions.unshift({ value: '', label: t('common.empty') })
         filHeaderFilters?.setOptions('colors', colorOptions)
 
-        const statuses = await cachedFetch<Array<{ id: number; key: string; label: string }>>(
-          CACHE_KEYS.STATUSES,
-          async () => {
-            const response = await fetch('/api/v1/spools/statuses', { credentials: 'include', signal })
-            if (!response.ok) throw new Error(`Failed to load spool statuses (${response.status})`)
-            return response.json()
-          },
-        )
-        filHeaderFilters?.setOptions('spoolStatus', statuses.map((s) => {
-          const i18nKey = `spools.status${s.key.charAt(0).toUpperCase() + s.key.slice(1)}`
-          return { value: String(s.id), label: t(i18nKey) || s.label }
+      } catch (e) {
+        if (isAbortError(e)) return
+        console.error('Failed to populate filter dropdowns:', e)
+      }
+    }
+
+    async function populateSpoolStatusDropdown() {
+      try {
+        const response = await fetch('/api/v1/spools/statuses', { credentials: 'include', signal: getAbortSignal() })
+        if (!response.ok) throw new Error(`Failed to load spool statuses (${response.status})`)
+        const statuses: Array<{ id: number; key: string; label: string }> = await response.json()
+        filHeaderFilters?.setOptions('spoolStatus', statuses.map((status) => {
+          const i18nKey = `spools.status${status.key.charAt(0).toUpperCase() + status.key.slice(1)}`
+          return { value: String(status.id), label: t(i18nKey) || status.label }
         }))
-        // Default to "all statuses selected" so the filter only takes effect once the user deselects one.
-        allSpoolStatusIds = statuses.map((s) => String(s.id))
+        allSpoolStatusIds = statuses.map((status) => String(status.id))
         if (!columnFilters.spoolStatus) {
           const defaultFilter = multiColumnFilter(allSpoolStatusIds)
           columnFilters.spoolStatus = defaultFilter
@@ -451,7 +453,7 @@ import Layout from '../../layouts/Layout.astro'
         }
       } catch (e) {
         if (isAbortError(e)) return
-        console.error('Failed to populate filter dropdowns:', e)
+        console.error('Failed to populate spool status dropdown:', e)
       }
     }
     
@@ -1040,7 +1042,7 @@ import Layout from '../../layouts/Layout.astro'
     Promise.all([initCurrency(), loadFilamentExtraFieldColumns()])
       .then(() => {
         setupHeaderFilters()
-        return populateFilterDropdowns()
+        return Promise.all([populateFilterDropdowns(), populateSpoolStatusDropdown()])
       })
       .then(() => loadFilaments())
       .then(() => {

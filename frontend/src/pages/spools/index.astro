@@ -106,8 +106,8 @@ import Layout from '../../layouts/Layout.astro'
           <th data-i18n="spools.filament" data-sort="filament_id" class="sortable col-filament">Filament</th>
           <th data-i18n="spools.manufacturer" data-sort="manufacturer" class="sortable col-manufacturer">Manufacturer</th>
           <th data-i18n="spools.material" data-sort="material" class="sortable col-material">Material</th>
-          <th data-i18n="spools.status" data-sort="status_id" class="sortable col-status">Status</th>
           <th data-i18n="filaments.colors" data-sort="colors" class="sortable col-colors">Colors</th>
+          <th data-i18n="spools.status" data-sort="status" class="sortable col-status">Status</th>
           <th data-i18n="spools.remaining" data-sort="remaining_weight_g" class="sortable col-remaining">Remaining</th>
           <th data-i18n="spools.location" data-sort="location_id" class="sortable col-location">Location</th>
           <th data-i18n="spools.colPrice" data-sort="purchase_price" class="sortable col-price">Price</th>
@@ -266,7 +266,7 @@ import Layout from '../../layouts/Layout.astro'
       if (savedSort) {
         const { key, direction } = JSON.parse(savedSort)
         if (key && (direction === 'asc' || direction === 'desc')) {
-          sortKey = key
+          sortKey = key === 'status_id' ? 'status' : key
           sortDirection = direction
         }
       }
@@ -378,7 +378,7 @@ import Layout from '../../layouts/Layout.astro'
 
     function getSortValue(item: any, key: string): any {
       if (key === 'filament_id') return getFilamentName(item)
-      if (key === 'status_id') return getStatusLabel(item.status_id)
+      if (key === 'status') return getStatusLabel(item.status_id)
       if (key === 'location_id') return getLocationName(item.location_id)
       if (key === 'manufacturer') return getManufacturerName(item)
       if (key === 'material') return getMaterialType(item)
@@ -428,7 +428,7 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function needsAllSpoolData(): boolean {
-      return hasLocalColumnFilters() || sortKey === 'colors'
+      return hasLocalColumnFilters() || sortKey === 'colors' || sortKey === 'status'
     }
 
     function getSpoolFilterValue(spool: any, key: string): unknown {
@@ -506,14 +506,6 @@ import Layout from '../../layouts/Layout.astro'
     function updateSpoolFilterOptions() {
       if (!spoolFilterFacets) return
 
-      const usedStatuses = new Set(spoolFilterFacets.used_status_ids.map(String))
-      splHeaderFilters?.setOptions('status', statuses
-        .filter((status: any) => usedStatuses.has(String(status.id)))
-        .map((status: any) => {
-          const i18nKey = `spools.status${status.key.charAt(0).toUpperCase() + status.key.slice(1)}`
-          return { value: String(status.id), label: t(i18nKey) || status.label }
-        }))
-
       const selectedStatusFilter = columnFilters.status
       const selectedStatusIds = selectedStatusFilter?.type === 'multi'
         ? selectedStatusFilter.values
@@ -580,17 +572,12 @@ import Layout from '../../layouts/Layout.astro'
       try {
         const signal = getAbortSignal()
         // One aggregate facet request plus reference data used by bulk-action dialogs.
-        const [filterFacets, statusesRes, locationsRes] = await fetchSequential([
+        const [filterFacets, locationsRes] = await fetchSequential([
           () => fetchSpoolFilterFacets(signal),
-          () => fetch('/api/v1/spools/statuses', { credentials: 'include', signal }).catch(() => null),
           () => fetch('/api/v1/locations?page=1&page_size=200', { credentials: 'include', signal }).catch(() => null),
         ] as const)
 
         spoolFilterFacets = filterFacets
-
-        if (statusesRes?.ok) {
-          statuses = await statusesRes.json()
-        }
         
         if (locationsRes?.ok) {
           const locationsData = await locationsRes.json()
@@ -622,6 +609,21 @@ import Layout from '../../layouts/Layout.astro'
       splHeaderFilters?.setOptions('colors', colorOptions)
     }
 
+    async function loadSpoolStatuses() {
+      try {
+        const response = await fetch('/api/v1/spools/statuses', { credentials: 'include', signal: getAbortSignal() })
+        if (!response.ok) throw new Error(`Failed to load spool statuses (${response.status})`)
+        statuses = await response.json()
+        splHeaderFilters?.setOptions('status', statuses.map((status: any) => {
+          const i18nKey = `spools.status${status.key.charAt(0).toUpperCase() + status.key.slice(1)}`
+          return { value: String(status.id), label: t(i18nKey) || status.label }
+        }))
+        updateSpoolFilterOptions()
+      } catch (error) {
+        if (isAbortError(error)) return
+        console.error('Failed to load spool statuses:', error)
+      }
+    }
     
     async function loadSpools() {
       const requestId = ++filterRequestId
@@ -639,7 +641,7 @@ import Layout from '../../layouts/Layout.astro'
       locationIds.forEach((id) => params.append('location_id', id))
       materials.forEach((item) => params.append('type', item))
       if (search) params.set('search', search)
-      if (sortKey && sortDirection && sortKey !== 'colors') {
+      if (sortKey && sortDirection && sortKey !== 'colors' && sortKey !== 'status') {
         params.set('sort_by', sortKey)
         params.set('sort_order', sortDirection)
       }
@@ -730,8 +732,8 @@ import Layout from '../../layouts/Layout.astro'
     }
 
     function getStatusLabel(statusId: number): string {
-      const s = statuses.find((s: any) => s.id === statusId)
-      if (!s) return `#${statusId}`
+      const s = statuses.find((s: any) => String(s.id) === String(statusId))
+      if (!s) return '-'
       const i18nKey = `spools.status${s.key.charAt(0).toUpperCase() + s.key.slice(1)}`
       return t(i18nKey) || s.label
     }
@@ -1298,9 +1300,10 @@ import Layout from '../../layouts/Layout.astro'
     if (savedFilterState?.group) {
       (document.getElementById('filter-group') as HTMLInputElement).checked = true
     }
-    Promise.all([initCurrency(), loadSpoolExtraFieldColumns()])
+    Promise.all([initCurrency(), loadSpoolExtraFieldColumns(), loadActiveDevices()])
       .then(async () => {
         setupHeaderFilters()
+        await loadSpoolStatuses()
         await loadSpoolColorOptions()
         return loadFilters()
       })
@@ -1310,8 +1313,6 @@ import Layout from '../../layouts/Layout.astro'
         splReorder.refreshColumns()
         splResize.refreshColumns()
       })
-    loadActiveDevices().then(() => loadSpools())
-
     // Live-Update via SSE: Spulen automatisch neu laden
     let _spoolsReloadTimer: ReturnType<typeof setTimeout> | null = null
     window.addEventListener('filaman:data-changed', (e: Event) => {
