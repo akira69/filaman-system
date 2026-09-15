@@ -1,6 +1,6 @@
 # Roadmap
 
-_Last updated 2026-08-09: restored from the 2026-07-26 version and updated with upstream merges since — PR #41 → upstream [#120](https://github.com/Fire-Devils/filaman-system/pull/120) (v1.2.35); PR #7 → upstream [#124](https://github.com/Fire-Devils/filaman-system/pull/124) (v1.2.36); PR #38 restacked onto v1.2.36 and smoke-tested._
+_Last updated 2026-09-15: smart table/color filtering ([PR #168](https://github.com/Fire-Devils/filaman-system/pull/168)), selectable manufacturer-logo columns ([PR #165](https://github.com/Fire-Devils/filaman-system/pull/165)), device administration hardening ([PR #162](https://github.com/Fire-Devils/filaman-system/pull/162)), and the redesigned AMS View ([PR #160](https://github.com/Fire-Devils/filaman-system/pull/160), [#161](https://github.com/Fire-Devils/filaman-system/pull/161)) are upstream and released through v1.3.6._
 
 ## ✅ Done — upstream (Fire-Devils/filaman-system)
 
@@ -37,6 +37,12 @@ Features live in upstream, either merged from this fork or independently impleme
   - Filament print pages, shared spool/filament label code, shared presets, field grouping, and multi-color swatch rendering — merged upstream as [PR #91](https://github.com/Fire-Devils/filaman-system/pull/91) ✓
   - Label-paper sheet printing for batches and single-label pages, including sheet layout presets and print/export controls — merged upstream as [PR #95](https://github.com/Fire-Devils/filaman-system/pull/95) ✓
 
+- **Reliable selectable label printing and shared output pipeline** — [fork PR #46](https://github.com/akira69/filaman-system/pull/46) → merged upstream as [PR #141](https://github.com/Fire-Devils/filaman-system/pull/141) and released in [v1.2.48](https://github.com/Fire-Devils/filaman-system/releases/tag/v1.2.48) ✓
+  - Keeps normal browser printing as the default and adds a persisted, opt-in exact-size temporary-PDF route with inline preview and open/download fallbacks.
+  - Adds flattened Labelife AML export and centralizes PNG, AML, PDF, and Print handling across single/batch filament/spool labels in Standard and Advanced Designer modes.
+  - Stabilizes off-screen capture and multi-page exports, improves printer guidance and narrow-screen UI behavior, and clarifies built-in, System Extra Field, and per-record Custom Field token catalogs.
+  - Completes the planned shared print-page runtime refactor: the four route adapters are 771 net lines smaller than `devel`, with output coordination, rendering, data adapters, preview lifecycle, and cleanup moved into reusable modules and components.
+
 - **Printer/spool workflow upgrades** *(upstream independently merged)*
   - Bambu cloud slicer-profile picker, AMS fixes, and spool core/adapter weight tracking — [upstream PR #96](https://github.com/Fire-Devils/filaman-system/pull/96) ✓
   - Per-model slicer profiles, spool log filament context, and driver enrichment fixes — [upstream PR #100](https://github.com/Fire-Devils/filaman-system/pull/100) ✓
@@ -70,7 +76,21 @@ Features live in upstream, either merged from this fork or independently impleme
 
 - **Entity-specific typed extra fields** — record-local spool/filament field definitions with types (including datetime), units, choices, bounds, shared rendering, clearer “Spool-specific” / “Filament-specific” UI — [fork PR #41](https://github.com/akira69/filaman-system/pull/41) → merged upstream as [PR #120](https://github.com/Fire-Devils/filaman-system/pull/120) and released in v1.2.35 ✓
 
+- **Spoolman rich-field import and legacy repair** — choose System, record-specific, raw-preserved, or legacy-cleaned storage globally and per field; safely promote earlier imports into typed fields without overwriting native or incompatible retained values — [fork PR #38](https://github.com/akira69/filaman-system/pull/38) → merged upstream as [PR #132](https://github.com/Fire-Devils/filaman-system/pull/132) and released in v1.2.43 ✓
+
 - **Alpha color support** — CSS-compatible 4-channel color support (`#RRGGBBAA`) across color storage, APIs, shared color editors, swatches, labels, devices, and plugins; opacity UI with checkerboard preview; Spoolman transparency repair — [fork PR #7](https://github.com/akira69/filaman-system/pull/7) → merged upstream as [PR #124](https://github.com/Fire-Devils/filaman-system/pull/124) and released in v1.2.36 ✓; supersedes the narrower Spoolman app import fix [PR #6](https://github.com/akira69/filaman-system/pull/6)
+
+- **Smart table filters and visual color filtering** — the original [fork PR #35](https://github.com/akira69/filaman-system/pull/35) grew into shared, type-aware header filters for Filaments, Spools, Manufacturers, and Manage Colors plus the New Filament palette; database-backed suggestions, spool-status scoping, System Extra Field filtering, searchable color grids, editable chromatic/neutral ranges, transparency handling, and English/German UI — merged upstream as [PR #168](https://github.com/Fire-Devils/filaman-system/pull/168) and released in [v1.3.6](https://github.com/Fire-Devils/filaman-system/releases/tag/v1.3.6) ✓
+
+- **Selectable manufacturer-logo table columns** — dedicated, bounded logo columns on Manufacturers, Filaments, and Spools; independently hideable, reorderable, and resizable with transparency and fallback handling — [fork PR #10](https://github.com/akira69/filaman-system/pull/10) → merged upstream as [PR #165](https://github.com/Fire-Devils/filaman-system/pull/165) and released in v1.3.6 ✓
+
+- **Device administration and control hardening** — HTTP-compatible enrollment-code copying, complete paginated device loading, native accessible dialogs, protected credential material, authenticated callbacks, explicit control permissions, and validated outbound device targets — merged upstream as [PR #162](https://github.com/Fire-Devils/filaman-system/pull/162) and released in v1.3.6 ✓
+
+- **AMS View redesign** — renamed and rebuilt the Display board with printer filtering, responsive AMS layouts, kiosk support, canonical external bays, spool links, richer tray data, matching humidity/temperature display, and populated unlinked HT bays — merged upstream as [PR #160](https://github.com/Fire-Devils/filaman-system/pull/160) and [PR #161](https://github.com/Fire-Devils/filaman-system/pull/161), released in v1.3.3 and v1.3.6 ✓
+
+- **September inventory and integration improvements** — released in v1.2.49–v1.3.5: spool search across IDs and extra fields, bulk spool-status changes, dual RFID slots and safer weigh-to-assign behavior, tag color matching, the read-only Display API, idempotent Bambuddy consumption events, sidebar update notifications, and QR display for newly created API keys ✓
+
+- **Color-alpha migration test fixture repair** — synthetic color rows now include the model's required timestamps; released in v1.2.50 with production migration behavior unchanged ✓
 
 - **SpoolmanAPI plugin — AFC/BoxTurtle null color serialization fix** — merged in the plugin repository as [PR #3](https://github.com/Fire-Devils/filaman-spoolmanapi-plugin/pull/3) ✓
 
@@ -84,19 +104,13 @@ Fork PRs that are code-complete or in active development, targeting submission t
 
 Keep only one substantive PR open upstream at a time. Submit the next PR only after the previous one is merged or the maintainer explicitly parks it, and rebase every successor onto the resulting `devel`.
 
-1. **[PR #38](https://github.com/akira69/filaman-system/pull/38) — Spoolman rich-field import and repair**
-   - Ready for upstream submission: rebased onto v1.2.36 (PR #41's entity-specific fields are already upstream as [#120](https://github.com/Fire-Devils/filaman-system/pull/120)); full live smoke test against a real Spoolman instance passed 2026-08-08 (import, idempotency, per-field override, repair scan/apply; 0 console errors).
-2. **[PR #10](https://github.com/akira69/filaman-system/pull/10) — manufacturer logo table column**
-   - Small recovery PR; retarget/rebase from `main` to `devel` before upstream submission.
-3. **[PR #28](https://github.com/akira69/filaman-system/pull/28) — Windows development startup lock**
+1. **[PR #28](https://github.com/akira69/filaman-system/pull/28) — Windows development startup lock**
    - Submit after native Windows or Windows-CI confirmation.
-4. **[PR #8](https://github.com/akira69/filaman-system/pull/8) — multicolor hero shading**
+2. **[PR #8](https://github.com/akira69/filaman-system/pull/8) — multicolor hero shading**
    - Rebase onto v1.2.36 (PR #7's alpha color foundation is already upstream as [#124](https://github.com/Fire-Devils/filaman-system/pull/124)) and collapse the temporary duplicate color helper into the upstream shared utility.
-5. **[PR #35](https://github.com/akira69/filaman-system/pull/35) — smart filters for every table data column**
-   - Large but standalone; give it an otherwise empty upstream review window.
-6. **[PR #21](https://github.com/akira69/filaman-system/pull/21) — formula extra fields**
-   - Submit alone after PR #38. Rebase its migration so it follows the entity-specific fields revision instead of also branching directly from `c9f2a1e4b7d3`.
-7. **[PR #9](https://github.com/akira69/filaman-system/pull/9) — manufacturer logo upload overrides**
+3. **[PR #21](https://github.com/akira69/filaman-system/pull/21) — formula extra fields**
+   - Submit alone after the preceding PRs. Rebase its migration so it follows the entity-specific fields revision instead of also branching directly from `c9f2a1e4b7d3`.
+4. **[PR #9](https://github.com/akira69/filaman-system/pull/9) — manufacturer logo upload overrides**
    - Ask for upstream interest first because remote URL fetching and uploads require a heavier security review.
 
 Hold **[PR #24](https://github.com/akira69/filaman-system/pull/24)** for an upstream architecture discussion and retarget it from `main` to `devel` if accepted. Reassess **[PR #26](https://github.com/akira69/filaman-system/pull/26)** before submission because its core dashboard selector already landed upstream; submit only the still-wanted card expansion.
@@ -109,28 +123,17 @@ Hold **[PR #24](https://github.com/akira69/filaman-system/pull/24)** for an upst
 
 - **Windows development startup lock** — platform-aware non-blocking worker lock using `msvcrt` on native Windows while preserving POSIX behavior — [PR #28](https://github.com/akira69/filaman-system/pull/28)
 
-- **Smart filters for every table data column** — typed header filters for Filaments, Spools, and Manufacturers, including user-selected System Extra Field columns, searchable categorical filters, and color swatch/grid selection — [PR #35](https://github.com/akira69/filaman-system/pull/35)
-
 - **Multicolor / hero shading** on filament and spool detail pages — [PR #8](https://github.com/akira69/filaman-system/pull/8) *(system repo; frontend-only, no plugin impact)*
 
 - **Manufacturer logo upload overrides** — per-manufacturer custom logo upload — [PR #9](https://github.com/akira69/filaman-system/pull/9)
 
-- **Move manufacturer logo to dedicated DB column** — [PR #10](https://github.com/akira69/filaman-system/pull/10)
-
 - **Formula field / extra fields JSON** *(Spoolman basis PR #885)* — derived values computed from JSON Logic expressions; full backend operator library (math, text, date/time), CodeMirror editor, field references, live preview — [PR #21](https://github.com/akira69/filaman-system/pull/21) *(rebased onto `upstream/devel` v1.2.34 at `d365964d`; six unique commits; clean and mergeable; 604 backend and 97 frontend tests pass)*
-
-- **Spoolman rich-field import and legacy repair** — choose System, record-specific, raw-preserved, or legacy-cleaned storage globally and per field; repair earlier imports with System/record-specific/preserve choices; preserve conflicts and existing native values — [PR #38](https://github.com/akira69/filaman-system/pull/38) *(rebased onto v1.2.36; full live smoke test against a real Spoolman instance passed 2026-08-08; ready for upstream submission)*
 
 ---
 
 ## 🛠 In Development
 
 Active development — implementation underway but not yet at PR stage.
-
-- **Entity-specific typed extra fields + Spoolman import choices** — [implementation plan](./_pr_artifacts/entity-specific-extra-fields/plan.md)
-  - **[PR #41](https://github.com/akira69/filaman-system/pull/41):** record-local spool/filament field definitions with types (including datetime), units, choices, bounds, shared rendering, clearer “Spool-specific” / “Filament-specific” UI, and a link to System Extra Fields — **merged upstream as [PR #120](https://github.com/Fire-Devils/filaman-system/pull/120) (v1.2.35)** ✓
-  - **[PR #38](https://github.com/akira69/filaman-system/pull/38):** all Spoolman behavior, including legacy import, System Extra Field creation/reuse, record-specific typed import, raw preservation, per-field overrides, and the corresponding repair choices — rebased onto v1.2.36, smoke-tested 2026-08-08, next in the upstream submission queue
-  - Validation: PR #41 backend 413 tests and frontend 95 tests, clean Ruff/Astro/build checks, unchanged same-scope clone count versus `upstream/devel`, zero clones in new modules/tests, and browser coverage of edit, Standard Label, legacy text, and Label Designer flows; PR #38 backend 457 tests and frontend 92 tests, with its browser repair flow passing end to end
 
 - **Manufacturer logo sync plugin** *(Spoolman basis PR #872)* — [implementation plan](./_pr_artifacts/manufacturer-logo-sync/plan.md)
   - **Variant A** (`feat/logo-custom-sync`) — re-sync logos from FilamentDB on demand; adds `filamentdb_slug` + `logo_source` to `Manufacturer`; admin bulk-sync panel
@@ -139,6 +142,8 @@ Active development — implementation underway but not yet at PR stage.
 ---
 
 ## 📋 Planned
+
+- **Expose `stocked_in_at` in the spool UI** — keep the existing printable token, add a visible/editable spool field, and define when new spools populate it; do not silently change existing timestamp values.
 
 - **Built-in import plugin lifecycle consistency** — define and document what the Active toggle controls for Spoolman Import and FilamentDB, then align UI and route behavior without silently breaking existing import API clients; keep importers bundled until the plugin platform supports optional frontend pages and route registration cleanly
 
@@ -197,38 +202,8 @@ Apply the same domain-specific pattern to:
 [spools/edit.astro (line 325)](/Users/dfinch/Code/filaman-system/frontend/src/pages/spools/[id]/edit.astro:325)
 
 Avoid making one universal filament/spool form engine. Their shared primitives should be reusable, but their domain controllers should remain separate.
-Group 2 — Create shared print-page runtimes
-Priority: highest
-Estimated reduction: 900–1,300 lines
-Four page pairs duplicate preview orchestration, settings persistence, zooming, extra fields, export, and label capture:
-[filament batch printing (line 149)](/Users/dfinch/Code/filaman-system/frontend/src/pages/filaments/print.astro:149)
-[spool batch printing (line 148)](/Users/dfinch/Code/filaman-system/frontend/src/pages/spools/print.astro:148)
-[single filament printing (line 218)](/Users/dfinch/Code/filaman-system/frontend/src/pages/filaments/[id]/print.astro:218)
-[single spool printing (line 443)](/Users/dfinch/Code/filaman-system/frontend/src/pages/spools/[id]/print.astro:443)
-Actions:
-Extend the existing label-print-page.ts abstraction into two controllers:
-Single-label print controller
-Batch-print controller
-
-Move common behavior into the controllers:
-Tab/render-version management
-Preview zoom
-Settings save/load
-Output synchronization
-Logo prefetching
-Image/PDF export flow
-Extra-field normalization
-
-Supply entity adapters for:
-Fetching spool or filament data
-Building standard-label data
-Building designer data
-Export filenames
-Entity-specific extra fields
-
-Keep the Astro pages as wiring and layout shells, ideally under 200–300 lines each.
-
-Implement the single-label pair first, then the batch pair.
+Group 2 — Create shared print-page runtimes — **completed upstream in v1.2.48**
+Delivered by [PR #141](https://github.com/Fire-Devils/filaman-system/pull/141). The implementation centralized single/batch and filament/spool output coordination while keeping the four Astro routes as entity-specific adapters. See **Reliable selectable label printing and shared output pipeline** under Done for the released behavior and measured route reduction.
 Group 3 — Extract list/table behavior
 Priority: high
 Estimated reduction: 550–850 lines
@@ -339,7 +314,6 @@ Only extract setup and assertion mechanics; retain named tests when their busine
 Recommended execution order
 Add deduplication baseline and characterization coverage.
 Consolidate filament/spool forms.
-Consolidate single and batch print runtimes.
 Extract table/list utilities.
 Introduce the backend backup registry.
 Consolidate spool and printer endpoint pipelines.
