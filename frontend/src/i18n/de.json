@@ -1607,6 +1607,8 @@
     "elementShape": "Formelement"
   },
   "labelPrint": {
+    "pcPrintPrompt": "Etikett für Spule #{id} auf diesem PC drucken?",
+    "openPcPrint": "Druckfenster öffnen",
     "pageTitle": "FilaMan - Label-Druck",
     "backToOverview": "Zurück zur Übersicht",
     "backToSpool": "Zurück zur Spule",
