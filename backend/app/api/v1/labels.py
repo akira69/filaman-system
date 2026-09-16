@@ -119,6 +119,46 @@ def _label_size(settings: dict | None) -> tuple[float, float]:
     return _number(raw.get("width"), 60, 20, 300), _number(raw.get("height"), 40, 10, 200)
 
 
+def _label_values(spool, colors: list[str]) -> dict[str, str]:
+    filament = spool.filament
+
+    def value(item) -> str:
+        return "" if item is None else str(item)
+
+    def date(item) -> str:
+        return item.date().isoformat() if item else ""
+
+    values = {
+        "id": value(spool.id),
+        "filament.id": value(spool.filament_id),
+        "filament.name": value(filament.designation),
+        "filament.manufacturer": value(filament.manufacturer.name),
+        "filament.type": value(filament.material_type),
+        "filament.material": value(filament.material_type),
+        "filament.subtype": value(getattr(filament, "material_subgroup", None)),
+        "filament.color": value(filament.manufacturer_color_name),
+        "filament.manufacturer_color_name": value(filament.manufacturer_color_name),
+        "filament.color_hex": colors[0] if colors else "",
+        "filament.color_hexes": ",".join(colors),
+        "filament.weight": value(getattr(filament, "raw_material_weight_g", None)),
+        "filament.diameter": value(filament.diameter_mm),
+        "remaining_weight_g": value(round(spool.remaining_weight_g)) if spool.remaining_weight_g is not None else "",
+        "stocked_in_at": date(getattr(spool, "stocked_in_at", None)),
+        "lot_number": value(getattr(spool, "lot_number", None)),
+        "external_id": value(getattr(spool, "external_id", None)),
+        "rfid_uid": value(getattr(spool, "rfid_uid", None)),
+    }
+    for source, fields in (("filament", filament.custom_fields), ("spool", spool.custom_fields)):
+        if isinstance(fields, dict):
+            values.update({f"extra.{source}.{key}": value(item) for key, item in fields.items()})
+    return values
+
+
+def _resolve_label_text(template: str, values: dict[str, str]) -> str:
+    resolved = re.sub(r"\{([\w.]+)\}", lambda match: values.get(match[1], ""), template.replace("\\n", "\n"))
+    return re.sub(r"\*\*|==|__|@@", "", resolved)
+
+
 def _label_image(
     spool, width: int, qr_url: str, settings: dict | None = None,
     colors: list[str] | None = None, colored: bool = False,
@@ -146,24 +186,10 @@ def _label_image(
         qr_left = qr_cfg.get("position") == "left"
         text_x = inset + qr_size + inset if qr_left and qr_show else inset
         text_width = max(1, width - qr_size - inset * 3) if qr_show else width - inset * 2
-        values = {
-            "id": str(spool.id),
-            "filament.id": str(spool.filament_id),
-            "filament.name": spool.filament.designation,
-            "filament.manufacturer": spool.filament.manufacturer.name,
-            "filament.type": spool.filament.material_type,
-            "filament.material": spool.filament.material_type,
-            "filament.color": spool.filament.manufacturer_color_name or "",
-            "filament.manufacturer_color_name": spool.filament.manufacturer_color_name or "",
-            "filament.diameter": str(spool.filament.diameter_mm),
-            "remaining_weight_g": str(round(spool.remaining_weight_g)) if spool.remaining_weight_g is not None else "",
-            "lot_number": spool.lot_number or "",
-            "external_id": spool.external_id or "",
-            "rfid_uid": spool.rfid_uid or "",
-        }
+        values = _label_values(spool, colors)
 
         def resolved(template: str) -> str:
-            return re.sub(r"\{([\w.]+)\}", lambda match: values.get(match[1], "?"), template.replace("\\n", "\n"))
+            return _resolve_label_text(template, values)
 
         def section(config: dict, default: str, fallback_mm: float, bold: bool = False) -> None:
             nonlocal y

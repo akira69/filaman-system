@@ -1,13 +1,14 @@
 import struct
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
 import qrcode
 from PIL import Image, ImageStat
 from sqlalchemy import select
 
-from app.api.v1.labels import _mono1
+from app.api.v1.labels import _label_values, _mono1, _resolve_label_text
 from app.core.security import generate_token_secret, hash_token
 from app.models import (
     Color,
@@ -28,6 +29,25 @@ def test_mono1_pads_partial_row_with_white():
     image = Image.new("RGB", (9, 1), "white")
     image.putpixel((0, 0), (0, 0, 0))
     assert _mono1(image) == b"\x80\x00"
+
+
+def test_saved_preset_tokens_resolve_for_scale():
+    filament = SimpleNamespace(
+        id=9, designation="Pearl", material_type="PLA", material_subgroup="Silk",
+        manufacturer_color_name="White", raw_material_weight_g=1000,
+        manufacturer_id=2, manufacturer=SimpleNamespace(name="Maker"),
+        diameter_mm=1.75, custom_fields={"settings_bed_temp": 60},
+    )
+    spool = SimpleNamespace(
+        id=7, filament_id=9, filament=filament, stocked_in_at=datetime(2026, 9, 1),
+        custom_fields={"dry": "yes"}, remaining_weight_g=850,
+    )
+    values = _label_values(spool, ["#FFFFFF"])
+    assert _resolve_label_text(
+        "**{filament.type} {filament.subtype}** {filament.color_hex} "
+        "{filament.weight} {extra.filament.settings_bed_temp} "
+        "{extra.spool.dry} {stocked_in_at} {missing}", values,
+    ) == "PLA Silk #FFFFFF 1000 60 yes 2026-09-01 "
 
 
 @pytest.mark.asyncio
