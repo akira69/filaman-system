@@ -333,6 +333,9 @@ async def render_spool_label(
     db: DBSession,
     format: Literal["png", "mono1"] = "png",
     width: int = Query(576, ge=384, le=1024),
+    dpi: int | None = Query(None, ge=100, le=600),
+    align: Literal["left", "right"] = "left",
+    orientation: Literal["original", "landscape"] = "original",
     preset_id: int | None = Query(None, ge=1),
     color: Literal["mono", "color"] = "mono",
     principal=RequirePermission("spools:read"),
@@ -368,14 +371,29 @@ async def render_spool_label(
         .order_by(FilamentColor.position)
     )
     colors = [hex_code[:7] for hex_code in color_rows]
+    label_width = round(_label_size(settings)[0] * dpi / 25.4) if dpi else width
+    if label_width > width:
+        raise HTTPException(status_code=422, detail="Label is wider than the requested print area")
     image = _label_image(
-        spool, width, str(request.base_url).rstrip("/") + f"/spools/{spool_id}",
+        spool, label_width, str(request.base_url).rstrip("/") + f"/spools/{spool_id}",
         settings, colors, color == "color",
     )
+    rotated = orientation == "landscape" and image.height > image.width
+    if rotated:
+        image = image.transpose(Image.Transpose.ROTATE_90)
+        label_width = image.width
+    if label_width > width:
+        raise HTTPException(status_code=422, detail="Label is wider than the requested print area")
+    if label_width < width:
+        canvas = Image.new("RGB", (width, image.height), "white")
+        canvas.paste(image, (width - label_width if align == "right" else 0, 0))
+        image = canvas
     headers = {
         "Cache-Control": "no-store",
         "X-Image-Width": str(image.width),
         "X-Image-Height": str(image.height),
+        "X-Content-Width": str(label_width),
+        "X-Rotated": "1" if rotated else "0",
         "X-Row-Bytes": str((image.width + 7) // 8),
         "X-Bit-Order": "msb-black-1",
     }

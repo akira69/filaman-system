@@ -35,7 +35,7 @@ Preset IDs can disappear when users delete presets, so let the user reselect.
 ## Render for the scale's printer
 
 ```http
-GET /api/v1/labels/spool/123/render?format=mono1&width=576&preset_id=7
+GET /api/v1/labels/spool/123/render?format=mono1&width=576&dpi=203&align=right&orientation=landscape&preset_id=7
 Authorization: ApiKey <key>
 ```
 
@@ -45,13 +45,22 @@ significant first and `1` means black. Unused low bits at the end of each row
 are zero. Read `X-Image-Width`, `X-Image-Height`, `X-Row-Bytes`, and
 `X-Bit-Order: msb-black-1`; check that body length equals row bytes times
 height before sending it to a printer. The response is a raster, **not**
-printer commands. FilaMan applies the selected preset before packing.
+printer commands. `X-Content-Width` gives the unpadded image width and
+`X-Rotated` is `1` when a portrait design was turned sideways. Use those
+headers to show the original portrait orientation in the scale preview.
+FilaMan applies the selected preset before packing.
 
-`width` is a pixel count from 384 to 1024; the current default is 576. The
-height follows the preset's label aspect ratio (or 60 × 40 mm without a
-preset). For example, a 480 × 320 default label is 19,200 bytes. Configure
-the printer's printable width on the scale and pass it as `width`; determine
-the M220's usable width with real hardware and media. The
+`width` is the print row width in pixels, from 384 to 1024. The M220 scale
+driver caps it at 576. With `dpi=203`, FilaMan renders the preset at its
+physical millimetre size (or 60 × 40 mm without a preset) and pads each row
+to `width`; `align=right` puts the image against the right edge of the M220's
+right-aligned label roll. A 40 × 30 mm preset becomes about 320 × 240 pixels
+inside a 576 × 240 raster. `orientation=landscape` rotates a 30 × 40 mm
+portrait design to fit the same 40 × 30 mm physical label; the scale preview
+still shows the original portrait design. A label wider than the requested print row returns
+`422`. Without `dpi`, rendering retains the original behaviour: the label
+fills `width` and its height follows the preset aspect ratio. Configure the
+printer's printable width on the scale and pass it as `width`. The
 [myphomemo M-series implementation](https://github.com/DeepCoreSystem/myphomemo)
 is a reference for the separate BLE and raster command driver. Keep its
 transport, printer initialization, and command chunking out of the FilaMan API.
@@ -103,13 +112,16 @@ returns `204` once and `409` for a duplicate, expired, or missing request.
 1. Save the FilaMan base URL and user API key; verify `GET /labels/presets`.
 2. After resolving a spool ID, show **Print label** with preset, **Open on PC**,
    and **Print on M220**. Scan for an M220 and save its BLE address. Offer a
-   printable-width control from 384 to 1024 pixels in 8-pixel steps, starting
+   printable-width control from 384 to 576 pixels in 8-pixel steps, starting
    at 576; save the measured width on the scale.
 3. For the M220, freeze the spool ID, preset ID, width, and BLE address when
-   tapped. Fetch `mono1`, validate its headers, body length, and unused row
+   tapped. Fetch `mono1` with `dpi=203&align=right&orientation=landscape`,
+   validate its headers, body length, and unused row
    bits, then pass the raster to the separate M-series BLE driver. Free it
    after the transfer or any failure. Never send printer bytes after a failed
-   download. **Sent to printer** means BLE writes completed, not paper output.
+   download. On the current 40 × 30 mm media, accept only a 320 × 240 pixel
+   image before print-head padding. **Sent to printer** means BLE writes
+   completed, not paper output.
 4. For a PC, POST `print-request`, show a queued state, and tell the user to
    approve the prompt in the signed-in FilaMan tab. The PC user chooses Print
    or Export PDF. A queued response is not printer confirmation.
