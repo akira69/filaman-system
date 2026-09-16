@@ -56,15 +56,16 @@ the M220's usable width with real hardware and media. The
 is a reference for the separate BLE and raster command driver. Keep its
 transport, printer initialization, and command chunking out of the FilaMan API.
 
-For preview or another image consumer, use `format=png` (the default):
+Other API clients may use `format=png` (the default):
 
 ```http
 GET /api/v1/labels/spool/123/render?format=png&width=576&preset_id=7&color=color
 ```
 
 `color=mono` is the default. `color=color` preserves color swatches and logos
-in PNG. `format=mono1&color=color` returns `422`; the BLE printer path must
-request monochrome. All render responses include `Cache-Control: no-store`.
+in PNG. `format=mono1&color=color` returns `422`. The scale uses only
+`format=mono1` for this release; it does not offer PNG or color. All render
+responses include `Cache-Control: no-store`.
 
 The server renderer supports the preset's label dimensions, margin, border,
 logo, title and information text blocks, QR code, and color swatches. It does
@@ -100,19 +101,25 @@ returns `204` once and `409` for a duplicate, expired, or missing request.
 ## Scale flow and checks
 
 1. Save the FilaMan base URL and user API key; verify `GET /labels/presets`.
-2. After resolving a spool ID, show **Print label** with preset and output
-   choices: scale printer, PC print page, or PNG preview. Default to monochrome.
-3. For the scale printer, fetch `mono1`, validate its headers and body length,
-   then pass the raster and dimensions to the M-series driver for BLE delivery.
+2. After resolving a spool ID, show **Print label** with preset, **Open on PC**,
+   and **Print on M220**. Scan for an M220 and save its BLE address. Offer a
+   printable-width control from 384 to 1024 pixels in 8-pixel steps, starting
+   at 576; save the measured width on the scale.
+3. For the M220, freeze the spool ID, preset ID, width, and BLE address when
+   tapped. Fetch `mono1`, validate its headers, body length, and unused row
+   bits, then pass the raster to the separate M-series BLE driver. Free it
+   after the transfer or any failure. Never send printer bytes after a failed
+   download. **Sent to printer** means BLE writes completed, not paper output.
 4. For a PC, POST `print-request`, show a queued state, and tell the user to
    approve the prompt in the signed-in FilaMan tab. The PC user chooses Print
    or Export PDF. A queued response is not printer confirmation.
 
 Handle `401` by checking the key, `403` by checking its scope or user-key
 requirement, `404` by refreshing the spool or preset, and `422` by correcting
-format, width, or preset data. Retry transient network errors before creating
-another PC request; duplicate requests can produce multiple prompts.
+format, width, or preset data. Do not automatically retry a PC request;
+duplicate requests can produce multiple prompts.
 
-Before release, test one preset at the measured printer width, compare PNG and
-physical output, verify row packing on a partial-byte width, verify the PDF
-action in the PC window, and verify that a second user never sees the request.
+Before release, test one preset at the measured printer width, compare the
+monochrome output with the browser label, verify row packing on a partial-byte
+width, verify the PDF action in the PC window, and verify that a second user
+never sees the request.
