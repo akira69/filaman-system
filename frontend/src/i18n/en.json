@@ -1470,6 +1470,8 @@
     "spoolProfileLoaded": "Spool profile data loaded"
   },
   "labelPrint": {
+    "pcPrintPrompt": "Print label for spool #{id} on this PC?",
+    "openPcPrint": "Open print window",
     "pageTitle": "FilaMan - Label Print",
     "backToOverview": "Back to Overview",
     "backToSpool": "Back to Spool",

@@ -2,6 +2,7 @@ from app.models.base import Base
 from app.models.filament import Color, Filament, FilamentColor, FilamentPrinterProfile, FilamentRating, Manufacturer
 from app.models.location import Location
 from app.models.label_preset import LabelPreset
+from app.models.label_print_request import LabelPrintRequest
 from app.models.printer import Printer, PrinterSlot, PrinterSlotAssignment, PrinterSlotEvent
 from app.models.rbac import Permission, Role, RolePermission, UserPermission, UserRole
 from app.models.spool import Spool, SpoolEvent, SpoolStatus
@@ -23,6 +24,7 @@ __all__ = [
     "Manufacturer",
     "Location",
     "LabelPreset",
+    "LabelPrintRequest",
     "Printer",
     "PrinterSlot",
     "PrinterSlotAssignment",
