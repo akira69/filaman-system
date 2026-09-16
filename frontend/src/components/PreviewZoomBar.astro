@@ -11,9 +11,29 @@ const {
 ---
 
 <div class="preview-zoom-bar">
-  <button class="preview-zoom-btn" id="preview-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
-  <input type="range" id="preview-zoom-slider" min={min} max="300" step="5" value="100" class="preview-zoom-slider">
-  <button class="preview-zoom-btn" id="preview-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
-  <span id="preview-zoom-label" class="preview-zoom-label">100%</span>
-  <button class={`preview-zoom-btn ${resetClass}`} id="preview-zoom-reset" title="Reset zoom" aria-label="Reset zoom">⟳</button>
+  <button type="button" class="preview-zoom-btn" id="preview-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+  <details class="preview-zoom-menu">
+    <summary title="Preview zoom (%)" data-i18n-title="labelPrint.zoomLabel"><span id="preview-zoom-label" class="preview-zoom-label">100%</span><span aria-hidden="true">⌄</span></summary>
+    <div class="preview-zoom-options">
+      <label for="preview-zoom-slider" data-i18n="labelPrint.zoomLabel">Preview zoom (%)</label>
+      <input type="range" id="preview-zoom-slider" min={min} max="500" step="5" value="100" class="preview-zoom-slider">
+      <button type="button" class={`preview-zoom-btn ${resetClass}`} id="preview-zoom-reset" title="Reset zoom" aria-label="Reset zoom" data-i18n-title="labelPrint.zoomReset" data-i18n-aria-label="labelPrint.zoomReset">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7"/></svg>
+      </button>
+    </div>
+  </details>
+  <button type="button" class="preview-zoom-btn" id="preview-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
 </div>
+
+<style>
+  .preview-zoom-menu { position: relative; }
+  summary { align-items: center; border: 1px solid transparent; border-radius: 4px; color: var(--text-muted); cursor: pointer; display: flex; gap: 6px; height: 32px; list-style: none; padding: 0 6px; }
+  summary::-webkit-details-marker { display: none; }
+  summary:hover, details[open] summary { background: var(--bg-soft); border-color: var(--border); }
+  summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .preview-zoom-options { align-items: center; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px #0003; display: grid; gap: 10px; grid-template-columns: 1fr auto; padding: 12px; position: absolute; right: -36px; top: calc(100% + 8px); width: 220px; z-index: 30; }
+  .preview-zoom-options label { color: var(--text-muted); font-size: 0.75rem; grid-column: 1 / -1; }
+  .preview-zoom-options #preview-zoom-slider { min-width: 0; width: 100%; }
+  #preview-zoom-reset { display: grid; place-items: center; padding: 0; }
+  #preview-zoom-reset svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+</style>

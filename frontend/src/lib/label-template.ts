@@ -172,8 +172,10 @@ function renderColorSwatchMarker(token: string, data: SpoolData): string | null 
   return `[[FM_SWATCH|${widthCh}|${getFilamentSwatchMode(data['filament.multi_color_style'])}|${colors.join(',')}]]`
 }
 
-function applyCapsMarkup(text: string): string {
-  return text.replace(/\^\^([\s\S]*?)\^\^/g, (_match, inner: string) => inner.toUpperCase())
+interface TemplateCharacterSource {
+  start: number
+  end: number
+  atomic?: boolean
 }
 
 function splitDateModifier(token: string): { key: string; dateOnly: boolean } {
@@ -217,44 +219,110 @@ function resolveToken(token: string, data: SpoolData): string {
 
 /** Expand {token} and {prefix{token}suffix} placeholders to plain text. */
 export function renderTemplateText(template: string, data: SpoolData): string {
+  return expandTemplate(template, data, false).text
+}
+
+/** Track UTF-16 offsets alongside expansion, before markup hides its delimiters. */
+function expandTemplate(template: string, data: SpoolData, selectable: boolean): {
+  text: string
+  sources?: TemplateCharacterSource[]
+} {
   const boundedTemplate = template.length > MAX_TEMPLATE_CHARS
     ? template.slice(0, MAX_TEMPLATE_CHARS)
     : template
+  const sources: TemplateCharacterSource[] | undefined = selectable ? [] : undefined
+  const appendLiteralSources = (text: string, start: number) => {
+    if (sources) for (let i = 0; i < text.length; i++) sources.push({ start: start + i, end: start + i + 1 })
+  }
+  const appendTokenSources = (text: string, start: number, end: number) => {
+    if (sources) for (let i = 0; i < text.length; i++) sources.push({ start, end, atomic: true })
+  }
+  let last = 0
   // Match both optional-block {{inner}} style and simple {token}
   // Process longest matches first (optional blocks) before simple tokens.
   const rendered = boundedTemplate.replace(
     /{(?:[^{}]|{[^{}]*})*}/g,
-    (match) => {
+    (match, offset: number) => {
+      appendLiteralSources(boundedTemplate.slice(last, offset), last)
+      last = offset + match.length
       // Optional block: {prefix{token}suffix}
       const optional = match.match(/^\{(.*?)\{([^{}]+)\}(.*?)\}$/)
       if (optional) {
         const [, prefix, token, suffix] = optional
         const swatchMarker = renderColorSwatchMarker(token, data)
-        if (swatchMarker !== null) return swatchMarker === '' ? '' : prefix + swatchMarker + suffix
-        const resolved = resolveToken(token, data)
-        return resolved === '?' ? '' : prefix + resolved + suffix
+        const resolved = swatchMarker ?? resolveToken(token, data)
+        if (resolved === '?' || resolved === '') return ''
+        appendLiteralSources(prefix, offset + 1)
+        const tokenStart = offset + 1 + prefix.length
+        appendTokenSources(resolved, tokenStart, tokenStart + token.length + 2)
+        appendLiteralSources(suffix, tokenStart + token.length + 2)
+        return prefix + resolved + suffix
       }
       // Simple token: {token}
       const token = match.slice(1, -1)
       const swatchMarker = renderColorSwatchMarker(token, data)
-      if (swatchMarker !== null) return swatchMarker
-      const resolved = resolveToken(token, data)
-      return resolved === '?' ? '' : resolved
+      const resolved = swatchMarker ?? resolveToken(token, data)
+      const value = resolved === '?' ? '' : resolved
+      appendTokenSources(value, offset, offset + match.length)
+      return value
     }
   )
   // Caps runs after token resolution so wrapped tokens uppercase their values,
   // without forcing fields like color_hex to be uppercase by default.
-  return applyCapsMarkup(rendered)
+  appendLiteralSources(boundedTemplate.slice(last), last)
+  let capsLast = 0
+  const capsSources: TemplateCharacterSource[] | undefined = selectable ? [] : undefined
+  const text = rendered.replace(/\^\^([\s\S]*?)\^\^/g, (match, inner: string, offset: number) => {
+    if (sources && capsSources) {
+      capsSources.push(...sources.slice(capsLast, offset))
+      let innerOffset = offset + 2
+      for (const character of inner) {
+        const source = sources[innerOffset]
+        const endSource = sources[innerOffset + character.length - 1]
+        const upper = character.toUpperCase()
+        for (let i = 0; i < upper.length; i++) capsSources.push({ ...source, end: endSource.end, atomic: source.atomic || upper.length !== 1 || character.length !== 1 })
+        innerOffset += character.length
+      }
+      capsLast = offset + match.length
+    }
+    return inner.toUpperCase()
+  })
+  if (sources && capsSources) capsSources.push(...sources.slice(capsLast))
+  return { text, sources: capsSources }
 }
 
 /** Apply inline markup to rendered template text. */
-function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: SpoolData): void {
+function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: SpoolData, sources?: TemplateCharacterSource[], sourceOffset = 0): void {
   // Regex: match swatch marker, [size=NNN]...[/size] (case-insensitive),
+  // An italic closing star may touch the next ***bold/italic*** run.
   // bold (**...**), underline (__...__), italic (*...*), inverse (==...==), filament inverse (@@...@@)
-  const regex = /(\[\[FM_SWATCH\|\d{1,3}\|(bands|layers)\|(?:#[0-9A-F]{6})(?:,#[0-9A-F]{6})*\]\]|\[size=\d{1,3}%?\][\s\S]*?\[\/size\]|\*\*[\s\S]*?\*\*|__[\s\S]*?__|\*(?!\*)([\s\S]*?)\*(?!\*)|==[\s\S]*?==|@@[\s\S]*?@@)/gi
+  const regex = /(\[\[FM_SWATCH\|\d{1,3}\|(bands|layers)\|(?:#[0-9A-F]{6})(?:,#[0-9A-F]{6})*\]\]|\[size=\d{1,3}%?\][\s\S]*?\[\/size\]|\*\*\*[\s\S]*?\*\*\*|\*\*[\s\S]*?\*\*|__[\s\S]*?__|\*(?!\*)([\s\S]*?)\*(?=\*{3}(?!\*)|[^*]|$)|==[\s\S]*?==|@@[\s\S]*?@@)/gi
   let last = 0
 
-  const appendPlainText = (raw: string, container: DocumentFragment | HTMLElement) => {
+  const appendPlainText = (raw: string, container: DocumentFragment | HTMLElement, offset: number) => {
+    if (sources) {
+      let cursor = 0
+      while (cursor < raw.length) {
+        const source = sources[sourceOffset + offset + cursor]
+        let end = cursor + 1
+        while (end < raw.length && raw[end] !== '\n' && raw[cursor] !== '\n') {
+          const next = sources[sourceOffset + offset + end]
+          if (source.atomic ? !next.atomic || source.start !== next.start || source.end !== next.end : next.atomic || next.start !== source.start + end - cursor || next.end !== next.start + 1) break
+          end++
+        }
+        const el = document.createElement(raw[cursor] === '\n' ? 'br' : 'span')
+        el.dataset.templateStart = String(source.start)
+        el.dataset.templateEnd = String(sources[sourceOffset + offset + end - 1].end)
+        if (source.atomic) el.dataset.templateAtomic = 'true'
+        if (raw[cursor] !== '\n') {
+          el.dataset.templateLeaf = 'true'
+          el.textContent = raw.slice(cursor, end)
+        }
+        container.append(el)
+        cursor = end
+      }
+      return
+    }
     // Split on newlines and insert <br>
     const lines = raw.split('\n')
     lines.forEach((line, i) => {
@@ -267,7 +335,7 @@ function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: S
   while ((match = regex.exec(text)) !== null) {
     // Text before this match
     if (match.index > last) {
-      appendPlainText(text.slice(last, match.index), frag)
+      appendPlainText(text.slice(last, match.index), frag, last)
     }
 
     const part = match[0]
@@ -284,6 +352,11 @@ function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: S
       el.style.border = '1px solid rgba(0,0,0,0.28)'
       el.style.verticalAlign = 'baseline'
       el.style.margin = '0 0.2ch'
+      if (sources) {
+        el.dataset.templateStart = String(sources[sourceOffset + match.index].start)
+        el.dataset.templateEnd = String(sources[sourceOffset + match.index + part.length - 1].end)
+        el.dataset.templateAtomic = 'true'
+      }
       frag.appendChild(el)
     } else if (/^\[size=/i.test(part) && /\[\/size\]$/i.test(part)) {
       const sized = part.match(/^\[size=(\d{1,3})%?\]([\s\S]*?)\[\/size\]$/i)
@@ -292,20 +365,26 @@ function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: S
         const pct = Math.max(50, Math.min(300, Number(rawPct)))
         const el = document.createElement('span')
         el.style.fontSize = `${pct}%`
-        applyMarkup(inner, el, data)
+        applyMarkup(inner, el, data, sources, sourceOffset + match.index + part.indexOf(']') + 1)
         frag.appendChild(el)
       } else {
-        appendPlainText(part, frag)
+        appendPlainText(part, frag, match.index)
       }
+    } else if (part.startsWith('***') && part.endsWith('***')) {
+      const strong = document.createElement('strong')
+      const emphasis = document.createElement('em')
+      applyMarkup(part.slice(3, -3), emphasis, data, sources, sourceOffset + match.index + 3)
+      strong.append(emphasis)
+      frag.append(strong)
     } else if (part.startsWith('**') && part.endsWith('**')) {
       const inner = part.slice(2, -2)
       const el = document.createElement('strong')
-      applyMarkup(inner, el, data)
+      applyMarkup(inner, el, data, sources, sourceOffset + match.index + 2)
       frag.appendChild(el)
     } else if (part.startsWith('__') && part.endsWith('__')) {
       const inner = part.slice(2, -2)
       const el = document.createElement('u')
-      applyMarkup(inner, el, data)
+      applyMarkup(inner, el, data, sources, sourceOffset + match.index + 2)
       frag.appendChild(el)
     } else if (part.startsWith('==') && part.endsWith('==')) {
       const inner = part.slice(2, -2)
@@ -314,7 +393,7 @@ function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: S
       el.style.color = '#fff'
       el.style.padding = '0 0.6mm'
       el.style.display = 'inline-block'
-      applyMarkup(inner, el, data)
+      applyMarkup(inner, el, data, sources, sourceOffset + match.index + 2)
       frag.appendChild(el)
     } else if (part.startsWith('@@') && part.endsWith('@@')) {
       const inner = part.slice(2, -2)
@@ -324,12 +403,12 @@ function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: S
       el.style.color = theme.foreground
       el.style.padding = '0 0.6mm'
       el.style.display = 'inline-block'
-      applyMarkup(inner, el, data)
+      applyMarkup(inner, el, data, sources, sourceOffset + match.index + 2)
       frag.appendChild(el)
     } else if (part.startsWith('*') && part.endsWith('*')) {
       const inner = part.slice(1, -1)
       const el = document.createElement('em')
-      applyMarkup(inner, el, data)
+      applyMarkup(inner, el, data, sources, sourceOffset + match.index + 1)
       frag.appendChild(el)
     }
 
@@ -338,7 +417,7 @@ function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: S
 
   // Remaining text after last match
   if (last < text.length) {
-    appendPlainText(text.slice(last), frag)
+    appendPlainText(text.slice(last), frag, last)
   }
 }
 
@@ -354,5 +433,34 @@ export function parseTemplate(template: string, data: SpoolData): DocumentFragme
     return frag
   }
   applyMarkup(plainText, frag, data)
+  return frag
+}
+
+/** Same renderer as parseTemplate, with source annotations for canvas text selection. */
+export function renderSelectableTemplate(template: string, data: SpoolData): DocumentFragment {
+  const { text, sources } = expandTemplate(template, data, true)
+  const frag = document.createDocumentFragment()
+  if (text.length > MAX_MARKUP_CHARS) {
+    // Match the regular renderer's bounded plain-text fallback exactly.
+    for (let i = 0; i < MAX_MARKUP_CHARS;) {
+      const source = sources![i]
+      let end = i + 1
+      while (end < MAX_MARKUP_CHARS) {
+        const next = sources![end]
+        if (source.atomic ? !next.atomic || next.start !== source.start || next.end !== source.end : next.atomic || next.start !== source.start + end - i || next.end !== next.start + 1) break
+        end++
+      }
+      const span = document.createElement('span')
+      span.dataset.templateStart = String(source.start)
+      span.dataset.templateEnd = String(sources![end - 1].end)
+      span.dataset.templateLeaf = 'true'
+      if (source.atomic) span.dataset.templateAtomic = 'true'
+      span.textContent = text.slice(i, end)
+      frag.append(span)
+      i = end
+    }
+  } else {
+    applyMarkup(text, frag, data, sources)
+  }
   return frag
 }

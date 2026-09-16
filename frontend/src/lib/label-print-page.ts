@@ -1,3 +1,4 @@
+import { getAbortSignal } from './abort'
 import {
   LABEL_EXPORT_PIXEL_RATIO,
   captureLabelElement,
@@ -25,8 +26,14 @@ import {
   syncLabelSheetIndividualExportState,
   syncLabelSheetPreview,
   type LabelSheetControls,
+  type LabelSheetSource,
 } from './label-sheet'
 import { bindFixedPreviewToolbar } from './label-preview-dom'
+import { LabelOutputAssetError } from './label-output-readiness'
+
+function outputFailureMessage(message: string, error: unknown) {
+  return error instanceof LabelOutputAssetError ? `${message}\n${error.message}` : message
+}
 import {
   bindTemporaryPdfPreview,
   type TemporaryPdfPreviewController,
@@ -77,7 +84,7 @@ export function createPreviewRenderCoordinator() {
 
 function createLabelOutputCoordinator(
   buttons: HTMLButtonElement[],
-  getLockControls: () => Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement> = () => [],
+  getLockControls: () => HTMLElement[] = () => [],
 ): LabelOutputCoordinator {
   let operationRunning = false
 
@@ -86,7 +93,7 @@ function createLabelOutputCoordinator(
       if (operationRunning) return
       operationRunning = true
       let lockedStates: Array<{
-        control: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement
+        control: HTMLElement
         inert: boolean
       }> = []
 
@@ -119,40 +126,42 @@ export function bindPdfOutputActions(
   const execute = async (
     target: 'download' | 'print',
   ): Promise<void> => {
-    await coordinator.run(async () => {
-      try {
+    try {
+      let printPdf: LabelPdfDocument | undefined
+      await coordinator.run(async () => {
         const pdf = await options.createPdf()
         if (!pdf) return
 
-        if (target === 'download') {
-          pdf.save(options.getFilename())
-          return
-        }
+        if (target === 'download') pdf.save(options.getFilename())
+        else printPdf = pdf
+      })
 
+      // Snapshot and hide the editor only after its temporary output lock is released.
+      if (printPdf) {
         options.getPdfPreview().show({
-          blob: pdf.output('blob'),
+          blob: printPdf.output('blob'),
           filename: options.getFilename(),
           returnFocus: options.printButton,
         })
-      } catch (error) {
-        window.alert(
-          options.getTranslation(
-            target === 'print'
-              ? 'labelPrint.printPdfFailed'
-              : 'labelPrint.pdfExportFailed',
-            target === 'print'
-              ? 'Print PDF generation failed.'
-              : 'PDF export failed.',
-          ),
-        )
-        console.error(
-          target === 'print'
-            ? 'Failed to create print PDF:'
-            : 'Failed to export label PDF:',
-          error,
-        )
       }
-    })
+    } catch (error) {
+      window.alert(
+        outputFailureMessage(options.getTranslation(
+          target === 'print'
+            ? 'labelPrint.printPdfFailed'
+            : 'labelPrint.pdfExportFailed',
+          target === 'print'
+            ? 'Print PDF generation failed.'
+            : 'PDF export failed.',
+        ), error),
+      )
+      console.error(
+        target === 'print'
+          ? 'Failed to create print PDF:'
+          : 'Failed to export label PDF:',
+        error,
+      )
+    }
   }
 
   const download = () => execute('download')
@@ -192,10 +201,10 @@ function bindSelectablePrintAction(
           )
         } catch (error) {
           cleanupLabelBrowserPrint()
-          window.alert(options.getTranslation(
+          window.alert(outputFailureMessage(options.getTranslation(
             'labelPrint.browserPrintFailed',
             'Browser printing failed.',
-          ))
+          ), error))
           console.error('Failed to prepare browser label print:', error)
         }
       },
@@ -353,7 +362,7 @@ function normalizeZoom(value: number, min: number, max: number, step: number, fa
 
 export function bindPreviewZoomControls(options: PreviewZoomControlsOptions) {
   const min = options.min ?? 25
-  const max = options.max ?? 300
+  const max = options.max ?? 500
   const step = options.step ?? 5
   const buttonStep = options.buttonStep ?? 10
   const defaultZoom = options.defaultZoom ?? 100
@@ -420,6 +429,42 @@ export function bindLabelPreviewZoom(
 ): LabelPreviewZoomBinding {
   const root = options.previewRoot.closest('.preview-container') ?? document
   const slider = requireElement(root, 'preview-zoom-slider', HTMLInputElement)
+  const menu = root.querySelector<HTMLDetailsElement>('.preview-zoom-menu')
+  if (menu) {
+    const positionMenu = () => {
+      if (!menu.open) return
+      const summary = menu.querySelector('summary')
+      const panel = menu.querySelector<HTMLElement>('.preview-zoom-options')
+      if (!summary || !panel) return
+      const anchor = summary.getBoundingClientRect()
+      const gap = 8
+      const edge = 8
+      const width = panel.offsetWidth || 220
+      const height = panel.offsetHeight
+      const left = Math.min(
+        Math.max(edge, anchor.left + anchor.width / 2 - width / 2),
+        Math.max(edge, window.innerWidth - width - edge),
+      )
+      const below = anchor.bottom + gap
+      const above = anchor.top - gap - height
+      panel.style.position = 'fixed'
+      panel.style.left = `${left}px`
+      panel.style.right = 'auto'
+      panel.style.top = `${below + height <= window.innerHeight - edge || above < edge ? below : above}px`
+    }
+    document.addEventListener('pointerdown', event => {
+      if (event.target instanceof Node && !menu.contains(event.target)) menu.open = false
+    }, { signal: getAbortSignal() })
+    menu.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !menu.open) return
+      event.stopPropagation()
+      menu.open = false
+      menu.querySelector('summary')?.focus()
+    })
+    menu.addEventListener('toggle', positionMenu, { signal: getAbortSignal() })
+    window.addEventListener('resize', positionMenu, { signal: getAbortSignal() })
+    document.addEventListener('scroll', positionMenu, { capture: true, signal: getAbortSignal() })
+  }
   const binding = bindPreviewZoomControls({
     zoomInput: slider,
     slider,
@@ -451,7 +496,7 @@ export function bindLabelPreviewZoom(
         )?.zoom)
       : Number(readStorageValue(options.storageKey))
   const min = options.min ?? 25
-  const max = options.max ?? 300
+  const max = options.max ?? 500
   if (storedZoom != null && storedZoom >= min && storedZoom <= max) {
     binding.applyZoom(storedZoom)
   }
@@ -474,8 +519,8 @@ export interface LabelSettingsControls {
 }
 
 const LABEL_SETTING_INPUTS = [
-  ['width', 'width', 'widthMm', 20, 200, 60, 0, 1],
-  ['height', 'height', 'heightMm', 10, 120, 40, 0, 1],
+  ['width', 'width', 'widthMm', 20, 200, 60, 3, 1],
+  ['height', 'height', 'heightMm', 10, 120, 40, 3, 1],
   ['fontSize', 'fontSize', 'fontScale', 50, 200, 100, 0, 100],
   ['qrSize', 'qrSize', 'qrSizeMm', 8, 40, 18, 1, 1],
 ] as const
@@ -645,10 +690,18 @@ export function bindLabelSettingsEvents(
 }
 
 export function applyBatchLabelPreviewZoom(previewRoot: HTMLElement, zoomPercent: number) {
-  const zoom = normalizeZoom(Number(zoomPercent), 25, 300, 5, 100) / 100
+  const zoom = normalizeZoom(Number(zoomPercent), 25, 500, 5, 100) / 100
   bindFixedPreviewToolbar({ previewRoot })
-  const labels = Array.from(previewRoot.querySelectorAll<HTMLElement>(':scope > .label-wrapper')).map(wrapper => {
-    const label = wrapper.querySelector<HTMLElement>(':scope > .label-preview')
+  const directWrappers = Array.from(previewRoot.children)
+    .filter((element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains('label-wrapper'))
+  const canvasWrappers = Array.from(previewRoot.querySelectorAll<HTMLElement>(
+    '.freeform-canvas-host > .label-wrapper',
+  ))
+  const labels = [...directWrappers, ...canvasWrappers].map(wrapper => {
+    if (wrapper.classList.contains('is-designer-output-only')) return null
+    const label = Array.from(wrapper.children).find(
+      (element): element is HTMLElement => element instanceof HTMLElement && element.classList.contains('label-preview'),
+    )
     return label ? { wrapper, label, width: label.offsetWidth, height: label.offsetHeight } : null
   }).filter((entry): entry is { wrapper: HTMLElement; label: HTMLElement; width: number; height: number } => !!entry)
 
@@ -663,45 +716,238 @@ export function applyBatchLabelPreviewZoom(previewRoot: HTMLElement, zoomPercent
   })
 }
 
-export type PrintDesignerTab = 'print' | 'designer'
+export function applySingleLabelPreviewZoom(label: HTMLElement, zoomPercent: number) {
+  const zoom = normalizeZoom(Number(zoomPercent), 25, 500, 5, 100) / 100
+  label.style.transform = `scale(${zoom})`
+  label.style.transformOrigin = label.closest('#freeform-designer-workspace.is-active')
+    ? 'top left'
+    : 'center center'
+}
 
-interface PrintDesignerTabsOptions {
+export type PrintWorkspaceMode = 'standard' | 'designer' | 'sheets'
+export type PrintLabelSource = 'standard' | 'designer'
+
+export interface ResolvedPrintWorkspace {
+  mode: PrintWorkspaceMode
+  source: PrintLabelSource
+  outputMode: 'individual' | 'sheet'
+}
+
+export interface PrintWorkspaceRouteConfig {
+  id: 'single-spool' | 'batch-spools' | 'single-filament' | 'batch-filaments'
+  entityType: 'spool' | 'filament'
+  batch: boolean
+}
+
+export const PRINT_WORKSPACE_ROUTES = {
+  singleSpool: { id: 'single-spool', entityType: 'spool', batch: false },
+  batchSpools: { id: 'batch-spools', entityType: 'spool', batch: true },
+  singleFilament: { id: 'single-filament', entityType: 'filament', batch: false },
+  batchFilaments: { id: 'batch-filaments', entityType: 'filament', batch: true },
+} as const satisfies Record<string, PrintWorkspaceRouteConfig>
+
+export interface PrintWorkspaceSnapshot<T> extends ResolvedPrintWorkspace {
+  config: PrintWorkspaceRouteConfig
+  previewIndex: number
+  representativeItem: T | undefined
+  previewItems: T[]
+  outputItems: T[]
+}
+
+interface PrintWorkspaceCoordinatorOptions<T> {
+  config: PrintWorkspaceRouteConfig
+  initialMode: PrintWorkspaceMode
+  getItems: () => readonly T[]
+  getSheetSource: () => LabelSheetSource
+  onModeChange: (state: PrintWorkspaceSnapshot<T>) => void
+}
+
+export function resolvePrintWorkspace(
+  mode: PrintWorkspaceMode,
+  sheetSource: LabelSheetSource,
+): ResolvedPrintWorkspace {
+  return {
+    mode,
+    source: mode === 'sheets' ? sheetSource.type : mode,
+    outputMode: mode === 'sheets' ? 'sheet' : 'individual',
+  }
+}
+
+export function getPrintWorkspacePreviewItems<T>(
+  mode: PrintWorkspaceMode,
+  items: readonly T[],
+  index = 0,
+): T[] {
+  return mode === 'designer' ? items.slice(index, index + 1) : [...items]
+}
+
+export function getPrintWorkspaceOutputItems<T>(items: readonly T[]): T[] {
+  return [...items]
+}
+
+export function createPrintWorkspaceCoordinator<T>(
+  options: PrintWorkspaceCoordinatorOptions<T>,
+) {
+  let activeMode = options.initialMode
+  let previewIndex = 0
+
+  const getState = (mode = activeMode): PrintWorkspaceSnapshot<T> => {
+    const items = getPrintWorkspaceOutputItems(options.getItems())
+    previewIndex = Math.max(0, Math.min(previewIndex, items.length - 1))
+    const source = options.getSheetSource()
+    const resolved = resolvePrintWorkspace(mode, source)
+    return {
+      ...resolved,
+      config: options.config,
+      previewIndex,
+      representativeItem: items[previewIndex],
+      previewItems: getPrintWorkspacePreviewItems(mode, items, previewIndex),
+      outputItems: items,
+    }
+  }
+
+  return {
+    selectPreview(index: number) {
+      const previous = getState().previewIndex
+      previewIndex = Number.isFinite(index) ? Math.trunc(index) : previous
+      const state = getState()
+      if (state.previewIndex !== previous) options.onModeChange(state)
+      return state
+    },
+    activate(mode: PrintWorkspaceMode) {
+      activeMode = mode
+      const state = getState()
+      options.onModeChange(state)
+      return state
+    },
+    getState,
+    getActiveMode: () => activeMode,
+    getSource: () => resolvePrintWorkspace(activeMode, options.getSheetSource()).source,
+    getRepresentativeItem: () => getState().representativeItem,
+    getPreviewItems: () => getState().previewItems,
+    getOutputItems: () => getPrintWorkspaceOutputItems(options.getItems()),
+  }
+}
+
+export function syncDesignerRepresentativeElements(
+  mode: PrintWorkspaceMode,
+  elements: readonly HTMLElement[],
+  previewIndex = 0,
+) {
+  elements.forEach((element, index) => {
+    const representative = mode === 'designer' && index === previewIndex
+    const outputOnly = mode === 'designer' && !representative
+    element.classList.toggle('is-designer-representative', representative)
+    element.classList.toggle('is-designer-output-only', outputOnly)
+    if (outputOnly) element.setAttribute('aria-hidden', 'true')
+    else element.removeAttribute('aria-hidden')
+  })
+  // The shared editor targets the first label; output uses the original item order.
+  const active = elements[previewIndex]
+  if (mode === 'designer') active?.parentElement?.prepend(active)
+  else elements[0]?.parentElement?.append(...elements)
+}
+
+interface PrintWorkspaceTabsOptions {
   buttons: Iterable<HTMLButtonElement>
-  printPanel: HTMLElement
-  designerPanel: HTMLElement
+  panels: Record<PrintWorkspaceMode, HTMLElement>
+  outputButtons?: {
+    print: HTMLButtonElement
+    pdf: HTMLButtonElement
+    png: HTMLButtonElement
+    aml: HTMLButtonElement
+  }
   resetButton?: HTMLElement | null
   sidebar?: HTMLElement | null
+  designerWorkspace?: HTMLElement | null
+  sheetControls?: Pick<LabelSheetControls, 'setOutputMode'>
   storageKey: string
-  initialTab?: PrintDesignerTab
-  onChange: (tab: PrintDesignerTab) => void
+  initialMode?: PrintWorkspaceMode
+  onChange: (mode: PrintWorkspaceMode) => void
 }
 
-export function readPrintDesignerTab(storageKey: string, fallback: PrintDesignerTab = 'print'): PrintDesignerTab {
-  return readStorageValue(storageKey) === 'designer' ? 'designer' : fallback
+export function readPrintWorkspaceMode(
+  storageKey: string,
+  fallback: PrintWorkspaceMode = 'standard',
+): PrintWorkspaceMode {
+  const stored = readStorageValue(storageKey)
+  return stored === 'standard' || stored === 'designer' || stored === 'sheets'
+    ? stored
+    : fallback
 }
 
-export function bindPrintDesignerTabs(options: PrintDesignerTabsOptions) {
-  let activeTab = options.initialTab ?? readPrintDesignerTab(options.storageKey)
+export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
+  let activeMode = options.initialMode ?? readPrintWorkspaceMode(options.storageKey)
   const buttons = Array.from(options.buttons)
+  const zoom = options.designerWorkspace?.closest('.preview-container')?.querySelector('.preview-zoom-bar')
+  const zoomParent = zoom?.parentNode
+  const zoomNext = zoom?.nextSibling ?? null
+  const zoomSlot = options.designerWorkspace?.querySelector('.freeform-zoom-slot')
 
-  const activate = (tab: PrintDesignerTab) => {
-    activeTab = tab
-    buttons.forEach(button => button.classList.toggle('active', button.dataset.tab === tab))
-    options.printPanel.style.display = tab === 'print' ? '' : 'none'
-    options.designerPanel.style.display = tab === 'designer' ? '' : 'none'
-    if (options.resetButton) options.resetButton.style.display = tab === 'print' ? '' : 'none'
-    options.sidebar?.classList.toggle('sidebar-wide', tab === 'designer')
-    writeStorageValue(options.storageKey, tab)
-    options.onChange(tab)
+  const activate = (mode: PrintWorkspaceMode) => {
+    activeMode = mode
+    buttons.forEach(button => {
+      const active = button.dataset.workspaceMode === mode
+      button.classList.toggle('active', active)
+      button.setAttribute('aria-selected', String(active))
+      button.tabIndex = active ? 0 : -1
+    })
+    for (const [panelMode, panel] of Object.entries(options.panels)) {
+      panel.hidden = panelMode !== mode
+    }
+    const sheetMode = mode === 'sheets'
+    if (options.outputButtons) {
+      options.outputButtons.png.hidden = sheetMode
+      options.outputButtons.aml.hidden = sheetMode
+      options.outputButtons.pdf.hidden = false
+      options.outputButtons.print.hidden = false
+    }
+    if (options.resetButton) options.resetButton.hidden = mode !== 'standard'
+    options.sidebar?.classList.toggle('sidebar-wide', mode === 'designer')
+    options.sidebar?.classList.toggle('sidebar-sheets-wide', sheetMode)
+    options.designerWorkspace?.classList.toggle('is-active', mode === 'designer')
+    if (zoom && zoomParent && zoomSlot) {
+      if (mode === 'designer') zoomSlot.appendChild(zoom)
+      else zoomParent.insertBefore(zoom, zoomNext)
+      zoom.querySelector('details')?.removeAttribute('open')
+    }
+    writeStorageValue(options.storageKey, mode)
+    options.sheetControls?.setOutputMode(
+      mode === 'sheets' ? 'sheet' : 'individual',
+      { notify: false },
+    )
+    options.onChange(mode)
   }
 
   buttons.forEach(button => {
-    button.addEventListener('click', () => activate(button.dataset.tab === 'designer' ? 'designer' : 'print'))
+    button.setAttribute('role', 'tab')
+    button.addEventListener('click', () => {
+      const mode = button.dataset.workspaceMode
+      activate(mode === 'designer' || mode === 'sheets' ? mode : 'standard')
+    })
+    button.addEventListener('keydown', event => {
+      const current = buttons.indexOf(button)
+      const next = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? buttons.length - 1
+          : event.key === 'ArrowRight'
+            ? (current + 1) % buttons.length
+            : event.key === 'ArrowLeft'
+              ? (current - 1 + buttons.length) % buttons.length
+              : -1
+      if (next < 0) return
+      event.preventDefault()
+      const destination = buttons[next]
+      const mode = destination.dataset.workspaceMode
+      activate(mode === 'designer' || mode === 'sheets' ? mode : 'standard')
+      destination.focus()
+    })
   })
 
   return {
     activate,
-    getActiveTab: () => activeTab,
+    getActiveMode: () => activeMode,
   }
 }
 
@@ -828,7 +1074,7 @@ async function collectCapturedFiles<T, TResult>(
     try {
       pngDataUrl = await capture(entity)
     } catch (error) {
-      if (!canSkipCaptureError) throw error
+      if (!canSkipCaptureError || error instanceof LabelOutputAssetError) throw error
       firstCaptureError ??= error
       continue
     }
@@ -965,11 +1211,10 @@ export function bindLabelOutputs<T>(options: BindLabelOutputsOptions<T>) {
       controls.amlButton,
       controls.pdfButton,
     ],
-    () => Array.from(document.querySelectorAll<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement
-    >(
+    () => Array.from(document.querySelectorAll<HTMLElement>(
       '.print-sidebar button, .print-sidebar input, .print-sidebar select, ' +
-      '.print-sidebar textarea, .preview-zoom-bar button, .preview-zoom-bar input',
+      '.print-sidebar textarea, .preview-zoom-bar button, .preview-zoom-bar input, ' +
+      '#freeform-designer-workspace',
     )),
   )
 
@@ -1003,10 +1248,10 @@ export function bindLabelOutputs<T>(options: BindLabelOutputsOptions<T>) {
         )
       } catch (error) {
         const isPng = kind === 'png'
-        window.alert(getTranslation(
+        window.alert(outputFailureMessage(getTranslation(
           isPng ? 'labelPrint.pngExportFailed' : 'labelPrint.amlExportFailed',
           isPng ? 'PNG export failed.' : 'AML export failed.',
-        ))
+        ), error))
         console.error(
           isPng ? 'Failed to export label PNG:' : 'Failed to export label AML:',
           error,

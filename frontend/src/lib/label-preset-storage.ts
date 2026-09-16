@@ -9,6 +9,8 @@ import {
   SPOOL_LABEL_PRESETS_KEY,
 } from './label-preset-browser-migration'
 import { api } from './api'
+import { normalizeDesignerPresetData } from './freeform-label/migrate-v1'
+import type { LabelDesignerPresetData, LabelKind } from './freeform-label/types'
 
 export {
   FILAMENT_LABEL_PRESETS_KEY,
@@ -25,8 +27,21 @@ type ApiLabelPreset = {
   data: Record<string, unknown>
 }
 
+export interface CachedDesignerPreset {
+  name: string
+  data: LabelDesignerPresetData
+  /** Temporary v1 editor bridge; remove with the legacy compatibility module. */
+  settings: unknown
+}
+
+export interface DesignerPresetCache {
+  version: 2
+  presets: CachedDesignerPreset[]
+}
+
 let hydrationPromise: Promise<void> | null = null
 const PRESET_OWNER_KEY = 'filaman-label-presets-owner-v1'
+const unsupportedPresetNames = new Map<LabelKind, Set<string>>()
 
 function safeWrite(key: string, value: unknown): boolean {
   try {
@@ -37,15 +52,36 @@ function safeWrite(key: string, value: unknown): boolean {
   }
 }
 
-function writeDatabasePresetsToBrowser(presets: ApiLabelPreset[]) {
-  const designerPayload = (presetType: 'spool' | 'filament') => ({
-    version: 1,
+export function buildDesignerPresetCache(
+  presets: ApiLabelPreset[],
+  presetType: LabelKind,
+): DesignerPresetCache {
+  const unsupportedNames = new Set<string>()
+  unsupportedPresetNames.set(presetType, unsupportedNames)
+  return {
+    version: 2,
     presets: presets
-      .filter(preset => preset.preset_type === presetType && preset.data.settings)
-      .map(preset => ({ name: preset.name, settings: preset.data.settings })),
-  })
-  safeWrite(SPOOL_LABEL_PRESETS_KEY, designerPayload('spool'))
-  safeWrite(FILAMENT_LABEL_PRESETS_KEY, designerPayload('filament'))
+      .filter(preset => preset.preset_type === presetType)
+      .flatMap(preset => {
+        try {
+          const data = normalizeDesignerPresetData(preset.data, presetType)
+          return [{
+            name: preset.name,
+            data,
+            settings: data.legacy_v1 ?? {},
+          }]
+        } catch (error) {
+          unsupportedNames.add(preset.name)
+          console.warn(`Could not load label preset "${preset.name}"; its database data is unchanged`, error)
+          return []
+        }
+      }),
+  }
+}
+
+function writeDatabasePresetsToBrowser(presets: ApiLabelPreset[]) {
+  safeWrite(SPOOL_LABEL_PRESETS_KEY, buildDesignerPresetCache(presets, 'spool'))
+  safeWrite(FILAMENT_LABEL_PRESETS_KEY, buildDesignerPresetCache(presets, 'filament'))
   safeWrite(LABEL_SHEET_PRESETS_KEY, presets
     .filter(preset => preset.preset_type === 'sheet' && preset.data.settings)
     .map(preset => ({
@@ -68,6 +104,7 @@ async function fetchPresetDatabase(): Promise<ApiLabelPreset[]> {
 }
 
 function removePresetBrowserValues(clearMigrationState = true) {
+  unsupportedPresetNames.clear()
   for (const key of [
     SPOOL_LABEL_PRESETS_KEY,
     FILAMENT_LABEL_PRESETS_KEY,
@@ -144,23 +181,43 @@ function presetTypeForStorageKey(storageKey: string): PresetType | null {
 
 export async function saveLabelPreset(
   storageKey: string,
-  preset: { name: string; settings: unknown; id?: string },
+  preset: { name: string; settings?: unknown; data?: LabelDesignerPresetData; id?: string },
   previousName?: string,
 ): Promise<boolean> {
   const presetType = presetTypeForStorageKey(storageKey)
   if (!presetType) return false
+  if (presetType !== 'sheet' && (
+    unsupportedPresetNames.get(presetType)?.has(preset.name)
+    || (previousName !== undefined && unsupportedPresetNames.get(presetType)?.has(previousName))
+  )) {
+    console.warn('Cannot overwrite an unsupported label preset')
+    return false
+  }
   try {
-    await api.put<ApiLabelPreset>(`/me/label-presets/${presetType}/item`, {
-      name: preset.name,
-      previous_name: previousName,
-      data: presetType === 'sheet'
-        ? { id: preset.id, settings: preset.settings }
-        : { settings: preset.settings },
-    })
+    await api.put<ApiLabelPreset>(
+      `/me/label-presets/${presetType}/item`,
+      buildLabelPresetUpsertBody(storageKey, preset, previousName),
+    )
     return true
   } catch (error) {
     console.warn('Could not save label presets to the database', error)
     return false
+  }
+}
+
+export function buildLabelPresetUpsertBody(
+  storageKey: string,
+  preset: { name: string; settings?: unknown; data?: LabelDesignerPresetData; id?: string },
+  previousName?: string,
+) {
+  const presetType = presetTypeForStorageKey(storageKey)
+  if (!presetType) throw new Error('Unknown label preset storage key')
+  return {
+    name: preset.name,
+    previous_name: previousName,
+    data: presetType === 'sheet'
+      ? { id: preset.id, settings: preset.settings }
+      : preset.data ?? { settings: preset.settings },
   }
 }
 

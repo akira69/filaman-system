@@ -1,0 +1,27 @@
+---
+import { designerIcon } from '../../lib/freeform-label/icons'
+import { TEMPLATE_TEXT_MODIFIERS } from '../../lib/freeform-label/text-modifiers'
+
+interface Props {
+  context: 'field' | 'text'
+}
+
+const { context } = Astro.props
+---
+{TEMPLATE_TEXT_MODIFIERS.map(item => (
+  <button
+    type="button"
+    data-field-modifier={context === 'field' ? item.modifier : undefined}
+    data-text-modifier={context === 'text' ? item.modifier : undefined}
+    aria-pressed="false"
+    title={item.label}
+    aria-label={item.label}
+    data-i18n-title={item.i18n}
+    data-i18n-aria-label={item.i18n}
+  >
+    {item.glyph === 'bold' && <strong>B</strong>}
+    {item.glyph === 'italic' && <em>I</em>}
+    {item.glyph === 'underline' && <u>U</u>}
+    {item.icon && <Fragment set:html={designerIcon(item.icon)} />}
+  </button>
+))}
