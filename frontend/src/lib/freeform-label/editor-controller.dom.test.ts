@@ -731,13 +731,15 @@ describe('freeform editor DOM binding', () => {
     const canvasArea = document.querySelector('.freeform-canvas-area')!
     const stage = document.querySelector('.freeform-canvas-stage')!
     const canvasRow = document.querySelector('.freeform-canvas-row')!
+    const textToolbar = document.querySelector('#freeform-text-toolbar')!
     const canvasHost = document.querySelector('#freeform-canvas-host')!
     const inspector = document.querySelector<HTMLElement>('#freeform-element-inspector')!
 
     expect(commandBar.querySelectorAll('[data-designer-add]')).toHaveLength(5)
-    expect(stage.firstElementChild).toBe(document.querySelector('#freeform-text-toolbar'))
+    expect(stage.contains(canvasRow)).toBe(true)
     expect(canvasArea.contains(inspector)).toBe(true)
-    expect(canvasRow.firstElementChild).toBe(canvasHost)
+    expect(canvasRow.firstElementChild).toBe(textToolbar)
+    expect(textToolbar.nextElementSibling).toBe(canvasHost)
     expect(canvasHost.nextElementSibling).toBe(inspector)
     expect(inspector.querySelector('#freeform-inspector-title, .freeform-inspector-empty')).toBeNull()
     expect(canvasArea.contains(document.querySelector('#freeform-field-dock'))).toBe(true)

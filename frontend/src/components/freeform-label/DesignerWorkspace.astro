@@ -56,10 +56,10 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
     <div class="freeform-canvas-area">
     <div class="freeform-canvas-region">
      <div class="freeform-canvas-stage">
-      <CanvasTextToolbar />
       <div id="freeform-mobile-notice" class="freeform-mobile-notice" role="status" aria-live="polite" hidden data-i18n="labelDesigner.desktopRequired">Editing requires a wider workspace. Preview and output remain available.</div>
       <p id="freeform-canvas-instructions" class="visually-hidden" data-i18n="labelDesigner.canvasInstructions">Label canvas. Focus an element to select it; use arrow keys to move it.</p>
       <div class="freeform-canvas-row">
+        <CanvasTextToolbar />
         <div id="freeform-canvas-host" class="freeform-canvas-host" role="region" tabindex="0" aria-labelledby="freeform-canvas-instructions">
           <slot />
         </div>
@@ -118,9 +118,13 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
   .freeform-designer-workspace.is-active .freeform-canvas-area { --freeform-drawer-bar-height: 32px; display: block; isolation: isolate; min-height: 0; min-width: 0; position: relative; }
   .freeform-designer-workspace.is-active .freeform-canvas-region { background: var(--bg); display: block; inset: 0; isolation: isolate; overflow: auto; overscroll-behavior: contain; position: absolute; scrollbar-gutter: stable both-edges; }
   .freeform-designer-workspace.is-active .freeform-canvas-stage { align-items: safe center; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; min-height: 100%; min-width: 100%; padding: 18px 18px 48px; width: 100%; }
-  .freeform-canvas-row { align-items: start; display: grid; gap: 8px; grid-template-columns: var(--freeform-label-width, auto) 190px; justify-content: center; min-width: 0; width: 100%; }
+  .freeform-canvas-row { align-items: start; column-gap: 8px; display: grid; grid-template-columns: var(--freeform-label-width, auto) 190px; justify-content: center; min-width: 0; width: 100%; }
+  .freeform-canvas-row :global(.freeform-text-toolbar) { grid-column: 1; grid-row: 1; min-width: 0; width: 100%; }
+  .freeform-canvas-row .freeform-canvas-host, .freeform-canvas-row :global(.freeform-element-inspector) { grid-row: 2; }
+  .freeform-canvas-row :global(.freeform-element-inspector) { grid-column: 2; }
   .freeform-canvas-row.is-geometry-narrow { grid-template-columns: var(--freeform-label-width, auto) 104px; }
   .freeform-canvas-row.is-geometry-below { grid-template-columns: auto; justify-items: center; }
+  .freeform-canvas-row.is-geometry-below :global(.freeform-element-inspector) { grid-column: 1; grid-row: 3; }
   .freeform-designer-workspace.is-active :global(.is-designer-output-only) { left: -100000px; pointer-events: none; position: fixed; top: 0; }
   .freeform-canvas-host { display: block; flex: none; outline: none; position: relative; }
   .freeform-canvas-host:focus-visible, .freeform-canvas-host :global([data-label-element-id]:focus-visible) { outline: 2px solid var(--accent); outline-offset: 4px; }
