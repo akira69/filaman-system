@@ -229,6 +229,33 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
     assert rendered.status_code == 200
     assert qr_targets[-1] == f"https://labels.example/base/spools/{spool.id}"
     assert struct.unpack(">II", rendered.content[16:24]) == (500, 250)
+    physical = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?format=mono1&width=576&dpi=203&align=right&preset_id={preset.id}"
+    )
+    assert physical.status_code == 200
+    assert physical.headers["x-image-height"] == "200"  # 25 mm at 203 DPI
+    assert physical.headers["x-content-width"] == "400"
+    assert physical.headers["x-rotated"] == "0"
+    assert len(physical.content) == 72 * 200
+    assert all(physical.content[row * 72:(row * 72) + 22] == bytes(22) for row in range(200))
+    assert any(physical.content)
+    portrait = LabelPreset(
+        user_id=admin_user.id, preset_type="spool", name="Portrait",
+        name_key=label_preset_name_key("Portrait"),
+        data={"settings": {"label": {"width": 30, "height": 40}}},
+    )
+    db_session.add(portrait)
+    await db_session.commit()
+    rotated = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?format=mono1&width=576&dpi=203&align=right&orientation=landscape&preset_id={portrait.id}"
+    )
+    assert rotated.status_code == 200
+    assert rotated.headers["x-image-height"] == "240"
+    assert rotated.headers["x-content-width"] == "320"
+    assert rotated.headers["x-rotated"] == "1"
+    assert len(rotated.content) == 72 * 240
+    assert any(rotated.content)
+    assert all(rotated.content[row * 72:(row * 72) + 32] == bytes(32) for row in range(240))
     colored = await client.get(
         f"/api/v1/labels/spool/{spool.id}/render?format=png&width=500&preset_id={preset.id}&color=color",
         headers=headers,
