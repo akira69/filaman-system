@@ -602,6 +602,10 @@ import LabelPrintPageShell from '../../components/LabelPrintPageShell.astro'
     entityType: labelAdapter.entityType,
     batchMode: true,
     translate: (key, fallback) => t(key) || fallback,
+    getPreviewData: () => {
+      const spool = workspace.getState().representativeItem
+      return spool ? labelAdapter.buildDesignerData(spool) : null
+    },
     onChange: queueRenderAll,
     presetsKey: DESIGNER_PRESETS_KEY,
     settingsKey: DESIGNER_SETTINGS_KEY,

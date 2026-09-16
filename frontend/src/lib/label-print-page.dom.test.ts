@@ -38,6 +38,7 @@ import {
   type LabelPdfFactoryOverride,
 } from './label-print-page'
 import type { LabelPdfDocument, LabelPdfPage } from './label-export'
+import * as labelPrintPage from './label-print-page'
 import {
   bindTemporaryPdfPreview,
   type TemporaryPdfPreviewController,
@@ -823,6 +824,22 @@ describe('shared print-page controls', () => {
 })
 
 describe('shared single-label print-page behavior', () => {
+  it('keeps designer zoom below its toolbar while retaining centered standard preview zoom', () => {
+    document.body.innerHTML = '<div id="freeform-designer-workspace" class="is-active"><div class="freeform-canvas-host"><div class="label-preview"></div></div></div>'
+    const label = document.querySelector<HTMLElement>('.label-preview')!
+    const applySingle = (labelPrintPage as unknown as {
+      applySingleLabelPreviewZoom(label: HTMLElement, zoom: number): void
+    }).applySingleLabelPreviewZoom
+
+    expect(applySingle).toBeTypeOf('function')
+    applySingle(label, 270)
+    expect(label.style.transform).toBe('scale(2.7)')
+    expect(label.style.transformOrigin).toBe('top left')
+    document.querySelector('#freeform-designer-workspace')!.classList.remove('is-active')
+    applySingle(label, 270)
+    expect(label.style.transformOrigin).toBe('center center')
+  })
+
   it('does not magnify hidden batch placeholders repeatedly when zoom changes', () => {
     document.body.innerHTML = '<main><div class="freeform-canvas-host"><div class="label-wrapper"><div class="label-preview"></div></div><div class="label-wrapper"><div class="label-preview"></div></div></div></main>'
     const root = document.querySelector<HTMLElement>('main')!
@@ -985,6 +1002,35 @@ describe('shared single-label print-page behavior', () => {
     expect(menu.open).toBe(true)
     document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
     expect(menu.open).toBe(false)
+  })
+
+  it('keeps wrapped zoom options beside their trigger and inside the viewport', () => {
+    renderPrintPageControls()
+    const menu = document.createElement('details')
+    menu.className = 'preview-zoom-menu'
+    menu.innerHTML = '<summary>100%</summary><div class="preview-zoom-options"></div>'
+    menu.querySelector('.preview-zoom-options')!.append(document.querySelector('#preview-zoom-slider')!)
+    document.querySelector('.preview-container')!.prepend(menu)
+    const summary = menu.querySelector('summary')!
+    const options = menu.querySelector<HTMLElement>('.preview-zoom-options')!
+    Object.defineProperty(summary, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ top: 160, bottom: 192, left: 280, right: 360, width: 80, height: 32 }),
+    })
+    Object.defineProperties(options, {
+      offsetWidth: { configurable: true, value: 220 },
+      offsetHeight: { configurable: true, value: 80 },
+    })
+    vi.stubGlobal('innerWidth', 360)
+    vi.stubGlobal('innerHeight', 240)
+
+    bindLabelPreviewZoom({ storageKey: 'zoom-menu-position', previewRoot: document.querySelector('.preview-container')!, onChange: () => undefined })
+    menu.open = true
+    menu.dispatchEvent(new Event('toggle'))
+
+    expect(options.style.position).toBe('fixed')
+    expect(options.style.left).toBe('132px')
+    expect(options.style.top).toBe('72px')
   })
 
   it('supports route-owned preview zoom storage without replacing its settings payload', () => {

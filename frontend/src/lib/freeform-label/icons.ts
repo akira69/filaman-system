@@ -6,6 +6,8 @@ export type DesignerIconName =
   | 'alignTop'
   | 'alignMiddle'
   | 'alignBottom'
+  | 'fitText'
+  | 'wordWrap'
   | 'qr'
   | 'logo'
   | 'image'
@@ -32,6 +34,8 @@ const paths: Record<DesignerIconName, string> = {
   alignTop: '<path d="M4 4h16M8 8v12M16 8v8"/>',
   alignMiddle: '<path d="M4 12h16M8 4v16M16 7v10"/>',
   alignBottom: '<path d="M4 20h16M8 4v12M16 8v8"/>',
+  fitText: '<path d="M4 7V4h3M17 4h3v3M4 17v3h3M20 17v3h-3M8 9h8M10 9v7M14 9v7"/>',
+  wordWrap: '<path d="M4 6h16M4 11h13a3 3 0 0 1 0 6h-3M16 14l-3 3 3 3M4 17h5"/>',
   qr: '<rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><path d="M14 14h2v2h-2zM18 14h2v6h-6v-2"/>',
   logo: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m6 16 4-4 3 3 2-2 3 3"/><circle cx="8" cy="9" r="1"/>',
   image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="2"/><path d="m5 18 5-5 3 3 2-2 4 4"/>',

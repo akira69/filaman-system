@@ -1,4 +1,5 @@
 import type { DesignerExtraField } from '../label-designer'
+import type { SpoolData } from '../label-template'
 import type { InteractFactory } from './interaction-adapter'
 import type { TemplateTextModifier } from './text-modifiers'
 import type { LabelDesignV2, LabelElementIdFactory, LabelElementType, LabelKind } from './types'
@@ -57,6 +58,7 @@ export interface FreeformLabelDesignerEditorOptions {
   ownPresetsLabel?: string
   crossPresetsLabel?: string
   loadInteract?: () => Promise<InteractFactory>
+  getPreviewData?: () => SpoolData | null | undefined
 }
 
 export interface FreeformLabelDesignerEditorController {

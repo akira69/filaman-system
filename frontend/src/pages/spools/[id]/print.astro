@@ -43,6 +43,7 @@ export function getStaticPaths() {
   } from '../../../lib/label-standard'
   import {
     LABEL_EXPORT_PIXEL_RATIO,
+    applySingleLabelPreviewZoom,
     bindLabelOutputPreview,
     bindLabelOutputs,
     bindLabelPreviewZoom,
@@ -275,6 +276,7 @@ export function getStaticPaths() {
     extraFields: getDesignerExtraFields(),
     entityType: 'spool',
     translate,
+    getPreviewData: buildSpoolData,
     onChange: () => updateDesignerPreview(),
     presetsKey: DESIGNER_PRESETS_KEY,
     settingsKey: DESIGNER_SETTINGS_KEY,
@@ -302,8 +304,7 @@ export function getStaticPaths() {
     getDimensions: getActiveLabelDimensions,
     getZoom: previewZoom.getZoom,
     applyIndividualZoom: zoom => {
-      labelPreview.style.transform = `scale(${zoom / 100})`
-      labelPreview.style.transformOrigin = 'center center'
+      applySingleLabelPreviewZoom(labelPreview, zoom)
       void designerEditor?.refreshInteractions()
     },
   })

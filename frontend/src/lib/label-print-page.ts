@@ -431,6 +431,27 @@ export function bindLabelPreviewZoom(
   const slider = requireElement(root, 'preview-zoom-slider', HTMLInputElement)
   const menu = root.querySelector<HTMLDetailsElement>('.preview-zoom-menu')
   if (menu) {
+    const positionMenu = () => {
+      if (!menu.open) return
+      const summary = menu.querySelector('summary')
+      const panel = menu.querySelector<HTMLElement>('.preview-zoom-options')
+      if (!summary || !panel) return
+      const anchor = summary.getBoundingClientRect()
+      const gap = 8
+      const edge = 8
+      const width = panel.offsetWidth || 220
+      const height = panel.offsetHeight
+      const left = Math.min(
+        Math.max(edge, anchor.left + anchor.width / 2 - width / 2),
+        Math.max(edge, window.innerWidth - width - edge),
+      )
+      const below = anchor.bottom + gap
+      const above = anchor.top - gap - height
+      panel.style.position = 'fixed'
+      panel.style.left = `${left}px`
+      panel.style.right = 'auto'
+      panel.style.top = `${below + height <= window.innerHeight - edge || above < edge ? below : above}px`
+    }
     document.addEventListener('pointerdown', event => {
       if (event.target instanceof Node && !menu.contains(event.target)) menu.open = false
     }, { signal: getAbortSignal() })
@@ -440,6 +461,9 @@ export function bindLabelPreviewZoom(
       menu.open = false
       menu.querySelector('summary')?.focus()
     })
+    menu.addEventListener('toggle', positionMenu, { signal: getAbortSignal() })
+    window.addEventListener('resize', positionMenu, { signal: getAbortSignal() })
+    document.addEventListener('scroll', positionMenu, { capture: true, signal: getAbortSignal() })
   }
   const binding = bindPreviewZoomControls({
     zoomInput: slider,
@@ -690,6 +714,14 @@ export function applyBatchLabelPreviewZoom(previewRoot: HTMLElement, zoomPercent
     wrapper.style.flex = '0 0 auto'
     wrapper.style.overflow = 'visible'
   })
+}
+
+export function applySingleLabelPreviewZoom(label: HTMLElement, zoomPercent: number) {
+  const zoom = normalizeZoom(Number(zoomPercent), 25, 500, 5, 100) / 100
+  label.style.transform = `scale(${zoom})`
+  label.style.transformOrigin = label.closest('#freeform-designer-workspace.is-active')
+    ? 'top left'
+    : 'center center'
 }
 
 export type PrintWorkspaceMode = 'standard' | 'designer' | 'sheets'

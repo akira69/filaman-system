@@ -1,7 +1,7 @@
 """add per-user label image assets
 
 Revision ID: add_label_assets
-Revises: ef529a7422d8
+Revises: e8a1c4d2b907
 Create Date: 2026-09-05 00:00:00.000000
 """
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects.mysql import LONGBLOB
 from alembic import op
 
 revision: str = "add_label_assets"
-down_revision: str | Sequence[str] | None = "ef529a7422d8"
+down_revision: str | Sequence[str] | None = "e8a1c4d2b907"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

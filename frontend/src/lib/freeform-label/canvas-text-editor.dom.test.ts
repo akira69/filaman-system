@@ -11,7 +11,7 @@ afterEach(() => { cleanups.splice(0).forEach(cleanup => cleanup()); document.bod
 function editor(source: string, delayed = false) {
   const selected = createDefaultLabelDesign('spool').elements.find(element => element.type === 'text')!
   selected.template = source
-  document.body.innerHTML = '<div id="freeform-canvas-host"><div data-label-element-id="text" data-label-element-type="text"></div></div><div id="freeform-text-toolbar"><button data-text-modifier="bold">B</button><button data-text-modifier="underline">U</button></div>'
+  document.body.innerHTML = '<div id="freeform-canvas-host"><div data-label-element-id="text" data-label-element-type="text"></div></div><div id="freeform-text-toolbar"><select data-element-prop="fontFamily"><option>Space Grotesk</option></select><button data-text-modifier="bold">B</button><button data-text-modifier="underline">U</button></div>'
   selected.id = 'text'
   const node = document.querySelector<HTMLElement>('[data-label-element-id]')!
   const render = () => { node.replaceChildren(renderSelectableTemplate(selected.template, { 'filament.color': 'Ocean Blue' } as SpoolData)) }
@@ -49,6 +49,17 @@ function editor(source: string, delayed = false) {
 }
 
 describe('canvas text editing', () => {
+  it('lets native form controls receive pointer input while formatting buttons preserve the text range', () => {
+    editor('Text')
+    const selectPress = new PointerEvent('pointerdown', { bubbles: true, cancelable: true })
+    document.querySelector('select')!.dispatchEvent(selectPress)
+    expect(selectPress.defaultPrevented).toBe(false)
+
+    const buttonPress = new PointerEvent('pointerdown', { bubbles: true, cancelable: true })
+    document.querySelector('button')!.dispatchEvent(buttonPress)
+    expect(buttonPress.defaultPrevented).toBe(true)
+  })
+
   it('edits visible literal text while keeping resolved tokens indivisible', async () => {
     const e = editor('Hi {filament.color}')
     expect(e.node.contentEditable).toBe('true')

@@ -3,7 +3,7 @@
 import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 import { describe, expect, it } from 'vitest'
 
-import ElementInspector from '../../components/freeform-label/ElementInspector.astro'
+import CanvasTextToolbar from '../../components/freeform-label/CanvasTextToolbar.astro'
 import { bindFreeformEditorDom } from './editor-dom'
 import { createFreeformEditorController } from './editor-state'
 import type { LabelDesignV2 } from './types'
@@ -19,7 +19,7 @@ const design: LabelDesignV2 = {
 
 async function renderEditor(moduleCounts: number[]) {
   const container = await AstroContainer.create()
-  document.body.innerHTML = `${await container.renderToString(ElementInspector)}<div id="freeform-canvas-host"></div>`
+  document.body.innerHTML = `${await container.renderToString(CanvasTextToolbar)}<div id="freeform-canvas-host"></div>`
   const host = document.querySelector<HTMLElement>('#freeform-canvas-host')!
   const controller = createFreeformEditorController({
     initialDesign: design,

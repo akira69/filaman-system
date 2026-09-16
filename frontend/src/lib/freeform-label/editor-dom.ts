@@ -14,6 +14,12 @@ import {
 import type { FreeformEditorController } from './editor-state'
 import { elementLabelKeys, elementLabelFallbacks, localizedErrorMessage, type LabelFieldModifier } from './editor-types'
 import { LABEL_SHAPES, type LabelDesignElement, type LabelElementType } from './types'
+import {
+  buildFilamentSwatchBackground,
+  getFilamentSwatchColors,
+  getReadableTextColorForColors,
+  type SpoolData,
+} from '../label-template'
 
 export interface BindFreeformEditorDomOptions {
   root?: ParentNode
@@ -21,6 +27,7 @@ export interface BindFreeformEditorDomOptions {
   editable?: boolean
   loadInteract?: () => Promise<InteractFactory>
   translate?: (key: string, fallback: string) => string
+  getPreviewData?: () => SpoolData | null | undefined
 }
 
 const elementProperties = [
@@ -55,10 +62,34 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   const query = <T extends Element>(selector: string) => root.querySelector<T>(selector)
   const queryAll = <T extends Element>(selector: string) => Array.from(root.querySelectorAll<T>(selector))
   const canvasHost = query<HTMLElement>('#freeform-canvas-host')
+  const canvasRow = query<HTMLElement>('.freeform-canvas-row')
+  const inspector = query<HTMLElement>('#freeform-element-inspector')
   const workspace = query<HTMLElement>('#freeform-designer-workspace')
   const fieldDrawer = bindFieldDrawer(root)
   let interactionRoot: HTMLElement | null = null
   let interactionGeneration = 0
+
+  const syncGeometryLayout = () => {
+    if (!canvasRow || !canvasHost || !inspector || inspector.hidden) return
+    const rowWidth = canvasRow.clientWidth
+    const renderedLabelWidth = canvasHost.querySelector<HTMLElement>('.label-preview')?.getBoundingClientRect().width ?? 0
+    const renderedLabelHeight = canvasHost.querySelector<HTMLElement>('.label-preview')?.getBoundingClientRect().height ?? 0
+    const labelWidth = renderedLabelWidth || canvasHost.getBoundingClientRect().width
+    if (rowWidth <= 0 || labelWidth <= 0) return
+    canvasRow.style.setProperty('--freeform-label-width', `${labelWidth}px`)
+    canvasHost.style.width = `${labelWidth}px`
+    if (renderedLabelHeight > 0) canvasHost.style.height = `${renderedLabelHeight}px`
+    const available = rowWidth - labelWidth - 8
+    const below = available < 104
+    canvasRow.classList.toggle('is-geometry-below', below)
+    canvasRow.classList.toggle('is-geometry-narrow', !below && available < 190)
+  }
+  const geometryObserver = typeof MutationObserver === 'undefined' || !canvasHost
+    ? null
+    : new MutationObserver(syncGeometryLayout)
+  if (geometryObserver && canvasHost) geometryObserver.observe(canvasHost, { attributes: true, attributeFilter: ['style'], childList: true, subtree: true })
+  if (geometryObserver) cleanups.push(() => geometryObserver.disconnect())
+  listen(window, 'resize', () => syncGeometryLayout())
 
   const syncQrReadability = () => {
     const recommendation = query<HTMLElement>('#freeform-qr-readability-recommendation')
@@ -109,16 +140,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   const syncDom = () => {
     const selectedId = controller.getSelectedId()
     const selected = controller.getSelectedElement()
-    const title = query<HTMLElement>('#freeform-inspector-title')
-    const empty = query<HTMLElement>('#freeform-inspector-empty')
-    const fields = query<HTMLElement>('#freeform-inspector-fields')
-    if (title) {
-      title.textContent = selected
-        ? translate(elementLabelKeys[selected.type], elementLabelFallbacks[selected.type])
-        : translate('labelDesigner.noSelection', 'No element selected')
-    }
-    if (empty) empty.hidden = Boolean(selected)
-    if (fields) fields.hidden = !selected
+    if (inspector) inspector.hidden = !selected
 
     queryAll<HTMLElement>('[data-element-section]').forEach(section => {
       section.hidden = section.dataset.elementSection !== selected?.type
@@ -127,6 +149,14 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       const active = selected?.type === 'text' && (button.dataset.elementAlign
         ? selected.align === button.dataset.elementAlign
         : (selected.verticalAlign ?? 'top') === button.dataset.elementVerticalAlign)
+      button.setAttribute('aria-pressed', String(active))
+      button.disabled = !editable || selected?.type !== 'text'
+    })
+    queryAll<HTMLButtonElement>('[data-element-toggle]').forEach(button => {
+      const property = button.dataset.elementToggle
+      const active = selected?.type === 'text' && (property === 'wrap' || property === 'fitToWidth')
+        ? Boolean(selected[property])
+        : false
       button.setAttribute('aria-pressed', String(active))
       button.disabled = !editable || selected?.type !== 'text'
     })
@@ -145,6 +175,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       } else if (typeof value === 'string') {
         input.value = value
       }
+      if (input instanceof HTMLSelectElement && property === 'fontFamily') input.style.fontFamily = String(value)
     })
     const fitSettings = query<HTMLElement>('#freeform-fit-settings')
     if (fitSettings) fitSettings.hidden = selected?.type !== 'text' || !selected.fitToWidth
@@ -191,6 +222,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       '[data-designer-shape]',
       '[data-designer-action]',
       '[data-element-prop]',
+      '[data-element-toggle]',
       '[data-field-modifier]',
       '[data-field-token]',
       '#freeform-json-apply',
@@ -205,11 +237,21 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     queryAll<HTMLButtonElement>('[data-designer-action="redo"]').forEach(button => { button.disabled = !editable || !controller.canRedo() })
     canvasHost?.setAttribute('aria-readonly', String(!editable))
     if (workspace) workspace.dataset.editorEditable = String(editable)
+    const data = options.getPreviewData?.()
+    const colors = getFilamentSwatchColors(data?.['filament.color_hexes'], data?.['filament.color_hex'])
+    const background = buildFilamentSwatchBackground(colors, data?.['filament.multi_color_style'])
+    queryAll<HTMLElement>('[data-field-modifier="colorInverse"], [data-text-modifier="colorInverse"]').forEach(button => {
+      button.classList.toggle('has-filament-color', Boolean(background))
+      button.style.background = background
+      button.style.borderColor = colors[0] ?? ''
+      button.style.color = colors.length ? getReadableTextColorForColors(colors) : ''
+    })
     for (const chrome of queryAll<HTMLElement>('.freeform-toolbar, #freeform-element-inspector, #freeform-field-dock')) {
       chrome.toggleAttribute('inert', !editable)
       chrome.toggleAttribute('aria-hidden', !editable)
     }
     fieldDrawer.update(selected?.type === 'text' ? selected.id : undefined, editable)
+    syncGeometryLayout()
     queryAll<HTMLElement>('[data-label-element-id]').forEach(element => {
       element.classList.toggle('is-selected', editable && element.dataset.labelElementId === selectedId)
       const type = element.dataset.labelElementType as LabelElementType | undefined
@@ -368,6 +410,21 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     })
   })
 
+  queryAll<HTMLButtonElement>('[data-element-toggle]').forEach(button => {
+    listen(button, 'click', () => {
+      const selected = controller.getSelectedElement()
+      const property = button.dataset.elementToggle
+      if (selected?.type !== 'text' || (property !== 'wrap' && property !== 'fitToWidth')) return
+      const active = !selected[property]
+      mutate(() => controller.updateSelected({
+        [property]: active,
+        ...(property === 'fitToWidth' && active
+          ? { minFontSizeMm: selected.minFontSizeMm ?? Math.min(2, selected.fontSizeMm) }
+          : {}),
+      }))
+    })
+  })
+
   cleanups.push(bindElementClipboard({
     canvas: canvasHost,
     isEditable: () => editable,
@@ -495,15 +552,6 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     if (jsonError) jsonError.textContent = ''
     json?.removeAttribute('aria-invalid')
   })
-  listen<MouseEvent>(query('#freeform-json-expand'), 'click', () => {
-    const button = query<HTMLButtonElement>('#freeform-json-expand')
-    const expanded = query<HTMLElement>('.freeform-json-section')?.classList.toggle('is-expanded') ?? false
-    button?.setAttribute('aria-expanded', String(expanded))
-    if (button) button.textContent = expanded
-      ? translate('labelDesigner.collapse', 'Collapse')
-      : translate('labelDesigner.expand', 'Expand')
-  })
-
   const upload = query<HTMLInputElement>('#freeform-image-upload')
   listen<MouseEvent>(query('#freeform-image-upload-trigger'), 'click', () => {
     if (editable && controller.getSelectedElement()?.type === 'image') upload?.click()

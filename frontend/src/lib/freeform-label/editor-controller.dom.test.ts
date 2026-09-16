@@ -11,6 +11,7 @@ import { createDefaultLabelDesign } from './defaults'
 import { readStoredPresets } from './editor-storage'
 import type { InteractFactory } from './interaction-adapter'
 import { deleteLabelPreset, saveLabelPreset } from '../label-preset-storage'
+import type { SpoolData } from '../label-template'
 import {
   bindFreeformEditorDom,
   createFreeformEditorController,
@@ -722,6 +723,55 @@ describe('freeform editor assets and async lifecycle', () => {
 })
 
 describe('freeform editor DOM binding', () => {
+  it('keeps Add at the top and places editing controls directly on the workspace', async () => {
+    await renderRealDesignerEditor()
+    const binding = bindFreeformEditorDom({ controller: makeController() })
+    await binding.ready
+    const commandBar = document.querySelector('.freeform-command-bar')!
+    const canvasArea = document.querySelector('.freeform-canvas-area')!
+    const stage = document.querySelector('.freeform-canvas-stage')!
+    const canvasRow = document.querySelector('.freeform-canvas-row')!
+    const canvasHost = document.querySelector('#freeform-canvas-host')!
+    const inspector = document.querySelector<HTMLElement>('#freeform-element-inspector')!
+
+    expect(commandBar.querySelectorAll('[data-designer-add]')).toHaveLength(5)
+    expect(stage.firstElementChild).toBe(document.querySelector('#freeform-text-toolbar'))
+    expect(canvasArea.contains(inspector)).toBe(true)
+    expect(canvasRow.firstElementChild).toBe(canvasHost)
+    expect(canvasHost.nextElementSibling).toBe(inspector)
+    expect(inspector.querySelector('#freeform-inspector-title, .freeform-inspector-empty')).toBeNull()
+    expect(canvasArea.contains(document.querySelector('#freeform-field-dock'))).toBe(true)
+    expect(Array.from(document.querySelectorAll('#freeform-element-inspector [data-element-prop]')).map(node => (node as HTMLElement).dataset.elementProp)).toEqual(['x', 'y', 'w', 'h'])
+    for (const property of ['fontWeight', 'fontSizeMm', 'minFontSizeMm', 'strokeWidthMm', 'mode', 'assetId']) {
+      expect(document.querySelector(`#freeform-text-toolbar [data-element-prop="${property}"]`), property).not.toBeNull()
+    }
+    for (const property of ['fitToWidth', 'wrap']) {
+      const toggle = document.querySelector<HTMLButtonElement>(`#freeform-text-toolbar [data-element-toggle="${property}"]`)
+      expect(toggle?.type).toBe('button')
+      expect(toggle?.getAttribute('aria-pressed')).toMatch(/^(true|false)$/)
+      expect(toggle?.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    }
+    expect(document.querySelectorAll('#freeform-text-toolbar [data-element-align]')).toHaveLength(3)
+    expect(document.querySelectorAll('#freeform-text-toolbar [data-element-vertical-align]')).toHaveLength(3)
+    expect(document.querySelectorAll('#freeform-element-inspector .freeform-unit-input')).toHaveLength(4)
+    for (const unit of document.querySelectorAll('#freeform-element-inspector .freeform-unit-input span')) expect(unit.textContent).toBe('mm')
+    const geometryLabels = Array.from(document.querySelectorAll<HTMLElement>('#freeform-element-inspector .freeform-geometry-grid label > span:first-child'))
+    expect(geometryLabels.map(label => label.textContent)).toEqual(['X', 'Y', 'Width', 'Height'])
+    expect(geometryLabels.every(label => !label.hasAttribute('data-i18n'))).toBe(true)
+    expect(document.querySelector('#freeform-inspector-fields')?.firstElementChild).toBe(document.querySelector('.freeform-geometry-grid'))
+    expect(document.querySelector('.freeform-font-details [data-i18n="labelDesigner.fontSizeMm"]')).toBeNull()
+
+    const font = document.querySelector<HTMLSelectElement>('#freeform-text-toolbar [data-element-prop="fontFamily"]')!
+    expect(document.querySelector('#freeform-element-inspector [data-element-prop="fontFamily"]')).toBeNull()
+    expect(Array.from(font.options).map(option => option.style.fontFamily)).toEqual([
+      '"Space Grotesk"', '"Roboto Condensed"', 'Fraunces', '"Space Mono"',
+    ])
+    font.value = 'Fraunces'
+    font.dispatchEvent(new Event('change'))
+    expect(font.style.fontFamily).toBe('Fraunces')
+    binding.destroy()
+  })
+
   it('renders dock and canvas text modifiers in the same accessible order', async () => {
     await renderRealDesignerEditor()
     const names = ['bold', 'italic', 'underline', 'caps', 'inverse', 'colorInverse', 'date']
@@ -735,6 +785,68 @@ describe('freeform editor DOM binding', () => {
     expect(canvas.map(button => button.getAttribute('aria-label'))).toEqual(labels)
     expect(dock.map(button => button.getAttribute('aria-pressed'))).toEqual(names.map(() => 'false'))
     expect(canvas.map(button => button.getAttribute('aria-pressed'))).toEqual(names.map(() => 'false'))
+  })
+
+  it('stacks geometry beside a zoomed label before moving it below', async () => {
+    await renderRealDesignerEditor()
+    const controller = makeController()
+    const binding = bindFreeformEditorDom({ controller })
+    await binding.ready
+    const row = document.querySelector<HTMLElement>('.freeform-canvas-row')!
+    const host = document.querySelector<HTMLElement>('#freeform-canvas-host')!
+    const label = host.querySelector<HTMLElement>('.label-preview')!
+    let labelWidth = 280
+    let labelHeight = 180
+    Object.defineProperty(row, 'clientWidth', { configurable: true, value: 500 })
+    Object.defineProperty(label, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ width: labelWidth, height: labelHeight }),
+    })
+
+    binding.sync()
+    expect(row.style.getPropertyValue('--freeform-label-width')).toBe('280px')
+    expect(host.style.width).toBe('280px')
+    expect(host.style.height).toBe('180px')
+    expect(row.classList.contains('is-geometry-narrow')).toBe(false)
+    expect(row.classList.contains('is-geometry-below')).toBe(false)
+    labelWidth = 350
+    labelHeight = 220
+    binding.sync()
+    expect(row.style.getPropertyValue('--freeform-label-width')).toBe('350px')
+    expect(host.style.height).toBe('220px')
+    expect(row.classList.contains('is-geometry-narrow')).toBe(true)
+    expect(row.classList.contains('is-geometry-below')).toBe(false)
+    labelWidth = 400
+    binding.sync()
+    expect(row.classList.contains('is-geometry-narrow')).toBe(false)
+    expect(row.classList.contains('is-geometry-below')).toBe(true)
+    binding.destroy()
+  })
+
+  it('themes both filament inverse controls from the current preview data', async () => {
+    await renderRealDesignerEditor()
+    let data: SpoolData | null = {
+      'filament.color_hexes': '#111318, #00A6A6, #7E57C2',
+      'filament.multi_color_style': 'coextrusion',
+    } as SpoolData
+    const binding = bindFreeformEditorDom({
+      controller: makeController(),
+      getPreviewData: () => data,
+    })
+    await binding.ready
+
+    for (const button of document.querySelectorAll<HTMLElement>('[data-field-modifier="colorInverse"], [data-text-modifier="colorInverse"]')) {
+      expect(button.classList.contains('has-filament-color')).toBe(true)
+      expect(button.style.background).toBe('linear-gradient(90deg, #111318 0.000% 33.333%, #00A6A6 33.333% 66.667%, #7E57C2 66.667% 100.000%)')
+      expect(button.style.borderColor).toBe('#111318')
+      expect(button.style.color).toBe('#fff')
+    }
+
+    data = null
+    binding.sync()
+    expect(document.querySelector('.has-filament-color')).toBeNull()
+    expect(document.querySelector<HTMLElement>('[data-text-modifier="colorInverse"]')?.style.background).toBe('')
+    binding.destroy()
   })
 
   it('gives every real icon tool a localized tooltip and accessible name', async () => {
@@ -775,8 +887,10 @@ describe('freeform editor DOM binding', () => {
     const actions = ['duplicate', 'delete', 'forward', 'back'].map(action =>
       document.querySelector<HTMLButtonElement>(`.freeform-toolbar [data-designer-action="${action}"]`)!,
     )
+    const jsonTrigger = document.querySelector<HTMLButtonElement>('#freeform-json-expand')!
     const selectedId = controller.getSelectedId()!
     expect(actions.every(button => button && !button.disabled)).toBe(true)
+    expect(jsonTrigger.disabled).toBe(false)
     expect(document.querySelectorAll('#freeform-element-inspector [data-designer-action]')).toHaveLength(0)
     expect(actions[0].textContent?.trim()).toBe('Duplicate')
     expect(actions.slice(0, 2).every(button => button.querySelector('svg'))).toBe(true)
@@ -785,10 +899,14 @@ describe('freeform editor DOM binding', () => {
     controller.clearSelection()
     binding.sync()
     expect(actions.every(button => button.disabled && !button.hidden)).toBe(true)
+    expect(jsonTrigger.disabled).toBe(true)
+    expect(document.querySelector<HTMLElement>('#freeform-element-inspector')!.hidden).toBe(true)
     expect(document.querySelector<HTMLButtonElement>('[data-designer-add="text"]')!.disabled).toBe(false)
     controller.select(selectedId)
     binding.sync()
     expect(actions.every(button => !button.disabled)).toBe(true)
+    expect(jsonTrigger.disabled).toBe(false)
+    expect(document.querySelector<HTMLElement>('#freeform-element-inspector')!.hidden).toBe(false)
     await binding.setEditable(false)
     expect(actions.every(button => button.disabled)).toBe(true)
     binding.destroy()
@@ -818,7 +936,7 @@ describe('freeform editor DOM binding', () => {
     expect(elements[0].tabIndex).toBe(0)
     expect(elements[0].getAttribute('role')).toBe('button')
     expect(elements[0].getAttribute('aria-label')).toBe('Textelement')
-    expect(document.querySelector('#freeform-inspector-title')?.textContent).toBe('Textelement')
+    expect(document.querySelector<HTMLElement>('#freeform-element-inspector')?.hidden).toBe(false)
 
     elements[1].focus()
     expect(controller.getState().selectedId).toBe(elements[1].dataset.labelElementId)
@@ -855,7 +973,7 @@ describe('freeform editor DOM binding', () => {
     binding.destroy()
   })
 
-  it('associates localized JSON errors and keeps expansion state accessible', async () => {
+  it('opens the workspace JSON editor on demand and keeps errors accessible', async () => {
     await renderRealDesignerEditor()
     const controller = makeController({
       translate: (key, fallback) => resolveTranslation(de, key, fallback),
@@ -870,9 +988,13 @@ describe('freeform editor DOM binding', () => {
     const json = document.querySelector<HTMLTextAreaElement>('#freeform-element-json')!
     const error = document.querySelector<HTMLElement>('#freeform-json-error')!
     const expand = document.querySelector<HTMLButtonElement>('#freeform-json-expand')!
+    const section = document.querySelector<HTMLElement>('.freeform-json-section')!
 
     expect(document.querySelector<HTMLLabelElement>('label[for="freeform-element-json"]')).not.toBeNull()
     expect(json.getAttribute('aria-describedby')).toBe('freeform-json-error')
+    expect(section.getAttribute('popover')).toBe('auto')
+    expect(expand.getAttribute('popovertarget')).toBe('freeform-json-section')
+    expect(expand.textContent?.trim()).toBe('JSON')
     json.value = '{'
     document.querySelector<HTMLButtonElement>('#freeform-json-apply')!.click()
     expect(json.getAttribute('aria-invalid')).toBe('true')
@@ -891,15 +1013,6 @@ describe('freeform editor DOM binding', () => {
     expect(json.getAttribute('aria-invalid')).toBeNull()
     expect(error.textContent).toBe('')
 
-    expect(expand.getAttribute('aria-expanded')).toBe('false')
-    expand.focus()
-    expand.click()
-    expect(expand.getAttribute('aria-expanded')).toBe('true')
-    expect(expand.textContent).toBe('Einklappen')
-    expect(document.activeElement).toBe(expand)
-    expand.click()
-    expect(expand.getAttribute('aria-expanded')).toBe('false')
-    expect(expand.textContent).toBe('Erweitern')
     binding.destroy()
   })
 
@@ -1269,11 +1382,11 @@ describe('freeform editor responsive lifecycle', () => {
     editor.destroy()
   })
 
-  it('uses observed workspace width at 900/901 and disconnects without leaking interaction bindings', async () => {
+  it('uses observed workspace width at 600/601 and disconnects without leaking interaction bindings', async () => {
     const preview = await renderRealDesignerEditor()
     const workspace = document.querySelector<HTMLElement>('#freeform-designer-workspace')!
-    let width = 900
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    let width = 600
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 601 })
     Object.defineProperty(workspace, 'getBoundingClientRect', {
       configurable: true,
       value: () => ({ width }),
@@ -1318,7 +1431,7 @@ describe('freeform editor responsive lifecycle', () => {
     }
     expect(loadInteract).not.toHaveBeenCalled()
 
-    width = 901
+    width = 601
     notifyResize()
     await vi.waitFor(() => expect(loadInteract).toHaveBeenCalledOnce())
     expect(workspace.dataset.editorEditable).toBe('true')
@@ -1328,29 +1441,29 @@ describe('freeform editor responsive lifecycle', () => {
     width = 371
     notifyResize()
     await vi.waitFor(() => expect(workspace.dataset.editorEditable).toBe('false'))
-    expect(window.innerWidth).toBe(901)
+    expect(window.innerWidth).toBe(601)
     expect(element.hasAttribute('tabindex')).toBe(false)
     expect(element.classList.contains('is-selected')).toBe(false)
 
-    width = 901
+    width = 601
     notifyResize()
     await vi.waitFor(() => expect(workspace.dataset.editorEditable).toBe('true'))
 
-    width = 900
+    width = 600
     notifyResize()
     await vi.waitFor(() => expect(interactable.unset).toHaveBeenCalled())
     const callsBeforeDestroy = loadInteract.mock.calls.length
     editor.destroy()
     expect(disconnectSpy).toHaveBeenCalledOnce()
-    width = 901
+    width = 601
     notifyResize()
     await Promise.resolve()
     expect(loadInteract).toHaveBeenCalledTimes(callsBeforeDestroy)
   })
 
-  it('allows editing at 901px and blocks keyboard mutation at 900px', async () => {
+  it('allows editing at 601px and blocks keyboard mutation at 600px', async () => {
     renderDesignerEditorShell()
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 601 })
     const editor = await initFreeformLabelDesignerEditor({
       onChange: async () => undefined,
       presetsKey: 'responsive-presets',
@@ -1362,7 +1475,7 @@ describe('freeform editor responsive lifecycle', () => {
     canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
     expect(editor.getDesign().elements).toHaveLength(wideCount - 1)
 
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 600 })
     window.dispatchEvent(new Event('resize'))
     const narrowCount = editor.getDesign().elements.length
     expect(document.querySelector<HTMLButtonElement>('[data-designer-action="delete"]')!.disabled).toBe(true)
@@ -1370,7 +1483,7 @@ describe('freeform editor responsive lifecycle', () => {
     expect(editor.getDesign().elements).toHaveLength(narrowCount)
     expect(document.querySelector<HTMLElement>('#freeform-mobile-notice')!.hidden).toBe(false)
 
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 601 })
     window.dispatchEvent(new Event('resize'))
     expect(document.querySelector<HTMLButtonElement>('[data-designer-action="delete"]')!.disabled).toBe(false)
     canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
@@ -1378,9 +1491,9 @@ describe('freeform editor responsive lifecycle', () => {
     editor.destroy()
   })
 
-  it('blocks every sidebar mutation at 900px and restores geometry editing at 901px', async () => {
+  it('blocks every sidebar mutation at 600px and restores geometry editing at 601px', async () => {
     renderDesignerEditorShell()
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 601 })
     const editor = await initFreeformLabelDesignerEditor({
       onChange: async () => undefined,
       presetsKey: 'responsive-sidebar-presets',
@@ -1399,7 +1512,7 @@ describe('freeform editor responsive lifecycle', () => {
       'freeform-preset-delete',
     ]
 
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 600 })
     window.dispatchEvent(new Event('resize'))
 
     for (const id of sidebarMutationControlIds) {
@@ -1410,7 +1523,7 @@ describe('freeform editor responsive lifecycle', () => {
     expect(editor.getDesign().label).toEqual(initial)
     expect(width.value).toBe(String(initial.widthMm))
 
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 901 })
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 601 })
     window.dispatchEvent(new Event('resize'))
     for (const id of sidebarMutationControlIds) {
       expect(document.getElementById(id)).toHaveProperty('disabled', id === 'freeform-preset-delete')

@@ -6,30 +6,22 @@ import { bindFreeformEditorDom, createFreeformEditorController } from './editor-
 
 afterEach(() => { vi.unstubAllGlobals(); document.body.replaceChildren() })
 
-it('caps canvas clearance to the visible drawer capacity for very long field lists', async () => {
-  const container = await AstroContainer.create()
-  document.body.innerHTML = await container.renderToString(DesignerWorkspace)
-  const content = document.querySelector<HTMLElement>('.freeform-field-dock-content')!
-  const area = document.querySelector<HTMLElement>('.freeform-canvas-area')!
-  const dock = document.getElementById('freeform-field-dock')!
-  const toggle = document.getElementById('freeform-field-dock-toggle')!
-  const stage = document.querySelector<HTMLElement>('.freeform-canvas-stage')!
-  Object.defineProperty(content, 'offsetHeight', { value: 1200 })
-  Object.defineProperty(area, 'clientHeight', { value: 400 })
-  Object.defineProperty(toggle, 'offsetHeight', { value: 32 })
-  dock.style.setProperty('--freeform-drawer-body-limit', '300px')
-  const binding = bindFreeformEditorDom({ controller: createFreeformEditorController() })
-  await binding.ready
-  try {
-    expect(stage.style.getPropertyValue('--freeform-drawer-clearance')).toBe('300px')
-  } finally { binding.destroy() }
-})
-
-it('keeps a discoverable drawer bar and preserves canvas clearance when collapsed or changing selection', async () => {
+it('does not move the canvas when the field drawer opens', async () => {
   const container = await AstroContainer.create()
   document.body.innerHTML = await container.renderToString(DesignerWorkspace)
   const content = document.querySelector<HTMLElement>('.freeform-field-dock-content')!
   Object.defineProperty(content, 'offsetHeight', { value: 220 })
+  const stage = document.querySelector<HTMLElement>('.freeform-canvas-stage')!
+  const binding = bindFreeformEditorDom({ controller: createFreeformEditorController() })
+  await binding.ready
+  try {
+    expect(stage.style.getPropertyValue('--freeform-drawer-clearance')).toBe('')
+  } finally { binding.destroy() }
+})
+
+it('keeps a discoverable overlay drawer bar when collapsed or changing selection', async () => {
+  const container = await AstroContainer.create()
+  document.body.innerHTML = await container.renderToString(DesignerWorkspace)
   const controller = createFreeformEditorController()
   const binding = bindFreeformEditorDom({ controller })
   await binding.ready
@@ -41,7 +33,7 @@ it('keeps a discoverable drawer bar and preserves canvas clearance when collapse
     const stage = document.querySelector<HTMLElement>('.freeform-canvas-stage')!
     expect(toggle!.getAttribute('aria-expanded')).toBe('true')
     expect(body.hasAttribute('inert')).toBe(false)
-    expect(stage.style.getPropertyValue('--freeform-drawer-clearance')).toBe('220px')
+    expect(stage.style.getPropertyValue('--freeform-drawer-clearance')).toBe('')
 
     toggle!.click()
     binding.sync()
@@ -49,7 +41,7 @@ it('keeps a discoverable drawer bar and preserves canvas clearance when collapse
     expect(toggle!.getAttribute('aria-expanded')).toBe('false')
     expect(dock.hasAttribute('inert')).toBe(false)
     expect(body.hasAttribute('inert')).toBe(true)
-    expect(stage.style.getPropertyValue('--freeform-drawer-clearance')).toBe('220px')
+    expect(stage.style.getPropertyValue('--freeform-drawer-clearance')).toBe('')
 
     toggle!.click()
     expect(dock.dataset.open).toBe('true')
@@ -57,7 +49,7 @@ it('keeps a discoverable drawer bar and preserves canvas clearance when collapse
     binding.sync()
     expect(dock.dataset.open).toBe('false')
     expect(toggle!.disabled).toBe(true)
-    expect(stage.style.getPropertyValue('--freeform-drawer-clearance')).toBe('220px')
+    expect(stage.style.getPropertyValue('--freeform-drawer-clearance')).toBe('')
     controller.select(controller.getDesign().elements.find(element => element.type === 'text')!.id)
     binding.sync()
     expect(dock.dataset.open).toBe('true')

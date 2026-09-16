@@ -3,12 +3,12 @@
 import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 import { describe, expect, it } from 'vitest'
 
-import ElementInspector from '../../components/freeform-label/ElementInspector.astro'
+import CanvasTextToolbar from '../../components/freeform-label/CanvasTextToolbar.astro'
 
 describe('QR center logo picker', () => {
   it('pairs each keyboard-accessible choice with a labeled visual preview', async () => {
     const container = await AstroContainer.create()
-    document.body.innerHTML = await container.renderToString(ElementInspector)
+    document.body.innerHTML = await container.renderToString(CanvasTextToolbar)
     const picker = document.querySelector('[data-element-section="qr"]')!
     const choices = [...picker.querySelectorAll<HTMLInputElement>('input[type="radio"]')]
 
@@ -33,7 +33,7 @@ describe('QR center logo picker', () => {
 describe('image library actions', () => {
   it('exposes upload as a keyboard-accessible button beside the hidden file picker', async () => {
     const container = await AstroContainer.create()
-    document.body.innerHTML = await container.renderToString(ElementInspector)
+    document.body.innerHTML = await container.renderToString(CanvasTextToolbar)
     const upload = document.querySelector<HTMLButtonElement>('#freeform-image-upload-trigger')
     const filePicker = document.querySelector<HTMLInputElement>('#freeform-image-upload')
 
@@ -48,7 +48,7 @@ describe('image library actions', () => {
 
   it('associates the library deletion control with an explanation separate from element deletion', async () => {
     const container = await AstroContainer.create()
-    document.body.innerHTML = await container.renderToString(ElementInspector)
+    document.body.innerHTML = await container.renderToString(CanvasTextToolbar)
     const deletion = document.querySelector<HTMLButtonElement>('#freeform-image-delete')!
     const description = document.getElementById(deletion.getAttribute('aria-describedby') ?? '')
 

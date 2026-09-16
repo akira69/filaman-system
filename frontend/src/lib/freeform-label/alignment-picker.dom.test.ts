@@ -3,7 +3,7 @@
 import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import ElementInspector from '../../components/freeform-label/ElementInspector.astro'
+import CanvasTextToolbar from '../../components/freeform-label/CanvasTextToolbar.astro'
 import { createDefaultLabelDesign } from './defaults'
 import { bindFreeformEditorDom } from './editor-dom'
 import { createFreeformEditorController } from './editor-state'
@@ -18,7 +18,7 @@ afterEach(() => {
 
 async function bindPicker() {
   const container = await AstroContainer.create()
-  document.body.innerHTML = await container.renderToString(ElementInspector)
+  document.body.innerHTML = await container.renderToString(CanvasTextToolbar)
   const controller = createFreeformEditorController({ initialDesign: createDefaultLabelDesign('spool') })
   binding = bindFreeformEditorDom({ controller })
   await binding.ready
@@ -30,8 +30,8 @@ async function bindPicker() {
 describe('text alignment picker', () => {
   it('offers three named icon actions with localized tooltips and selection state', async () => {
     const container = await AstroContainer.create()
-    document.body.innerHTML = await container.renderToString(ElementInspector)
-    const picker = document.querySelector('[role="group"][aria-labelledby="freeform-alignment-label"]')
+    document.body.innerHTML = await container.renderToString(CanvasTextToolbar)
+    const picker = document.querySelector('[role="group"][aria-label="Alignment"]')
     const actions = [...(picker?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
 
     expect(actions.map(action => [action.dataset.elementAlign, action.getAttribute('aria-label'), action.title])).toEqual([
@@ -47,7 +47,7 @@ describe('text alignment picker', () => {
       expect(action.dataset.i18nAriaLabel).toMatch(/^labelDesigner\.align(Left|Center|Right)$/)
       expect(action.dataset.i18nTitle).toBe(action.dataset.i18nAriaLabel)
     }
-    expect(document.getElementById('freeform-alignment-label')?.textContent?.trim()).toBe('Alignment')
+    expect(picker?.getAttribute('data-i18n-aria-label')).toBe('labelDesigner.alignment')
   })
 
   it('updates horizontal alignment and pressed state together and restores them on undo', async () => {
@@ -68,7 +68,7 @@ describe('text alignment picker', () => {
 
   it('disables text layout actions and rejects dispatched changes in read-only and nontext selections', async () => {
     const { controller, binding, actions, vertical } = await bindPicker()
-    const wrap = document.querySelector<HTMLInputElement>('[data-element-prop="wrap"]')!
+    const wrap = document.querySelector<HTMLButtonElement>('[data-element-toggle="wrap"]')!
     expect(wrap).not.toBeNull()
     const original = controller.getDesign()
     await binding.setEditable(false)
@@ -77,8 +77,7 @@ describe('text alignment picker', () => {
       action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     }
     expect(wrap.disabled).toBe(true)
-    wrap.checked = false
-    wrap.dispatchEvent(new Event('change', { bubbles: true }))
+    wrap.click()
     expect(controller.getDesign()).toEqual(original)
     await binding.setEditable(true)
     controller.select(original.elements.find(element => element.type === 'qr')!.id)
@@ -88,8 +87,7 @@ describe('text alignment picker', () => {
       expect(action.getAttribute('aria-pressed')).toBe('false')
       action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     }
-    wrap.checked = false
-    wrap.dispatchEvent(new Event('change', { bubbles: true }))
+    wrap.click()
     expect(controller.getDesign()).toEqual(original)
   })
 
@@ -115,17 +113,17 @@ describe('text alignment picker', () => {
 
   it('toggles scale to fit, restores it on undo, and clears it for text without the option', async () => {
     const { controller, binding } = await bindPicker()
-    const scale = document.querySelector<HTMLInputElement>('input[type="checkbox"][data-element-prop="fitToWidth"]')
+    const scale = document.querySelector<HTMLButtonElement>('button[data-element-toggle="fitToWidth"]')
     expect(scale).not.toBeNull()
-    expect(scale!.checked).toBe(false)
+    expect(scale!.getAttribute('aria-pressed')).toBe('false')
     scale!.click()
     expect(controller.getSelectedElement()).toMatchObject({ fitToWidth: true, minFontSizeMm: 2 })
     controller.undo()
     binding.sync()
-    expect(scale!.checked).toBe(false)
+    expect(scale!.getAttribute('aria-pressed')).toBe('false')
     controller.redo()
     binding.sync()
-    expect(scale!.checked).toBe(true)
+    expect(scale!.getAttribute('aria-pressed')).toBe('true')
     const minimum = document.querySelector<HTMLInputElement>('[data-element-prop="minFontSizeMm"]')!
     expect(minimum.value).toBe('2')
     minimum.value = '1.5'
@@ -136,14 +134,14 @@ describe('text alignment picker', () => {
     expect(controller.getSelectedElement()).toMatchObject({ fitToWidth: true, minFontSizeMm: 1.5 })
     controller.addElement('text')
     binding.sync()
-    expect(scale!.checked).toBe(false)
+    expect(scale!.getAttribute('aria-pressed')).toBe('false')
   })
 
   it('keeps word wrapping and scaling independent and restores both on undo', async () => {
     const { controller, binding } = await bindPicker()
-    const wrap = document.querySelector<HTMLInputElement>('input[type="checkbox"][data-element-prop="wrap"]')
+    const wrap = document.querySelector<HTMLButtonElement>('button[data-element-toggle="wrap"]')
     expect(wrap).not.toBeNull()
-    expect(wrap?.checked).toBe(true)
+    expect(wrap?.getAttribute('aria-pressed')).toBe('true')
     wrap!.click()
     expect(controller.getSelectedElement()).toMatchObject({ wrap: false })
     controller.updateSelected({ fitToWidth: true })
@@ -152,7 +150,7 @@ describe('text alignment picker', () => {
     expect(controller.getSelectedElement()).toMatchObject({ wrap: true, fitToWidth: true })
     controller.undo()
     binding.sync()
-    expect(wrap?.checked).toBe(false)
+    expect(wrap?.getAttribute('aria-pressed')).toBe('false')
     expect(controller.getSelectedElement()).toMatchObject({ wrap: false, fitToWidth: true })
   })
 })

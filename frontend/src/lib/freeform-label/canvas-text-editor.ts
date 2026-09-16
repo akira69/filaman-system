@@ -87,25 +87,10 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
   const positionToolbar = () => {
     if (destroyed || !toolbar) return
     const selected = options.getSelected()
-    const text = options.isEditable() && selected?.type === 'text'
     const node = selectedNode(selected?.id)
-    toolbar.hidden = gestureActive || !text || !node
-    if (toolbar.hidden || !node) return
-    const rect = node.getBoundingClientRect()
-    const region = canvas?.closest('.freeform-canvas-region')?.getBoundingClientRect()
-    const left = Math.max(8, region?.left ?? 0)
-    const right = Math.min(window.innerWidth - 8, region?.right ?? window.innerWidth)
-    const top = Math.max(8, region?.top ?? 0)
-    const dock = options.root.querySelector<HTMLElement>('#freeform-field-dock')?.getBoundingClientRect()
-    const bottom = Math.min(window.innerHeight - 8, region?.bottom ?? window.innerHeight, dock?.height ? dock.top : Infinity)
-    // Real layout may place the selected element outside the scrolled canvas.
-    if (region && region.width > 0 && (rect.bottom < top || rect.top > bottom || rect.right < left || rect.left > right)) {
-      toolbar.hidden = true
-      return
-    }
-    toolbar.style.left = `${Math.max(left, Math.min(rect.left, right - toolbar.offsetWidth))}px`
-    const above = rect.top - toolbar.offsetHeight - 8
-    toolbar.style.top = `${Math.max(top, Math.min(above >= top ? above : rect.bottom + 8, bottom - toolbar.offsetHeight))}px`
+    toolbar.hidden = gestureActive || !options.isEditable() || !selected || !node
+    toolbar.style.left = ''
+    toolbar.style.top = ''
   }
 
   const syncModifierState = () => {
@@ -286,6 +271,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
   listen(template, 'focus', () => { canvasRange = null; syncModifierState() })
   listen(template, 'select', () => { canvasRange = null; syncModifierState() })
   listen(toolbar, 'pointerdown', event => {
+    if (!(event.target instanceof Element) || !event.target.closest('button')) return
     rememberCanvasRange()
     // Keep the highlighted range when the user presses a formatting button.
     event.preventDefault()
@@ -298,21 +284,6 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
       else if (options.getSelected()?.id) startSelecting(options.getSelected()!.id)
     } else if (button.dataset.textModifier) format(button.dataset.textModifier as TemplateTextModifier)
   })
-  listen(window, 'resize', positionToolbar)
-  const region = canvas?.closest('.freeform-canvas-region')
-  if (region && typeof ResizeObserver !== 'undefined') {
-    const observer = new ResizeObserver(positionToolbar)
-    observer.observe(region)
-    const stage = canvas?.closest('.freeform-canvas-stage')
-    if (stage) observer.observe(stage)
-    const dock = options.root.querySelector('#freeform-field-dock')
-    if (dock) observer.observe(dock)
-    cleanups.push(() => observer.disconnect())
-  }
-  const scroll = () => positionToolbar()
-  document.addEventListener('scroll', scroll, true)
-  cleanups.push(() => document.removeEventListener('scroll', scroll, true))
-
   return {
     sync,
     positionToolbar,

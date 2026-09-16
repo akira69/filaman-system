@@ -23,7 +23,7 @@ import { deleteLabelPreset, saveLabelPreset } from '../label-preset-storage'
 import { appendLabelExtraFieldCatalogGroup, buildLabelExtraFieldCatalogGroups } from '../label-extra-fields'
 import type { LabelDesignerPresetData, LabelDesignV2 } from './types'
 
-export const FREEFORM_EDITOR_BREAKPOINT_PX = 900
+export const FREEFORM_EDITOR_BREAKPOINT_PX = 600
 
 export async function initFreeformLabelDesignerEditor(
   options: FreeformLabelDesignerEditorOptions,
@@ -330,6 +330,7 @@ export async function initFreeformLabelDesignerEditor(
     editable: editorEditable,
     loadInteract: options.loadInteract,
     translate: options.translate,
+    getPreviewData: options.getPreviewData,
   })
   await domBinding.ready
 
