@@ -631,11 +631,11 @@ export function getStaticPaths() {
       document.getElementById('freeform-preset-load')?.click()
       initialMode = 'designer'
     } catch (error) {
-      initialMode = 'print'
+      initialMode = 'standard'
       window.alert(error instanceof Error ? error.message : 'Could not load label preset')
     }
   } else if (printParams.get('scale_print') === '1') {
-    initialMode = 'print'
+    initialMode = 'standard'
   }
 
   // Initialize after loading the logo so the requested workspace remains active.
