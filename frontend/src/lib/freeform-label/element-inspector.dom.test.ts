@@ -4,6 +4,20 @@ import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 import { describe, expect, it } from 'vitest'
 
 import CanvasTextToolbar from '../../components/freeform-label/CanvasTextToolbar.astro'
+import ElementInspector from '../../components/freeform-label/ElementInspector.astro'
+
+describe('element JSON editor', () => {
+  it('labels the pencil trigger and manual editor distinctly', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(ElementInspector)
+    const trigger = document.querySelector<HTMLButtonElement>('#freeform-json-expand')!
+    const title = document.querySelector<HTMLElement>('#freeform-json-title')!
+
+    expect(trigger.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    expect(trigger.textContent?.trim()).toBe('ELEMENT JSON')
+    expect(title.textContent?.trim()).toBe('ELEMENT JSON MANUAL EDITOR')
+  })
+})
 
 describe('QR center logo picker', () => {
   it('pairs each keyboard-accessible choice with a labeled visual preview', async () => {
@@ -27,6 +41,22 @@ describe('QR center logo picker', () => {
     expect(choices[1].labels?.[0]?.querySelector('svg text')?.textContent).toBe('FilaMan')
     expect(choices[2].labels?.[0]?.querySelector('svg')).not.toBeNull()
     expect(choices[2].labels?.[0]?.querySelector('svg text')).toBeNull()
+  })
+})
+
+describe('text fit controls', () => {
+  it('keeps minimum size in the font row without adding a row above the label', async () => {
+    const container = await AstroContainer.create()
+    document.body.innerHTML = await container.renderToString(CanvasTextToolbar)
+    const row = document.querySelector('.freeform-font-details')!
+    const disclosure = document.querySelector<HTMLDetailsElement>('#freeform-fit-settings')!
+
+    expect(disclosure.tagName).toBe('DETAILS')
+    expect(disclosure.parentElement?.classList.contains('freeform-fit-pair')).toBe(true)
+    expect(disclosure.parentElement?.parentElement).toBe(row)
+    expect(disclosure.querySelector('summary')?.textContent?.trim()).toBe('Min')
+    expect(disclosure.querySelector('[data-element-prop="minFontSizeMm"]')).not.toBeNull()
+    expect(document.querySelector('#freeform-wrap-limit-hint')).toBeNull()
   })
 })
 

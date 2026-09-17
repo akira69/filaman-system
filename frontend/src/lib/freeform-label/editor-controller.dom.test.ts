@@ -811,6 +811,10 @@ describe('freeform editor DOM binding', () => {
     expect(host.style.height).toBe('180px')
     expect(row.classList.contains('is-geometry-narrow')).toBe(false)
     expect(row.classList.contains('is-geometry-below')).toBe(false)
+    labelWidth = 312
+    binding.sync()
+    expect(row.classList.contains('is-geometry-narrow')).toBe(false)
+    expect(row.classList.contains('is-geometry-below')).toBe(false)
     labelWidth = 350
     labelHeight = 220
     binding.sync()
@@ -996,7 +1000,7 @@ describe('freeform editor DOM binding', () => {
     expect(json.getAttribute('aria-describedby')).toBe('freeform-json-error')
     expect(section.getAttribute('popover')).toBe('auto')
     expect(expand.getAttribute('popovertarget')).toBe('freeform-json-section')
-    expect(expand.textContent?.trim()).toBe('JSON')
+    expect(expand.textContent?.trim()).toBe('ELEMENT JSON')
     json.value = '{'
     document.querySelector<HTMLButtonElement>('#freeform-json-apply')!.click()
     expect(json.getAttribute('aria-invalid')).toBe('true')

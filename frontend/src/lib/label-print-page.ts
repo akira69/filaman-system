@@ -431,6 +431,13 @@ export function bindLabelPreviewZoom(
   const slider = requireElement(root, 'preview-zoom-slider', HTMLInputElement)
   const menu = root.querySelector<HTMLDetailsElement>('.preview-zoom-menu')
   if (menu) {
+    let dismissTimer: number | undefined
+    let pointerActive = false
+    const stopDismissTimer = () => window.clearTimeout(dismissTimer)
+    const scheduleDismiss = () => {
+      stopDismissTimer()
+      if (menu.open && !pointerActive) dismissTimer = window.setTimeout(() => { menu.open = false }, 3000)
+    }
     const positionMenu = () => {
       if (!menu.open) return
       const summary = menu.querySelector('summary')
@@ -453,15 +460,34 @@ export function bindLabelPreviewZoom(
       panel.style.top = `${below + height <= window.innerHeight - edge || above < edge ? below : above}px`
     }
     document.addEventListener('pointerdown', event => {
-      if (event.target instanceof Node && !menu.contains(event.target)) menu.open = false
+      if (event.target instanceof Node && !menu.contains(event.target)) {
+        menu.open = false
+        stopDismissTimer()
+      }
     }, { signal: getAbortSignal() })
     menu.addEventListener('keydown', event => {
-      if (event.key !== 'Escape' || !menu.open) return
-      event.stopPropagation()
-      menu.open = false
-      menu.querySelector('summary')?.focus()
+      if (event.key === 'Escape' && menu.open) {
+        event.stopPropagation()
+        menu.open = false
+        stopDismissTimer()
+        menu.querySelector('summary')?.focus()
+      } else scheduleDismiss()
     })
-    menu.addEventListener('toggle', positionMenu, { signal: getAbortSignal() })
+    menu.addEventListener('pointerdown', event => {
+      if (event.target instanceof Node && menu.querySelector('.preview-zoom-options')?.contains(event.target)) {
+        pointerActive = true
+        stopDismissTimer()
+      }
+    }, { signal: getAbortSignal() })
+    document.addEventListener('pointerup', () => {
+      if (!pointerActive) return
+      pointerActive = false
+      scheduleDismiss()
+    }, { signal: getAbortSignal() })
+    menu.addEventListener('input', scheduleDismiss, { signal: getAbortSignal() })
+    menu.addEventListener('click', scheduleDismiss, { signal: getAbortSignal() })
+    menu.addEventListener('toggle', () => { positionMenu(); scheduleDismiss() }, { signal: getAbortSignal() })
+    getAbortSignal().addEventListener('abort', stopDismissTimer, { once: true })
     window.addEventListener('resize', positionMenu, { signal: getAbortSignal() })
     document.addEventListener('scroll', positionMenu, { capture: true, signal: getAbortSignal() })
   }

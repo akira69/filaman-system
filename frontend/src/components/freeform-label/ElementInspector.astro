@@ -3,13 +3,14 @@
     <div class="freeform-geometry-grid">
       <label><span>X</span><span class="freeform-unit-input"><input type="number" step="0.1" data-element-prop="x" aria-label="X (mm)" data-i18n-aria-label="labelDesigner.xMm" /><span aria-hidden="true">mm</span></span></label>
       <label><span>Y</span><span class="freeform-unit-input"><input type="number" step="0.1" data-element-prop="y" aria-label="Y (mm)" data-i18n-aria-label="labelDesigner.yMm" /><span aria-hidden="true">mm</span></span></label>
-      <label><span>Width</span><span class="freeform-unit-input"><input type="number" step="0.1" data-element-prop="w" aria-label="Width (mm)" data-i18n-aria-label="labelDesigner.widthMm" /><span aria-hidden="true">mm</span></span></label>
-      <label><span>Height</span><span class="freeform-unit-input"><input type="number" step="0.1" data-element-prop="h" aria-label="Height (mm)" data-i18n-aria-label="labelDesigner.heightMm" /><span aria-hidden="true">mm</span></span></label>
+      <label><span>Width<span data-qr-size-warning hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 22 21H2L12 3Z"/><path d="M12 9v5m0 3v.1"/></svg></span></span><span class="freeform-unit-input"><input type="number" step="0.1" data-element-prop="w" aria-label="Width (mm)" data-i18n-aria-label="labelDesigner.widthMm" /><span aria-hidden="true">mm</span></span></label>
+      <label><span>Height<span data-qr-size-warning hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 22 21H2L12 3Z"/><path d="M12 9v5m0 3v.1"/></svg></span></span><span class="freeform-unit-input"><input type="number" step="0.1" data-element-prop="h" aria-label="Height (mm)" data-i18n-aria-label="labelDesigner.heightMm" /><span aria-hidden="true">mm</span></span></label>
     </div>
-    <button id="freeform-json-expand" class="freeform-json-trigger" type="button" popovertarget="freeform-json-section" data-requires-selection aria-label="Element JSON" data-i18n-aria-label="labelDesigner.elementJson">JSON</button>
+    <div class="freeform-qr-readability" hidden><p id="freeform-qr-readability-recommendation" data-i18n="labelDesigner.qrReadabilityUnavailable">300 DPI size guidance appears after the code is rendered.</p><p id="freeform-qr-readability-warning" class="freeform-qr-readability-warning" role="status" hidden></p><p id="freeform-qr-readability-note" data-i18n="labelDesigner.qrReadabilityNote">Keep 4 modules of white clear space around the code and make a test print. This advisory does not guarantee scanning.</p></div>
+    <button id="freeform-json-expand" class="freeform-json-trigger" type="button" popovertarget="freeform-json-section" data-requires-selection data-no-designer-tooltip aria-label="ELEMENT JSON" data-i18n-aria-label="labelDesigner.elementJsonButton"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5 4 4M4 20l4.5-1 11-11a2.8 2.8 0 0 0-4-4l-11 11L4 20Z" /></svg><span data-i18n="labelDesigner.elementJsonButton">ELEMENT JSON</span></button>
 
     <section id="freeform-json-section" class="freeform-json-section" popover="auto" role="dialog" aria-labelledby="freeform-json-title">
-      <div class="freeform-json-heading"><h3 id="freeform-json-title" data-i18n="labelDesigner.elementJson">Element JSON</h3><button type="button" popovertarget="freeform-json-section" popovertargetaction="hide" aria-label="Close">×</button></div>
+      <div class="freeform-json-heading"><h3 id="freeform-json-title" data-i18n="labelDesigner.elementJsonManualEditor">ELEMENT JSON MANUAL EDITOR</h3><button type="button" popovertarget="freeform-json-section" popovertargetaction="hide" aria-label="Close">×</button></div>
       <label for="freeform-element-json" class="visually-hidden" data-i18n="labelDesigner.elementJson">Element JSON</label>
       <textarea id="freeform-element-json" rows="12" spellcheck="false" aria-describedby="freeform-json-error"></textarea>
       <p id="freeform-json-error" class="freeform-json-error" role="alert"></p>
@@ -19,7 +20,7 @@
 </aside>
 
 <style>
-  .freeform-element-inspector { background: transparent; min-width: 0; width: 190px; }
+  .freeform-element-inspector { background: transparent; min-width: 0; width: 170px; }
   .freeform-element-inspector[hidden] { display: none; }
   .freeform-json-heading, .freeform-json-actions { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
   .freeform-element-inspector h3 { margin: 0; }
@@ -27,22 +28,33 @@
   .freeform-json-trigger, .freeform-json-heading button, .freeform-json-actions button { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 5px; color: var(--text); cursor: pointer; font-size: 0.7rem; padding: 5px 7px; }
   .freeform-json-trigger:disabled { cursor: default; opacity: 0.45; }
   .freeform-inspector-fields { display: grid; gap: 4px; }
-  .freeform-json-trigger { justify-self: end; }
+  .freeform-json-trigger { align-items: center; display: inline-flex; gap: 4px; justify-self: end; }
+  .freeform-json-trigger svg { height: 12px; width: 12px; }
   .freeform-geometry-grid { display: grid; gap: 5px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .freeform-geometry-grid label { color: var(--text-muted); display: grid; font-size: 0.6rem; gap: 2px; letter-spacing: 0.02em; }
+  .freeform-geometry-grid label.is-qr-undersized { color: #fbbf24; }
+  .freeform-geometry-grid label.is-qr-undersized input { background: #fbbf2426; border-color: #fbbf24; color: #fbbf24; }
+  [data-qr-size-warning] { display: inline-flex; margin-left: 3px; vertical-align: -2px; }
+  [data-qr-size-warning] svg { fill: #fbbf24; height: 12px; stroke: #1f2937; stroke-linecap: round; stroke-width: 2; width: 12px; }
+  [data-qr-size-warning][hidden], .freeform-qr-readability[hidden], .freeform-qr-readability-warning[hidden] { display: none; }
+  .freeform-qr-readability { color: var(--text-muted); font-size: 0.64rem; line-height: 1.25; }
+  .freeform-qr-readability p { margin: 2px 0; }
+  .freeform-qr-readability-warning { color: #fbbf24; }
   .freeform-unit-input { display: block; position: relative; }
-  .freeform-unit-input input { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 0.7rem; height: 30px; min-width: 0; padding: 4px 34px 4px 6px; width: 100%; }
-  .freeform-unit-input > span { color: var(--text-muted); font-size: 0.6rem; pointer-events: none; position: absolute; right: 20px; top: 50%; transform: translateY(-50%); }
+  .freeform-unit-input input { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 0.7rem; height: 30px; min-width: 0; padding: 4px 4px 4px 6px; width: 100%; }
+  .freeform-unit-input > span { color: var(--text-muted); font-size: 0.6rem; pointer-events: none; position: absolute; right: 22px; top: 50%; transform: translateY(-50%); }
   :global(.freeform-canvas-row.is-geometry-narrow) .freeform-element-inspector { width: 104px; }
   :global(.freeform-canvas-row.is-geometry-narrow) .freeform-geometry-grid { grid-template-columns: 1fr; }
-  :global(.freeform-canvas-row.is-geometry-below) .freeform-element-inspector { width: min(100%, 420px); }
+  :global(.freeform-canvas-row.is-geometry-below) .freeform-element-inspector { width: min(100%, 380px); }
   :global(.freeform-canvas-row.is-geometry-below) .freeform-inspector-fields { grid-template-columns: 1fr auto; }
   :global(.freeform-canvas-row.is-geometry-below) .freeform-json-trigger { grid-column: 2; grid-row: 1; }
   :global(.freeform-canvas-row.is-geometry-below) .freeform-geometry-grid { grid-column: 1 / -1; grid-row: 1; grid-template-columns: repeat(4, minmax(0, 1fr)); padding-right: 48px; }
-  .freeform-json-section[popover] { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 50px #0008; color: var(--text); inset: 50% auto auto 50%; margin: 0; max-height: min(70vh, 620px); overflow: auto; padding: 14px; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px)); }
+  :global(.freeform-canvas-row.is-geometry-below) .freeform-qr-readability { grid-column: 1 / -1; grid-row: 2; }
+  .freeform-json-section[popover] { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 50px #0008; color: var(--text); height: min(420px, calc(100dvh - 32px)); inset: 50% auto auto 50%; margin: 0; max-height: calc(100dvh - 32px); max-width: calc(100vw - 32px); min-height: min(260px, calc(100dvh - 32px)); min-width: min(300px, calc(100vw - 32px)); overflow: auto; padding: 14px; resize: both; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 32px)); }
+  .freeform-json-section:popover-open { display: flex; flex-direction: column; gap: 8px; }
   .freeform-json-section::backdrop { background: #0005; }
-  #freeform-element-json { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'Space Mono', monospace; min-height: 260px; resize: vertical; width: 100%; }
-  .freeform-json-error { color: var(--label-danger, #ff8a80); font-size: 0.72rem; min-height: 1.2em; }
+  #freeform-element-json { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 6px; color: var(--text); flex: 1; font-family: 'Space Mono', monospace; font-size: 0.75rem; line-height: 1.4; min-height: 0; resize: none; width: 100%; }
+  .freeform-json-error { color: var(--label-danger, #ff8a80); font-size: 0.72rem; margin: 0; min-height: 1.2em; }
   .visually-hidden { border: 0; clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px; }
   .freeform-element-inspector :is(button, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
