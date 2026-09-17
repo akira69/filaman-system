@@ -18,7 +18,7 @@ const verticalAlignmentOptions = [
 <div id="freeform-text-toolbar" class="freeform-text-toolbar" data-label-editor-chrome aria-label="Selected element controls" hidden>
   <div class="freeform-text-controls" data-element-section="text" hidden>
     <div class="freeform-context-row" role="toolbar" aria-label="Text formatting" data-i18n-aria-label="labelDesigner.textFormatting">
-      <button type="button" data-text-select aria-pressed="false" data-i18n="labelDesigner.selectVisibleText" data-i18n-title="labelDesigner.textSelectionHint" title="Double-click to edit text. Tokens are selected, copied, and formatted as whole units. Escape returns to moving the element.">Edit text</button>
+      <button type="button" data-text-select aria-pressed="false" data-i18n="labelDesigner.selectVisibleText" data-i18n-title="labelDesigner.textSelectionHint" title="Click to edit text directly on the label. Press Escape to return to moving the element.">Edit text</button>
       <select class="freeform-font-picker" data-element-prop="fontFamily" aria-label="Font" data-i18n-aria-label="labelDesigner.font">
         <option style="font-family: 'Space Grotesk'">Space Grotesk</option>
         <option style="font-family: 'Roboto Condensed'">Roboto Condensed</option>
@@ -28,20 +28,19 @@ const verticalAlignmentOptions = [
       <TextModifierButtons context="text" />
     </div>
     <div class="freeform-context-row freeform-font-details">
-      <label title="Base font weight for the whole element"><span data-i18n="labelDesigner.weight">Weight</span><select data-element-prop="fontWeight"><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option></select></label>
-      <label><span>Size</span><span class="freeform-unit-input"><input type="number" min="1" max="20" step="0.1" data-element-prop="fontSizeMm" aria-label="Size (mm)" data-i18n-aria-label="labelDesigner.fontSizeMm" /><span aria-hidden="true">mm</span></span></label>
-      <button type="button" class="freeform-layout-toggle" data-element-toggle="fitToWidth" aria-pressed="false" title="Scale font to fit" aria-label="Scale font to fit"><Fragment set:html={designerIcon('fitText')} /></button>
+      <label data-designer-tooltip title="Base font weight for the whole text element (400 regular, 700 bold). The Bold button can format selected text separately." data-i18n-title="labelDesigner.fontWeightHint"><span data-i18n="labelDesigner.weight">Weight</span><select data-element-prop="fontWeight"><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option></select></label>
+      <label data-designer-tooltip title="Base font size in millimeters for the whole text element. Scale font to fit may reduce it." data-i18n-title="labelDesigner.fontSizeHint"><span data-i18n="labelDesigner.fontSizeLabel">Size</span><span class="freeform-unit-input"><input type="number" min="1" max="20" step="0.1" data-element-prop="fontSizeMm" aria-label="Size (mm)" data-i18n-aria-label="labelDesigner.fontSizeMm" /><span aria-hidden="true">mm</span></span></label>
+      <div class="freeform-fit-pair">
+        <details id="freeform-fit-settings" class="freeform-fit-settings"><summary data-designer-tooltip title="Set the smallest font size Scale font to fit may use." data-i18n-title="labelDesigner.minFontSizeHint" aria-label="Minimum size (mm)" data-i18n-aria-label="labelDesigner.minFontSizeMm" data-i18n="labelDesigner.minFontSizeShort">Min</summary><div class="freeform-fit-popover"><label><span data-i18n="labelDesigner.minFontSizeMm">Minimum size (mm)</span><span class="freeform-unit-input"><input type="number" min="0.265" max="20" step="any" data-element-prop="minFontSizeMm" aria-label="Minimum size (mm)" data-i18n-aria-label="labelDesigner.minFontSizeMm" /><span aria-hidden="true">mm</span></span></label></div></details>
+        <button type="button" class="freeform-layout-toggle" data-element-toggle="fitToWidth" aria-pressed="false" title="Shrink all text in this element to fit its box." aria-label="Scale font to fit" data-i18n-title="labelDesigner.scaleFontToFitHint" data-i18n-aria-label="labelDesigner.scaleFontToFit"><Fragment set:html={designerIcon('fitText')} /></button>
+      </div>
+      <button type="button" class="freeform-layout-toggle" data-element-toggle="wrap" aria-pressed="false" title="Wrap this text element within its width; Wrap alone doesn't shrink the font. With Scale font to fit, use at most two lines." aria-label="Word wrap" data-i18n-title="labelDesigner.wordWrapHint" data-i18n-aria-label="labelDesigner.wordWrap"><Fragment set:html={designerIcon('wordWrap')} /></button>
       <div class="freeform-alignment-buttons" role="group" aria-label="Alignment" data-i18n-aria-label="labelDesigner.alignment">
         {alignmentOptions.map(option => <button type="button" data-element-align={option.value} aria-label={option.label} title={option.label} data-i18n-aria-label={option.i18n} data-i18n-title={option.i18n} aria-pressed="false" disabled><Fragment set:html={designerIcon(option.icon)} /></button>)}
       </div>
       <div class="freeform-alignment-buttons" role="group" aria-label="Vertical alignment" data-i18n-aria-label="labelDesigner.verticalAlignment">
         {verticalAlignmentOptions.map(option => <button type="button" data-element-vertical-align={option.value} aria-label={option.label} title={option.label} data-i18n-aria-label={option.i18n} data-i18n-title={option.i18n} aria-pressed="false" disabled><Fragment set:html={designerIcon(option.icon)} /></button>)}
       </div>
-      <button type="button" class="freeform-layout-toggle" data-element-toggle="wrap" aria-pressed="false" title="Word wrap" aria-label="Word wrap" data-i18n-title="labelDesigner.wordWrap" data-i18n-aria-label="labelDesigner.wordWrap"><Fragment set:html={designerIcon('wordWrap')} /></button>
-    </div>
-    <div id="freeform-fit-settings" class="freeform-fit-settings" hidden>
-      <label><span data-i18n="labelDesigner.minFontSizeMm">Minimum size</span><input type="number" min="0.265" max="20" step="any" data-element-prop="minFontSizeMm" /><span aria-hidden="true">mm</span></label>
-      <span id="freeform-wrap-limit-hint" data-i18n="labelDesigner.wrapLimitHint">Wrap to at most 2 lines.</span>
     </div>
     <p id="freeform-text-fit-warning" class="freeform-text-fit-warning" role="alert" hidden></p>
   </div>
@@ -52,14 +51,13 @@ const verticalAlignmentOptions = [
 
   <div class="freeform-qr-controls" data-element-section="qr" hidden>
     <fieldset class="freeform-qr-center-picker">
-      <legend data-i18n="labelDesigner.qrCenterLogo">Center logo</legend>
+      <legend data-i18n="labelDesigner.qrCenterLogo">QR Code Center Logo</legend>
       <div class="freeform-qr-center-options">
-        <label class="freeform-qr-center-option"><input type="radio" name="freeform-qr-center" value="colorLogo" data-element-prop="mode" /><span class="freeform-qr-center-card"><span class="freeform-qr-center-preview" aria-hidden="true"><img src="/logo-qr.png" alt="" width="56" height="32" /></span><span data-i18n="labelDesigner.qrCenterColor">Color</span></span></label>
-        <label class="freeform-qr-center-option"><input type="radio" name="freeform-qr-center" value="logo" data-element-prop="mode" /><span class="freeform-qr-center-card"><span class="freeform-qr-center-preview" aria-hidden="true"><svg viewBox="0 0 100 42"><text x="50" y="26" text-anchor="middle" fill="black" font-family="Space Grotesk, sans-serif" font-size="22" font-weight="700">FilaMan</text></svg></span><span data-i18n="labelDesigner.qrCenterText">Text</span></span></label>
-        <label class="freeform-qr-center-option"><input type="radio" name="freeform-qr-center" value="simple" data-element-prop="mode" /><span class="freeform-qr-center-card"><span class="freeform-qr-center-preview" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2"><path d="M3 3h6v6H3zM15 3h6v6h-6zM3 15h6v6H3zM15 15h3v3h3v3h-6zM12 3v3M12 9v3H3M6 12v3M12 15v6M15 12h6M18 9v3" /></svg></span><span data-i18n="labelDesigner.qrCenterNone">None</span></span></label>
+        <label class="freeform-qr-center-option" title="Color center logo" data-i18n-title="labelDesigner.qrCenterColorHint"><input type="radio" name="freeform-qr-center" value="colorLogo" data-element-prop="mode" /><span class="freeform-qr-center-card"><span class="freeform-qr-center-preview" aria-hidden="true"><img src="/logo-qr.png" alt="" width="24" height="20" /></span><span data-i18n="labelDesigner.qrCenterColor">Color</span></span></label>
+        <label class="freeform-qr-center-option" title="Text center logo" data-i18n-title="labelDesigner.qrCenterTextHint"><input type="radio" name="freeform-qr-center" value="logo" data-element-prop="mode" /><span class="freeform-qr-center-card"><span class="freeform-qr-center-preview" aria-hidden="true"><svg viewBox="0 0 100 42"><text x="50" y="26" text-anchor="middle" fill="black" font-family="Space Grotesk, sans-serif" font-size="22" font-weight="700">FilaMan</text></svg></span><span data-i18n="labelDesigner.qrCenterText">Text</span></span></label>
+        <label class="freeform-qr-center-option" title="No center logo" data-i18n-title="labelDesigner.qrCenterNoneHint"><input type="radio" name="freeform-qr-center" value="simple" data-element-prop="mode" /><span class="freeform-qr-center-card"><span class="freeform-qr-center-preview" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2"><path d="M3 3h6v6H3zM15 3h6v6h-6zM3 15h6v6H3zM15 15h3v3h3v3h-6zM12 3v3M12 9v3H3M6 12v3M12 15v6M15 12h6M18 9v3" /></svg></span><span data-i18n="labelDesigner.qrCenterNone">None</span></span></label>
       </div>
     </fieldset>
-    <div class="freeform-qr-readability"><p id="freeform-qr-readability-recommendation" data-i18n="labelDesigner.qrReadabilityUnavailable">300 DPI size guidance appears after the code is rendered.</p><p id="freeform-qr-readability-warning" class="freeform-qr-readability-warning" role="status" hidden></p><p id="freeform-qr-readability-note" data-i18n="labelDesigner.qrReadabilityNote">Keep 4 modules of white clear space around the code and make a test print. This advisory does not guarantee scanning.</p></div>
   </div>
 
   <div class="freeform-image-controls" data-element-section="image" hidden>
@@ -77,41 +75,47 @@ const verticalAlignmentOptions = [
 </div>
 
 <style>
-  .freeform-text-toolbar { display: grid; flex: none; gap: 4px; margin-bottom: 10px; max-width: 100%; z-index: 3; }
-  .freeform-text-toolbar[hidden], [data-element-section][hidden], .freeform-fit-settings[hidden] { display: none; }
+  .freeform-text-toolbar { display: grid; flex: none; gap: 4px; max-width: 100%; z-index: 3; }
+  .freeform-text-toolbar[hidden], [data-element-section][hidden] { display: none; }
   .freeform-text-controls { display: grid; gap: 4px; justify-items: center; }
   .freeform-text-controls .freeform-context-row { justify-content: center; }
   .freeform-context-row, .freeform-image-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 3px; }
+  .freeform-font-details { column-gap: 10px; padding: 2px 3px; }
   .freeform-text-toolbar :global(button), .freeform-text-toolbar select, .freeform-text-toolbar input[type='number'] { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-size: 0.7rem; height: 28px; min-width: 27px; padding: 3px 5px; }
   .freeform-text-toolbar :global(button) { cursor: pointer; }
   .freeform-text-toolbar :global(button[aria-pressed='true']) { border-color: #38bdf8; box-shadow: inset 0 0 0 1px #38bdf8; color: #38bdf8; }
   .freeform-text-toolbar :global(button svg) { height: 16px; width: 16px; }
+  .freeform-text-toolbar [data-element-toggle='fitToWidth'] :global(svg) { height: 20px; width: 20px; }
   .freeform-font-picker { cursor: pointer; max-width: 128px; padding-right: 22px !important; }
   .freeform-font-details > label, .freeform-fit-settings label, [data-element-section='shape'] label, .freeform-image-controls > label { align-items: center; display: flex; gap: 3px; }
+  .freeform-font-details > label { gap: 7px; }
   .freeform-font-details > label > span:first-child, .freeform-fit-settings label > span:first-child, [data-element-section='shape'] label > span:first-child, .freeform-image-controls > label > span:first-child { color: var(--text-muted); font-size: 0.66rem; }
   .freeform-font-details select { width: 58px; }
-  .freeform-font-details input[type='number'] { border: 0; height: 26px; padding: 3px 30px 3px 5px; width: 70px; }
+  .freeform-font-details input[type='number'] { border: 0; height: 26px; padding: 3px 4px 3px 5px; width: 70px; }
   .freeform-unit-input { display: inline-block; position: relative; }
-  .freeform-unit-input > span { color: var(--text-muted); font-size: 0.62rem; pointer-events: none; position: absolute; right: 18px; top: 50%; transform: translateY(-50%); }
+  .freeform-unit-input > span { color: var(--text-muted); font-size: 0.62rem; pointer-events: none; position: absolute; right: 22px; top: 50%; transform: translateY(-50%); }
   .freeform-layout-toggle { padding: 4px !important; }
   .freeform-alignment-buttons { display: flex; gap: 2px; }
   .freeform-alignment-buttons button { padding: 4px !important; }
-  .freeform-fit-settings { align-items: center; color: var(--text-muted); display: flex; font-size: 0.64rem; gap: 8px; }
-  .freeform-fit-settings input { width: 58px; }
+  .freeform-fit-pair { align-items: center; display: flex; flex: none; gap: 2px; }
+  .freeform-fit-settings { color: var(--text-muted); flex: none; position: relative; visibility: hidden; }
+  .freeform-fit-settings:has(+ [data-element-toggle='fitToWidth'][aria-pressed='true']) { visibility: visible; }
+  .freeform-fit-settings summary { align-items: center; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 5px; cursor: pointer; display: flex; font-size: 0.62rem; height: 28px; justify-content: center; list-style: none; padding: 3px 5px; }
+  .freeform-fit-settings summary::-webkit-details-marker { display: none; }
+  .freeform-fit-settings summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .freeform-fit-popover { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 22px #0008; left: 50%; padding: 7px; position: absolute; top: calc(100% + 5px); transform: translateX(-50%); white-space: nowrap; z-index: 5; }
+  .freeform-fit-popover label { align-items: center; display: flex; gap: 5px; }
   .freeform-text-fit-warning { color: var(--danger, #dc2626); font-size: 0.68rem; margin: 0; }
-  .freeform-qr-controls { display: flex; gap: 8px; max-width: 520px; }
-  .freeform-qr-center-picker { border: 0; margin: 0; min-width: 210px; padding: 0; }
+  .freeform-qr-controls { display: flex; justify-content: center; max-width: 100%; }
+  .freeform-qr-center-picker { border: 0; margin: 0; max-width: 100%; min-width: 0; padding: 0; }
   .freeform-qr-center-picker legend { color: var(--text-muted); font-size: 0.66rem; margin-bottom: 3px; padding: 0; }
-  .freeform-qr-center-options { display: flex; gap: 3px; }
+  .freeform-qr-center-options { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; }
   .freeform-qr-center-option { cursor: pointer; position: relative; }
   .freeform-qr-center-option input { height: 1px; opacity: 0; position: absolute; width: 1px; }
   .freeform-qr-center-card { align-items: center; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 5px; color: var(--text-muted); display: flex; font-size: 0.64rem; gap: 3px; padding: 3px 5px; }
   .freeform-qr-center-preview { align-items: center; background: white; border-radius: 2px; display: flex; height: 22px; justify-content: center; overflow: hidden; width: 34px; }
   .freeform-qr-center-preview :is(img, svg) { height: 20px; max-width: 100%; }
   .freeform-qr-center-option input:checked + .freeform-qr-center-card { border-color: var(--accent); color: var(--text); }
-  .freeform-qr-readability { color: var(--text-muted); font-size: 0.64rem; line-height: 1.25; }
-  .freeform-qr-readability p { margin: 2px 0; }
-  .freeform-qr-readability-warning { color: var(--text); }
   .freeform-image-controls { display: grid; gap: 4px; }
   .freeform-image-actions button { align-items: center; display: inline-flex; gap: 4px; }
   .freeform-image-controls select { min-width: 150px; }

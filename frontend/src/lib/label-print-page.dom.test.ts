@@ -1004,6 +1004,41 @@ describe('shared single-label print-page behavior', () => {
     expect(menu.open).toBe(false)
   })
 
+  it('closes zoom options after three idle seconds but not during slider use', () => {
+    vi.useFakeTimers()
+    try {
+      renderPrintPageControls()
+      const menu = document.createElement('details')
+      menu.className = 'preview-zoom-menu'
+      menu.innerHTML = '<summary>100%</summary><div class="preview-zoom-options"></div>'
+      const slider = document.querySelector<HTMLInputElement>('#preview-zoom-slider')!
+      menu.querySelector('.preview-zoom-options')!.append(slider)
+      document.querySelector('.preview-container')!.prepend(menu)
+      bindLabelPreviewZoom({ storageKey: 'zoom-idle', previewRoot: document.querySelector('.preview-container')!, onChange: () => undefined })
+
+      menu.open = true
+      menu.dispatchEvent(new Event('toggle'))
+      vi.advanceTimersByTime(2000)
+      expect(menu.open).toBe(true)
+      slider.dispatchEvent(new Event('input', { bubbles: true }))
+      vi.advanceTimersByTime(2999)
+      expect(menu.open).toBe(true)
+      vi.advanceTimersByTime(1)
+      expect(menu.open).toBe(false)
+
+      menu.open = true
+      menu.dispatchEvent(new Event('toggle'))
+      slider.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      vi.advanceTimersByTime(3100)
+      expect(menu.open).toBe(true)
+      document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      vi.advanceTimersByTime(3000)
+      expect(menu.open).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps wrapped zoom options beside their trigger and inside the viewport', () => {
     renderPrintPageControls()
     const menu = document.createElement('details')

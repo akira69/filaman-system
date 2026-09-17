@@ -76,6 +76,8 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
 </div>
 
 <style>
+  :global(.freeform-designer-tooltip) { background: #111827; border: 1px solid #475569; border-radius: 5px; box-shadow: 0 4px 12px #0008; color: #f8fafc; font-size: 0.65rem; line-height: 1.25; max-width: min(280px, calc(100vw - 16px)); padding: 5px 7px; pointer-events: none; position: fixed; white-space: normal; width: max-content; z-index: 1000; }
+  :global(.freeform-designer-tooltip[hidden]) { display: none; }
   :global(.preview-container:has(#freeform-designer-workspace.is-active)),
   :global(.preview-scroll-area:has(> #freeform-designer-workspace.is-active)) { gap: 0; padding: 0; }
   .freeform-designer-workspace, .freeform-workspace-main, .freeform-canvas-area, .freeform-canvas-region, .freeform-canvas-stage { display: contents; }
@@ -117,9 +119,9 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
   .freeform-tool-label { display: inline; font-size: 0.72rem; line-height: 1; white-space: nowrap; }
   .freeform-designer-workspace.is-active .freeform-canvas-area { --freeform-drawer-bar-height: 32px; display: block; isolation: isolate; min-height: 0; min-width: 0; position: relative; }
   .freeform-designer-workspace.is-active .freeform-canvas-region { background: var(--bg); display: block; inset: 0; isolation: isolate; overflow: auto; overscroll-behavior: contain; position: absolute; scrollbar-gutter: stable both-edges; }
-  .freeform-designer-workspace.is-active .freeform-canvas-stage { align-items: safe center; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; min-height: 100%; min-width: 100%; padding: 18px 18px 48px; width: 100%; }
-  .freeform-canvas-row { align-items: start; column-gap: 8px; display: grid; grid-template-columns: var(--freeform-label-width, auto) 190px; justify-content: center; min-width: 0; width: 100%; }
-  .freeform-canvas-row :global(.freeform-text-toolbar) { grid-column: 1; grid-row: 1; min-width: 0; width: 100%; }
+  .freeform-designer-workspace.is-active .freeform-canvas-stage { align-items: safe center; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-start; min-height: 100%; min-width: 100%; padding: 0 18px 48px; width: 100%; }
+  .freeform-canvas-row { align-items: start; column-gap: 8px; display: grid; grid-template-columns: var(--freeform-label-width, auto) 170px; grid-template-rows: minmax(82px, max-content) auto; justify-content: center; min-width: 0; width: 100%; }
+  .freeform-canvas-row :global(.freeform-text-toolbar) { align-self: center; grid-column: 1; grid-row: 1; justify-self: center; max-width: calc(100cqi - 36px); min-width: 0; width: max-content; }
   .freeform-canvas-row .freeform-canvas-host, .freeform-canvas-row :global(.freeform-element-inspector) { grid-row: 2; }
   .freeform-canvas-row :global(.freeform-element-inspector) { grid-column: 2; }
   .freeform-canvas-row.is-geometry-narrow { grid-template-columns: var(--freeform-label-width, auto) 104px; }

@@ -4,6 +4,7 @@ import { experimental_AstroContainer as AstroContainer } from 'astro/container'
 import { describe, expect, it } from 'vitest'
 
 import CanvasTextToolbar from '../../components/freeform-label/CanvasTextToolbar.astro'
+import ElementInspector from '../../components/freeform-label/ElementInspector.astro'
 import { bindFreeformEditorDom } from './editor-dom'
 import { createFreeformEditorController } from './editor-state'
 import type { LabelDesignV2 } from './types'
@@ -19,7 +20,7 @@ const design: LabelDesignV2 = {
 
 async function renderEditor(moduleCounts: number[]) {
   const container = await AstroContainer.create()
-  document.body.innerHTML = `${await container.renderToString(CanvasTextToolbar)}<div id="freeform-canvas-host"></div>`
+  document.body.innerHTML = `${await container.renderToString(CanvasTextToolbar)}${await container.renderToString(ElementInspector)}<div id="freeform-canvas-host"></div>`
   const host = document.querySelector<HTMLElement>('#freeform-canvas-host')!
   const controller = createFreeformEditorController({
     initialDesign: design,
@@ -42,6 +43,45 @@ async function renderEditor(moduleCounts: number[]) {
 }
 
 describe('QR readability advisory', () => {
+  it('keeps the centered logo choices above the label and the size advice below geometry inputs', async () => {
+    const { binding } = await renderEditor([37])
+    const toolbar = document.querySelector('#freeform-text-toolbar')!
+    const inspector = document.querySelector('#freeform-element-inspector')!
+    const recommendation = document.querySelector('#freeform-qr-readability-recommendation')!
+
+    expect(toolbar.querySelector('legend')?.textContent).toBe('QR Code Center Logo')
+    expect(toolbar.querySelector('.freeform-qr-readability')).toBeNull()
+    expect(inspector.contains(recommendation)).toBe(true)
+    expect(inspector.querySelector('.freeform-geometry-grid')?.nextElementSibling).toContain(recommendation)
+    binding.destroy()
+  })
+
+  it('highlights both square QR dimensions below the encoded minimum and clears them at the threshold', async () => {
+    const { binding, controller } = await renderEditor([37])
+    const width = document.querySelector<HTMLInputElement>('[data-element-prop="w"]')!
+    const height = document.querySelector<HTMLInputElement>('[data-element-prop="h"]')!
+    const widthIcon = width.closest('label')!.querySelector<HTMLElement>('[data-qr-size-warning]')!
+    const heightIcon = height.closest('label')!.querySelector<HTMLElement>('[data-qr-size-warning]')!
+    const recommendation = document.querySelector<HTMLElement>('#freeform-qr-readability-recommendation')!
+
+    expect(recommendation.textContent).toContain('12.54 mm')
+    controller.updateSelected({ w: 12.53 })
+    binding.sync()
+    expect(controller.getSelectedElement()).toMatchObject({ w: 12.53, h: 12.53 })
+    expect(width.getAttribute('aria-invalid')).toBe('true')
+    expect(widthIcon.hidden).toBe(false)
+    expect(height.getAttribute('aria-invalid')).toBe('true')
+    expect(heightIcon.hidden).toBe(false)
+
+    controller.updateSelected({ w: 12.54 })
+    binding.sync()
+    expect(width.hasAttribute('aria-invalid')).toBe(false)
+    expect(widthIcon.hidden).toBe(true)
+    expect(height.hasAttribute('aria-invalid')).toBe(false)
+    expect(heightIcon.hidden).toBe(true)
+    binding.destroy()
+  })
+
   it('uses the densest rendered batch QR and warns without restricting its geometry', async () => {
     const { binding, controller } = await renderEditor([37, 41])
     const recommendation = document.querySelector<HTMLElement>('#freeform-qr-readability-recommendation')!

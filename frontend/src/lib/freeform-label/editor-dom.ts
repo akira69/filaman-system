@@ -2,6 +2,7 @@ import { bindCanvasTextEditor } from './canvas-text-editor'
 import { bindElementClipboard } from './element-clipboard'
 import { bindFieldDrawer } from './field-drawer'
 import { bindShapeMenu } from './shape-menu'
+import { bindDesignerTooltips } from './designer-tooltips'
 import { bindImageCropEditor } from './image-crop-editor'
 import { bindLabelInteractions, type InteractFactory, type LabelInteractionController } from './interaction-adapter'
 import { formatDesignerNumber } from './number-format'
@@ -65,6 +66,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   const canvasRow = query<HTMLElement>('.freeform-canvas-row')
   const inspector = query<HTMLElement>('#freeform-element-inspector')
   const workspace = query<HTMLElement>('#freeform-designer-workspace')
+  if (workspace) cleanups.push(bindDesignerTooltips(workspace))
   const fieldDrawer = bindFieldDrawer(root)
   let interactionRoot: HTMLElement | null = null
   let interactionGeneration = 0
@@ -82,7 +84,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     const available = rowWidth - labelWidth - 8
     const below = available < 104
     canvasRow.classList.toggle('is-geometry-below', below)
-    canvasRow.classList.toggle('is-geometry-narrow', !below && available < 190)
+    canvasRow.classList.toggle('is-geometry-narrow', !below && available < 170)
   }
   const geometryObserver = typeof MutationObserver === 'undefined' || !canvasHost
     ? null
@@ -95,8 +97,24 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     const recommendation = query<HTMLElement>('#freeform-qr-readability-recommendation')
     const warning = query<HTMLElement>('#freeform-qr-readability-warning')
     const note = query<HTMLElement>('#freeform-qr-readability-note')
+    const readability = query<HTMLElement>('.freeform-qr-readability')
     const selected = controller.getSelectedElement()
     if (!recommendation || !warning) return
+    if (readability) readability.hidden = selected?.type !== 'qr'
+    const markDimension = (property: 'w' | 'h', undersized: boolean) => {
+      const input = query<HTMLInputElement>(`#freeform-element-inspector [data-element-prop="${property}"]`)
+      const label = input?.closest('label')
+      const icon = label?.querySelector<HTMLElement>('[data-qr-size-warning]')
+      label?.classList.toggle('is-qr-undersized', undersized)
+      if (icon) icon.hidden = !undersized
+      if (undersized) {
+        input?.setAttribute('aria-invalid', 'true')
+        input?.setAttribute('aria-describedby', 'freeform-qr-readability-recommendation freeform-qr-readability-warning')
+      } else {
+        input?.removeAttribute('aria-invalid')
+        input?.removeAttribute('aria-describedby')
+      }
+    }
     if (note) {
       note.textContent = translate(
         'labelDesigner.qrReadabilityNote',
@@ -104,6 +122,8 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       ).replace('{modules}', String(QR_QUIET_ZONE_MODULES))
     }
     if (selected?.type !== 'qr') {
+      markDimension('w', false)
+      markDimension('h', false)
       warning.hidden = true
       warning.textContent = ''
       return
@@ -114,6 +134,8 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       .filter(value => Number.isInteger(value) && value > 0)
     const recommendedMm = getQrRecommendedSideMm(moduleCounts.length ? Math.max(...moduleCounts) : undefined)
     if (recommendedMm === undefined) {
+      markDimension('w', false)
+      markDimension('h', false)
       recommendation.textContent = translate(
         'labelDesigner.qrReadabilityUnavailable',
         '{dpi} DPI size guidance appears after the code is rendered.',
@@ -127,7 +149,9 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       'labelDesigner.qrReadabilityRecommendation',
       'At {dpi} DPI, use at least {size} mm for this encoded QR.',
     ).replace('{dpi}', String(QR_RECOMMENDED_DPI)).replace('{size}', formatted)
-    const undersized = Math.min(selected.w, selected.h) < recommendedMm
+    const undersized = selected.w < recommendedMm || selected.h < recommendedMm
+    markDimension('w', selected.w < recommendedMm)
+    markDimension('h', selected.h < recommendedMm)
     warning.textContent = undersized
       ? translate(
           'labelDesigner.qrReadabilityWarning',
@@ -177,12 +201,10 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       }
       if (input instanceof HTMLSelectElement && property === 'fontFamily') input.style.fontFamily = String(value)
     })
-    const fitSettings = query<HTMLElement>('#freeform-fit-settings')
-    if (fitSettings) fitSettings.hidden = selected?.type !== 'text' || !selected.fitToWidth
+    const fitSettings = query<HTMLDetailsElement>('#freeform-fit-settings')
+    if (fitSettings && !(selected?.type === 'text' && selected.fitToWidth)) fitSettings.open = false
     const minimumSize = query<HTMLInputElement>('[data-element-prop="minFontSizeMm"]')
     if (minimumSize && selected?.type === 'text') minimumSize.max = String(selected.fontSizeMm)
-    const wrapHint = query<HTMLElement>('#freeform-wrap-limit-hint')
-    if (wrapHint) wrapHint.hidden = selected?.type !== 'text' || !selected.wrap
     const fitWarning = query<HTMLElement>('#freeform-text-fit-warning')
     if (fitWarning) {
       const failed = selected?.type === 'text'
