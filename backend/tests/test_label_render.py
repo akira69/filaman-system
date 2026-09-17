@@ -1,4 +1,5 @@
 import struct
+import hashlib
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from types import SimpleNamespace
@@ -9,6 +10,8 @@ from PIL import Image, ImageStat
 from sqlalchemy import select
 
 from app.api.v1.labels import _label_values, _mono1, _resolve_label_text
+from app.main import app
+from app.services import label_v2_renderer
 from app.core.security import generate_token_secret, hash_token
 from app.models import (
     Color,
@@ -16,6 +19,7 @@ from app.models import (
     Filament,
     FilamentColor,
     LabelPreset,
+    LabelAsset,
     LabelPrintRequest,
     Manufacturer,
     Spool,
@@ -29,6 +33,29 @@ def test_mono1_pads_partial_row_with_white():
     image = Image.new("RGB", (9, 1), "white")
     image.putpixel((0, 0), (0, 0, 0))
     assert _mono1(image) == b"\x80\x00"
+
+
+def test_render_openapi_describes_binary_responses():
+    content = app.openapi()["paths"]["/api/v1/labels/spool/{spool_id}/render"]["get"]["responses"]["200"]["content"]
+    assert set(content) == {"image/png", "application/octet-stream"}
+
+
+def test_v2_optional_template_tokens_omit_missing_fields():
+    assert label_v2_renderer.resolve_v2_text(
+        "{filament.type}{ {filament.subtype}} {{filament.color}} {{missing}}",
+        {"filament.type": "PLA", "filament.subtype": "Silk", "filament.color": "White"},
+    ) == "PLA Silk White "
+    assert label_v2_renderer.resolve_v2_text(
+        "**{filament.type}** =={filament.type}== __{filament.type}__",
+        {"filament.type": "PLA"},
+    ) == "PLA PLA PLA"
+
+
+def test_v2_qr_url_keeps_spool_route():
+    assert label_v2_renderer.v2_qr_target(
+        {"linkMode": "url", "urlTemplate": "https://labels.example/base/"},
+        "https://filaman.example/spools/7", "7",
+    ) == "https://labels.example/base/spools/7"
 
 
 def test_saved_preset_tokens_resolve_for_scale():
@@ -280,3 +307,118 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
     other_headers = {"Authorization": f"ApiKey uak.{other_key.id}.{other_secret}"}
     assert (await client.get("/api/v1/labels/print-requests/pending", headers=other_headers)).json() is None
     assert (await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}", headers=other_headers)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_scale_renders_version_two_designer_preset(auth_client, db_session, admin_user):
+    client, _ = auth_client
+    manufacturer = Manufacturer(name="V2 Labels")
+    db_session.add(manufacturer)
+    await db_session.flush()
+    filament = Filament(
+        manufacturer_id=manufacturer.id,
+        designation="PLA for V2",
+        material_type="PLA",
+        diameter_mm=1.75,
+    )
+    db_session.add(filament)
+    await db_session.flush()
+    status = await db_session.scalar(select(SpoolStatus).where(SpoolStatus.key == "active"))
+    spool = Spool(filament_id=filament.id, status_id=status.id)
+    db_session.add(spool)
+    preset = LabelPreset(
+        user_id=admin_user.id, preset_type="spool", name="V2 layout",
+        name_key=label_preset_name_key("V2 layout"),
+        data={"version": 2, "design": {
+            "version": 2,
+            "label": {"widthMm": 40, "heightMm": 30, "marginMm": 0, "border": False},
+            "elements": [
+                {"id": "band", "type": "shape", "x": 1, "y": 1, "w": 38, "h": 5,
+                 "z": 0, "shape": "rectangle", "fill": "#000000", "stroke": "",
+                 "strokeWidthMm": 0, "radiusMm": 0},
+                {"id": "name", "type": "text", "x": 1, "y": 8, "w": 28, "h": 6,
+                 "z": 1, "template": "{filament.name}\n{filament.type}", "fontFamily": "Roboto Condensed",
+                 "fontSizeMm": 3, "fontWeight": 400, "italic": False,
+                 "underline": False, "align": "left", "color": "#000000", "wrap": False,
+                 "fitToWidth": True},
+            ],
+        }},
+    )
+    db_session.add(preset)
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?format=png&width=576&dpi=203"
+        f"&align=right&preset_id={preset.id}"
+    )
+    assert response.status_code == 200
+    assert response.headers["x-content-width"] == "320"
+    image = Image.open(BytesIO(response.content)).convert("RGB")
+    assert image.size == (576, 240)
+    assert image.getpixel((268, 16)) == (0, 0, 0)
+    assert image.getpixel((10, 16)) == (255, 255, 255)
+    assert min(image.getpixel((x, y))[0] for y in range(64, 112) for x in range(264, 450)) < 128
+
+    clipped = dict(preset.data["design"]["elements"][0], x=-2)
+    preset.data = {"version": 2, "design": {**preset.data["design"], "elements": [clipped]}}
+    await db_session.commit()
+    clipped_response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?width=576&dpi=203&align=right&preset_id={preset.id}")
+    assert clipped_response.status_code == 200
+    assert Image.open(BytesIO(clipped_response.content)).convert("RGB").getpixel((260, 16)) == (0, 0, 0)
+
+    invalid = dict(preset.data["design"]["elements"][0], fill="not-a-color")
+    preset.data = {"version": 2, "design": {**preset.data["design"], "elements": [invalid]}}
+    await db_session.commit()
+    bad_response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?width=576&preset_id={preset.id}")
+    assert bad_response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_scale_renders_version_two_uploaded_image(auth_client, db_session, admin_user):
+    client, _ = auth_client
+    manufacturer = Manufacturer(name="Image Labels")
+    db_session.add(manufacturer)
+    await db_session.flush()
+    filament = Filament(manufacturer_id=manufacturer.id, designation="PLA", material_type="PLA", diameter_mm=1.75)
+    db_session.add(filament)
+    await db_session.flush()
+    status = await db_session.scalar(select(SpoolStatus).where(SpoolStatus.key == "active"))
+    spool = Spool(filament_id=filament.id, status_id=status.id)
+    db_session.add(spool)
+    source = BytesIO()
+    Image.new("RGB", (8, 8), "black").save(source, format="PNG")
+    content = source.getvalue()
+    asset_id = "12345678-1234-1234-1234-123456789abc"
+    db_session.add(LabelAsset(
+        id=asset_id, user_id=admin_user.id, display_name="Black.png",
+        sha256=hashlib.sha256(content).hexdigest(), media_type="image/png",
+        width=8, height=8, byte_size=len(content), content=content,
+    ))
+    preset = LabelPreset(
+        user_id=admin_user.id, preset_type="spool", name="Image V2",
+        name_key=label_preset_name_key("Image V2"), data={"version": 2, "design": {
+            "version": 2, "label": {"widthMm": 40, "heightMm": 30},
+            "elements": [{"id": "image", "type": "image", "x": 0, "y": 0, "w": 10, "h": 10,
+                          "z": 0, "assetId": asset_id, "objectFit": "contain"}],
+        }},
+    )
+    db_session.add(preset)
+    await db_session.commit()
+
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?width=400&preset_id={preset.id}")
+    assert response.status_code == 200
+    assert Image.open(BytesIO(response.content)).convert("RGB").getpixel((50, 50)) == (0, 0, 0)
+
+    cropped = dict(preset.data["design"]["elements"][0], crop={"x": 0, "y": 0, "w": 0.01, "h": 0.01})
+    preset.data = {"version": 2, "design": {**preset.data["design"], "elements": [cropped]}}
+    await db_session.commit()
+    crop_response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?width=400&preset_id={preset.id}")
+    assert crop_response.status_code == 200
+    assert Image.open(BytesIO(crop_response.content)).convert("RGB").getpixel((50, 50)) == (0, 0, 0)
+
+    preset.data = {"version": 2, "design": {**preset.data["design"], "elements": [
+        {**preset.data["design"]["elements"][0], "assetId": "missing"},
+    ]}}
+    await db_session.commit()
+    missing = await client.get(f"/api/v1/labels/spool/{spool.id}/render?width=400&preset_id={preset.id}")
+    assert missing.status_code == 422

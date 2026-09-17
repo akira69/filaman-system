@@ -11,10 +11,12 @@ import qrcode
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import delete, select, update
+from sqlalchemy.orm import undefer
 
 from app.api.deps import DBSession, RequirePermission
 from app.core.config import MANUFACTURER_LOGO_DIR
-from app.models import Color, FilamentColor, LabelPreset, LabelPrintRequest
+from app.models import Color, FilamentColor, LabelAsset, LabelPreset, LabelPrintRequest
+from app.services.label_v2_renderer import render_v2_label
 from app.services.spool_service import SpoolService
 
 router = APIRouter(prefix="/labels", tags=["labels"])
@@ -326,7 +328,9 @@ def _mono1(image: Image.Image) -> bytes:
     return bytes(packed)
 
 
-@router.get("/spool/{spool_id}/render")
+@router.get("/spool/{spool_id}/render", response_class=Response, responses={
+    200: {"content": {"image/png": {}, "application/octet-stream": {}}, "description": "Rendered label image"},
+})
 async def render_spool_label(
     spool_id: int,
     request: Request,
@@ -346,6 +350,8 @@ async def render_spool_label(
     if spool is None:
         raise HTTPException(status_code=404, detail="Spool not found")
     settings = None
+    design = None
+    assets = {}
     if preset_id is not None:
         if principal.user_id is None:
             raise HTTPException(status_code=403, detail="Use a user API key to select label presets")
@@ -358,12 +364,34 @@ async def render_spool_label(
         )
         if preset is None:
             raise HTTPException(status_code=404, detail="Label preset not found")
-        settings = preset.data.get("settings")
-        if not isinstance(settings, dict) or any(
-            key in settings and not isinstance(settings[key], dict)
-            for key in ("label", "logo", "title", "title2", "info", "info2", "qr")
-        ):
-            raise HTTPException(status_code=422, detail="Preset settings are invalid")
+        if preset.data.get("version") == 2:
+            design = preset.data.get("design")
+            if not isinstance(design, dict) or not isinstance(design.get("label"), dict):
+                raise HTTPException(status_code=422, detail="Preset design is invalid")
+            elements = design.get("elements")
+            if not isinstance(elements, list):
+                raise HTTPException(status_code=422, detail="Preset design is invalid")
+            asset_ids = set()
+            for element in elements:
+                if isinstance(element, dict) and element.get("type") == "image":
+                    asset_id = element.get("assetId")
+                    if not isinstance(asset_id, str) or not asset_id or len(asset_id) > 120:
+                        raise HTTPException(status_code=422, detail="Preset image is unavailable")
+                    asset_ids.add(asset_id)
+            if asset_ids:
+                rows = await db.scalars(
+                    select(LabelAsset).options(undefer(LabelAsset.content)).where(
+                        LabelAsset.id.in_(asset_ids), LabelAsset.user_id == principal.user_id,
+                    )
+                )
+                assets = {asset.id: asset.content for asset in rows}
+        else:
+            settings = preset.data.get("settings")
+            if not isinstance(settings, dict) or any(
+                key in settings and not isinstance(settings[key], dict)
+                for key in ("label", "logo", "title", "title2", "info", "info2", "qr")
+            ):
+                raise HTTPException(status_code=422, detail="Preset settings are invalid")
     color_rows = await db.scalars(
         select(Color.hex_code)
         .join(FilamentColor, FilamentColor.color_id == Color.id)
@@ -371,12 +399,19 @@ async def render_spool_label(
         .order_by(FilamentColor.position)
     )
     colors = [hex_code[:7] for hex_code in color_rows]
-    label_width = round(_label_size(settings)[0] * dpi / 25.4) if dpi else width
+    width_mm = design["label"].get("widthMm") if design is not None else _label_size(settings)[0]
+    if design is not None and (not isinstance(width_mm, (int, float)) or not isfinite(width_mm) or width_mm < 20 or width_mm > 300):
+        raise HTTPException(status_code=422, detail="Preset design has invalid dimensions")
+    label_width = round(width_mm * dpi / 25.4) if dpi else width
     if label_width > width:
         raise HTTPException(status_code=422, detail="Label is wider than the requested print area")
-    image = _label_image(
-        spool, label_width, str(request.base_url).rstrip("/") + f"/spools/{spool_id}",
-        settings, colors, color == "color",
+    qr_url = str(request.base_url).rstrip("/") + f"/spools/{spool_id}"
+    image = render_v2_label(
+        design, label_width, _label_values(spool, colors), colors, qr_url,
+        MANUFACTURER_LOGO_DIR / f"{spool.filament.manufacturer_id}_label.png",
+        assets, color == "color",
+    ) if design is not None else _label_image(
+        spool, label_width, qr_url, settings, colors, color == "color",
     )
     rotated = orientation == "landscape" and image.height > image.width
     if rotated:

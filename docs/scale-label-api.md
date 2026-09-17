@@ -1,5 +1,8 @@
 # SpoolmanScale label integration
 
+Upstream scale project: [SpoolmanScale](https://github.com/Niko11111/SpoolmanScale).
+Hardware, setup, and firmware reference: [SpoolmanScale documentation](https://niko11111.github.io/SpoolmanScale-Docs/).
+
 FilaMan renders labels. SpoolmanScale chooses a FilaMan spool and an optional
 saved spool label preset, then either sends a monochrome bitmap to its own
 printer driver or asks an open FilaMan tab to show the existing print page.
@@ -28,7 +31,12 @@ presets, for example:
 ```
 
 Show these names in the scale UI and store the chosen numeric `preset_id`.
-Refresh the list on demand. If no preset is selected, omit `preset_id` and use
+The scale shows up to 10 presets as one list. With more than 10 it groups
+names under A–F, G–L, M–R, S–Z, and #, and pages through each group. The
+API returns up to 100 spool presets for one user. FilaMan
+accepts names up to 120 characters; the scale shortens long names for its
+touchscreen while retaining each numeric ID. Refresh the list on demand.
+If no preset is selected, omit `preset_id` and use
 FilaMan's standard spool label. A missing or other user's preset yields `404`.
 Preset IDs can disappear when users delete presets, so let the user reselect.
 
@@ -76,11 +84,16 @@ in PNG. `format=mono1&color=color` returns `422`. The scale uses only
 `format=mono1` for this release; it does not offer PNG or color. All render
 responses include `Cache-Control: no-store`.
 
-The server renderer supports the preset's label dimensions, margin, border,
-logo, title and information text blocks, QR code, and color swatches. It does
-not implement the browser designer's inline markup or every advanced layout
-option. Verify important presets against the returned image before relying on
-them for physical labels.
+The current designer saves `data.settings` presets. The server renders their
+label dimensions, margin, border, logo, title and information text blocks, QR
+code, and color swatches. The new designer saves `data.version=2` with
+`data.design`; the server also renders its positioned text, QR, manufacturer
+logo, uploaded image, swatch, and shape elements without changing the editor.
+Uploaded images must still belong to the API key's user. Missing uploaded images and
+invalid geometry return `422` rather than a blank label. The server uses
+Pillow's default font, and does not reproduce every browser font, text markup,
+wrapping, or decorated QR variant. Compare important presets against the
+returned PNG before relying on the monochrome print.
 
 ## Ask the PC to print or generate a PDF
 
@@ -110,10 +123,13 @@ returns `204` once and `409` for a duplicate, expired, or missing request.
 ## Scale flow and checks
 
 1. Save the FilaMan base URL and user API key; verify `GET /labels/presets`.
-2. After resolving a spool ID, show **Print label** with preset, **Open on PC**,
-   and **Print on M220**. Scan for an M220 and save its BLE address. Offer a
+2. In printer settings, select a preset from the list or alphabetical groups. After
+   resolving a spool ID, show **Print label**, preview, **Open on PC**, and
+   **Print on M220**. Scan for an M220 and save its BLE address. Offer a
    printable-width control from 384 to 576 pixels in 8-pixel steps, starting
-   at 576; save the measured width on the scale.
+   at 576; save the measured width on the scale. The default 60 × 40 mm label
+   can be opened on the PC but does not fit the current 40 × 30 mm M220 stock;
+   the scale disables M220 printing until a fitting preset is selected.
 3. For the M220, freeze the spool ID, preset ID, width, and BLE address when
    tapped. Fetch `mono1` with `dpi=203&align=right&orientation=landscape`,
    validate its headers, body length, and unused row
