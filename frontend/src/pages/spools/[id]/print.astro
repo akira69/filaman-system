@@ -578,6 +578,7 @@ export function getStaticPaths() {
   // A PC print request can open this page with the scale's selected preset.
   const printParams = new URLSearchParams(location.search)
   const requestedPresetId = Number(printParams.get('preset_id'))
+  let initialMode: PrintWorkspaceMode = readPrintWorkspaceMode(ACTIVE_MODE_KEY)
   if (Number.isSafeInteger(requestedPresetId) && requestedPresetId > 0) {
     try {
       const response = await fetch('/api/v1/labels/presets', { credentials: 'include' })
@@ -591,18 +592,18 @@ export function getStaticPaths() {
       list.value = `own:${preset.name}`
       list.dispatchEvent(new Event('change'))
       document.getElementById('freeform-preset-load')?.click()
-      tabControls.activate('designer')
+      initialMode = 'designer'
     } catch (error) {
-      tabControls.activate('print')
+      initialMode = 'standard'
       window.alert(error instanceof Error ? error.message : 'Could not load label preset')
     }
   } else if (printParams.get('scale_print') === '1') {
-    tabControls.activate('print')
+    initialMode = 'standard'
   }
 
   // Initialize: load logo then render the selected workspace.
   loadLabelLogo().then(() => {
-    tabControls.activate(requestedPresetId > 0 ? 'designer' : printParams.get('scale_print') === '1' ? 'print' : readPrintWorkspaceMode(ACTIVE_MODE_KEY))
+    tabControls.activate(initialMode)
   })
 
   // Fallback: if no extra fields came from sessionStorage (e.g. direct navigation),
