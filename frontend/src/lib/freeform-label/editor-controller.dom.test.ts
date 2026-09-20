@@ -12,7 +12,7 @@ import { createLabelAssetClient } from './assets'
 import { activeEditors, readStoredPresets } from './editor-storage'
 import type { FreeformEditorState } from './editor-types'
 import type { InteractFactory } from './interaction-adapter'
-import { deleteLabelPreset, saveLabelPreset } from '../label-preset-storage'
+import { deleteLabelPreset, saveLabelPreset, selectLabelPreset } from '../label-preset-storage'
 import { parseTemplate, type SpoolData } from '../label-template'
 import { setLang, translatePage } from '../i18n'
 import {
@@ -48,6 +48,7 @@ async function renderRealDesignerEditor() {
 vi.mock('../label-preset-storage', () => ({
   deleteLabelPreset: vi.fn(async () => true),
   saveLabelPreset: vi.fn(async () => true),
+  selectLabelPreset: vi.fn(async () => true),
 }))
 
 vi.mock('./assets', () => ({
@@ -104,6 +105,7 @@ beforeEach(() => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
   vi.mocked(saveLabelPreset).mockReset().mockResolvedValue(true)
   vi.mocked(deleteLabelPreset).mockReset().mockResolvedValue(true)
+  vi.mocked(selectLabelPreset).mockReset().mockResolvedValue(true)
 })
 
 describe('freeform editor element operations', () => {
@@ -2269,6 +2271,25 @@ describe('freeform editor working storage', () => {
       kind: 'spool',
     }).label.widthMm).toBe(compact.label.widthMm)
   })
+
+  it('retains only positive integer database IDs from browser storage', () => {
+    const design = createDefaultLabelDesign('spool')
+    localStorage.setItem('preset-cache', JSON.stringify({
+      version: 2,
+      presets: [42, 0, 1.5, '9'].map((databaseId, index) => ({
+        databaseId,
+        name: `Preset ${index}`,
+        data: { version: 2, design },
+      })),
+    }))
+
+    expect(readStoredPresets('preset-cache').map(preset => preset.databaseId)).toEqual([
+      42,
+      undefined,
+      undefined,
+      undefined,
+    ])
+  })
 })
 
 describe('freeform editor database-owned presets', () => {
@@ -2277,6 +2298,7 @@ describe('freeform editor database-owned presets', () => {
     const cache = {
       version: 2,
       presets: [{
+        databaseId: 42,
         name: 'Existing',
         data: {
           version: 2,
@@ -2290,12 +2312,13 @@ describe('freeform editor database-owned presets', () => {
     return cache
   }
 
-  async function initPresetEditor() {
+  async function initPresetEditor(options: { entityType?: 'spool' | 'filament'; crossPresetsKey?: string } = {}) {
     renderDesignerEditorShell()
     return initFreeformLabelDesignerEditor({
       onChange: async () => undefined,
       presetsKey: 'database-presets',
       settingsKey: 'database-working',
+      ...options,
     })
   }
 
@@ -2472,6 +2495,69 @@ describe('freeform editor database-owned presets', () => {
       expect(JSON.parse(localStorage.getItem('database-presets')!)).toEqual(original)
       expect(editor.getDesign().label.widthMm).toBe(70)
     } finally { editor.destroy() }
+  })
+
+  it('loads an owned spool preset immediately and selects its database ID', async () => {
+    seedPreset()
+    const selection = deferred<boolean>()
+    vi.mocked(selectLabelPreset).mockReturnValue(selection.promise)
+    const editor = await initPresetEditor()
+    const presetWidth = editor.getDesign().label.widthMm
+    const width = document.querySelector<HTMLInputElement>('#freeform-label-width')!
+    width.value = String(presetWidth + 10)
+    width.dispatchEvent(new Event('change'))
+
+    document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
+
+    expect(editor.getDesign().label.widthMm).toBe(presetWidth)
+    expect(selectLabelPreset).toHaveBeenCalledWith(42)
+    selection.resolve(true)
+    editor.destroy()
+  })
+
+  it('selects Default when a built-in spool preset is loaded', async () => {
+    seedPreset()
+    const editor = await initPresetEditor()
+    const select = document.querySelector<HTMLSelectElement>('#freeform-preset-list')!
+    select.value = Array.from(select.options).find(option => option.value.startsWith('builtin:'))!.value
+
+    document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
+
+    expect(selectLabelPreset).toHaveBeenCalledWith(null)
+    editor.destroy()
+  })
+
+  it('selects Default when a cross-entity preset is loaded in the spool editor', async () => {
+    seedPreset()
+    localStorage.setItem('cross-presets', JSON.stringify({
+      version: 2,
+      presets: [{
+        databaseId: 77,
+        name: 'Cross',
+        data: { version: 2, design: createDefaultLabelDesign('filament') },
+      }],
+    }))
+    const editor = await initPresetEditor({ crossPresetsKey: 'cross-presets' })
+    const select = document.querySelector<HTMLSelectElement>('#freeform-preset-list')!
+    select.value = 'cross:Cross'
+
+    document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
+
+    expect(selectLabelPreset).toHaveBeenCalledWith(null)
+    editor.destroy()
+  })
+
+  it('does not change spool selection from the filament editor', async () => {
+    seedPreset()
+    const editor = await initPresetEditor({ entityType: 'filament' })
+
+    document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
+    document.querySelector<HTMLInputElement>('#freeform-preset-name')!.value = 'Filament'
+    document.querySelector<HTMLButtonElement>('#freeform-preset-save')!.click()
+    await vi.waitFor(() => expect(saveLabelPreset).toHaveBeenCalled())
+
+    expect(selectLabelPreset).not.toHaveBeenCalled()
+    editor.destroy()
   })
 
   it('rolls back a failed preset save', async () => {

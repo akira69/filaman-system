@@ -19,7 +19,7 @@ import {
   persistStoredPresetMutation,
   type StoredPreset,
 } from './editor-storage'
-import { deleteLabelPreset, saveLabelPreset } from '../label-preset-storage'
+import { deleteLabelPreset, saveLabelPreset, selectLabelPreset } from '../label-preset-storage'
 import { appendLabelExtraFieldCatalogGroup, buildLabelExtraFieldCatalogGroups } from '../label-extra-fields'
 import type { LabelDesignerPresetData, LabelDesignV2 } from './types'
 
@@ -257,6 +257,7 @@ export async function initFreeformLabelDesignerEditor(
     const value = name === undefined
       ? presetSelect?.value ?? ''
       : `${readStoredPresets(options.presetsKey).some(preset => preset.name === name) ? 'own' : 'builtin'}:${name}`
+    const source = value.split(':', 1)[0]
     const preset = selectedPreset(value)
     if (!preset || !controller.reset(preset.data.design)) return false
     if (presetSelect) presetSelect.value = value
@@ -269,6 +270,13 @@ export async function initFreeformLabelDesignerEditor(
     domBinding?.sync()
     void domBinding?.refresh()
     setStatus(options.translate?.('labelDesigner.presetLoaded', 'Preset loaded.') ?? 'Preset loaded.')
+    if (entityType === 'spool') {
+      if (source === 'own' && 'databaseId' in preset && typeof preset.databaseId === 'number') {
+        void selectLabelPreset(preset.databaseId)
+      } else if (source === 'builtin' || source === 'cross') {
+        void selectLabelPreset(null)
+      }
+    }
     return true
   }
   listen<MouseEvent>(presetLoad, 'click', () => { loadPreset() })

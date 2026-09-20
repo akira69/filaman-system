@@ -9,6 +9,7 @@ import {
   deleteLabelPreset,
   hydrateLabelPresetStorage,
   saveLabelPreset,
+  selectLabelPreset,
 } from './label-preset-storage'
 import { createDefaultLabelDesign } from './freeform-label/defaults'
 import { persistStoredPresetMutation, readStoredPresets } from './freeform-label/editor-storage'
@@ -340,6 +341,7 @@ describe('label preset cache migration', () => {
 
     expect(cache.version).toBe(2)
     expect(cache.presets.map(preset => preset.name)).toEqual(['Legacy', 'Native'])
+    expect(cache.presets.map(preset => preset.databaseId)).toEqual([1, 2])
     expect(cache.presets[0].data).toMatchObject({ version: 2, legacy_v1: legacy })
     expect(cache.presets[0].data.design.label).toMatchObject({ widthMm: 72, heightMm: 35 })
     expect(cache.presets[1].data).toEqual(nativeV2)
@@ -387,5 +389,47 @@ describe('label preset cache migration', () => {
       create_only: true,
       data,
     })
+  })
+
+  it('keeps a successful new preset database ID in the browser cache', async () => {
+    const data = {
+      version: 2 as const,
+      design: createDefaultLabelDesign('spool', () => 'saved-id'),
+    }
+    localStorage.setItem('filaman-spool-label-presets-v1', JSON.stringify({
+      version: 2,
+      presets: [{ name: 'Saved', data, settings: {} }],
+    }))
+    vi.spyOn(api, 'put').mockResolvedValue({
+      id: 42,
+      preset_type: 'spool',
+      name: 'Saved',
+      data,
+    })
+
+    expect(await saveLabelPreset('filaman-spool-label-presets-v1', { name: 'Saved', data })).toBe(true)
+    expect(JSON.parse(localStorage.getItem('filaman-spool-label-presets-v1')!).presets[0].databaseId).toBe(42)
+  })
+
+  it('writes numeric and Default spool selections through the selection endpoint', async () => {
+    const put = vi.spyOn(api, 'put').mockResolvedValue(undefined)
+
+    expect(await selectLabelPreset(42)).toBe(true)
+    expect(put).toHaveBeenCalledWith('/me/label-presets/selection', { preset_id: 42 })
+    expect(await selectLabelPreset(null)).toBe(true)
+    expect(put).toHaveBeenLastCalledWith('/me/label-presets/selection', { preset_id: null })
+  })
+
+  it('does not send selection requests when filament or sheet presets are saved', async () => {
+    const put = vi.spyOn(api, 'put')
+      .mockResolvedValueOnce({ id: 7, preset_type: 'filament', name: 'Filament', data: { settings: {} } })
+      .mockResolvedValueOnce({ id: 8, preset_type: 'sheet', name: 'Sheet', data: { settings: {} } })
+
+    expect(await saveLabelPreset('filaman-filament-label-presets-v1', { name: 'Filament', settings: {} })).toBe(true)
+    expect(await saveLabelPreset('filaman-label-sheet-presets-v1', { name: 'Sheet', settings: {} })).toBe(true)
+    expect(put.mock.calls.map(([path]) => path)).toEqual([
+      '/me/label-presets/filament/item',
+      '/me/label-presets/sheet/item',
+    ])
   })
 })

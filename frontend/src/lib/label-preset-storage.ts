@@ -66,6 +66,7 @@ export function buildDesignerPresetCache(
         try {
           const data = normalizeDesignerPresetData(preset.data, presetType)
           return [{
+            databaseId: preset.id,
             name: preset.name,
             data,
           }]
@@ -206,13 +207,29 @@ export async function saveLabelPreset(
     return false
   }
   try {
-    await api.put<ApiLabelPreset>(
+    const saved = await api.put<ApiLabelPreset>(
       `/me/label-presets/${presetType}/item`,
       buildLabelPresetUpsertBody(storageKey, preset, previousName, createOnly),
     )
+    const cache = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as DesignerPresetCache
+    const cached = cache.presets?.find(item => item.name === preset.name)
+    if (cached) {
+      cached.databaseId = saved.id
+      safeWrite(storageKey, cache)
+    }
     return true
   } catch (error) {
     console.warn('Could not save label presets to the database', error)
+    return false
+  }
+}
+
+export async function selectLabelPreset(presetId: number | null): Promise<boolean> {
+  try {
+    await api.put('/me/label-presets/selection', { preset_id: presetId })
+    return true
+  } catch (error) {
+    console.warn('Could not select the label preset', error)
     return false
   }
 }
