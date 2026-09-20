@@ -324,7 +324,7 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
 
 
 @pytest.mark.asyncio
-async def test_scale_preset_list_exposes_only_newest_selection(
+async def test_scale_preset_list_exposes_newest_selection_with_id_tiebreak(
     auth_client, db_session, admin_user
 ):
     client, _ = auth_client
@@ -344,12 +344,22 @@ async def test_scale_preset_list_exposes_only_newest_selection(
         data={},
         selected_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
     )
-    db_session.add_all([older, newer])
+    tied = LabelPreset(
+        user_id=admin_user.id,
+        preset_type="spool",
+        name="Tied",
+        name_key=label_preset_name_key("Tied"),
+        data={},
+        selected_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
+    )
+    db_session.add_all([older, newer, tied])
     await db_session.commit()
+    assert tied.id > newer.id
 
     assert (await client.get("/api/v1/labels/presets")).json() == [
-        {"id": newer.id, "name": "Newer", "selected": True},
+        {"id": newer.id, "name": "Newer", "selected": False},
         {"id": older.id, "name": "Older", "selected": False},
+        {"id": tied.id, "name": "Tied", "selected": True},
     ]
 
 

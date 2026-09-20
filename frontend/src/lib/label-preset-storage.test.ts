@@ -413,11 +413,16 @@ describe('label preset cache migration', () => {
 
   it('writes numeric and Default spool selections through the selection endpoint', async () => {
     const put = vi.spyOn(api, 'put').mockResolvedValue(undefined)
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     expect(await selectLabelPreset(42)).toBe(true)
     expect(put).toHaveBeenCalledWith('/me/label-presets/selection', { preset_id: 42 })
     expect(await selectLabelPreset(null)).toBe(true)
     expect(put).toHaveBeenLastCalledWith('/me/label-presets/selection', { preset_id: null })
+    const error = new Error('selection failed')
+    put.mockRejectedValueOnce(error)
+    expect(await selectLabelPreset(7)).toBe(false)
+    expect(warning).toHaveBeenCalledWith('Could not select the label preset', error)
   })
 
   it('does not send selection requests when filament or sheet presets are saved', async () => {

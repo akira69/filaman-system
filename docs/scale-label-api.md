@@ -23,12 +23,33 @@ queued, not that a physical print succeeded.
 
 ## Preset selection
 
-`GET /api/v1/labels/presets` returns the user's saved **spool** designer
+```http
+GET /api/v1/labels/presets
+```
+
+This returns the configured user API key owner's saved **spool** designer
 presets, for example:
 
 ```json
-[{"id": 7, "name": "40 mm spool"}]
+[{"id": 7, "name": "40 mm spool", "selected": true}]
 ```
+
+`selected` is additive; existing `id` and `name` fields and preset
+content/version remain unchanged. When Default is selected, every row has
+`selected: false`.
+
+Select a preset for that user with:
+
+```http
+PUT /api/v1/me/label-presets/selection
+Content-Type: application/json
+
+{"preset_id": 42}
+```
+
+Send `{"preset_id": null}` to select Default. Success returns `204 No Content`.
+A principal without a user returns `403`; a missing preset, another user's
+preset, or a filament/sheet preset returns `404`.
 
 Show these names in the scale UI and store the chosen numeric `preset_id`.
 The scale shows up to 10 presets as one list. With more than 10 it groups
