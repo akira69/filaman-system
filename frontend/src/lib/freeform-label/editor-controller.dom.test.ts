@@ -2293,8 +2293,10 @@ describe('freeform editor working storage', () => {
 })
 
 describe('freeform editor database-owned presets', () => {
-  function seedPreset() {
+  function seedPreset(withOther = false) {
     const design = createDefaultLabelDesign('spool', () => `preset-${Math.random()}`)
+    const otherDesign = createDefaultLabelDesign('spool', () => `other-${Math.random()}`)
+    otherDesign.label.widthMm = design.label.widthMm + 10
     const cache = {
       version: 2,
       presets: [{
@@ -2306,7 +2308,12 @@ describe('freeform editor database-owned presets', () => {
           legacy_v1: { width: 64, height: 32 },
         },
         settings: { width: 64, height: 32 },
-      }],
+      }, ...(withOther ? [{
+        databaseId: 43,
+        name: 'Other',
+        data: { version: 2 as const, design: otherDesign },
+        settings: {},
+      }] : [])],
     }
     localStorage.setItem('database-presets', JSON.stringify(cache))
     return cache
@@ -2510,8 +2517,103 @@ describe('freeform editor database-owned presets', () => {
     document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
 
     expect(editor.getDesign().label.widthMm).toBe(presetWidth)
-    expect(selectLabelPreset).toHaveBeenCalledWith(42)
+    await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledWith(42))
     selection.resolve(true)
+    editor.destroy()
+  })
+
+  it('serializes overlapping spool loads and keeps the newest load status', async () => {
+    const cache = seedPreset(true)
+    const first = deferred<boolean>()
+    const second = deferred<boolean>()
+    vi.mocked(selectLabelPreset)
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+    const editor = await initPresetEditor()
+    const select = document.querySelector<HTMLSelectElement>('#freeform-preset-list')!
+    const load = document.querySelector<HTMLButtonElement>('#freeform-preset-load')!
+
+    select.value = 'own:Existing'
+    load.click()
+    await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledWith(42))
+    select.value = 'own:Other'
+    load.click()
+
+    expect(editor.getDesign().label.widthMm).toBe(cache.presets[1].data.design.label.widthMm)
+    expect(selectLabelPreset).toHaveBeenCalledTimes(1)
+    expect(selectLabelPreset).toHaveBeenLastCalledWith(42)
+
+    first.resolve(false)
+    await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledTimes(2))
+    expect(selectLabelPreset).toHaveBeenLastCalledWith(43)
+    expect(document.querySelector('#freeform-preset-status')!.textContent).toBe('Preset loaded.')
+    second.resolve(true)
+    editor.destroy()
+  })
+
+  it('serializes Save A then Load B then Load A and resolves A database ID after save', async () => {
+    const cache = seedPreset(true)
+    const save = deferred<boolean>()
+    const selectOther = deferred<boolean>()
+    const selectExisting = deferred<boolean>()
+    vi.mocked(saveLabelPreset).mockImplementation((storageKey, preset) => save.promise.then(saved => {
+      if (saved) {
+        const stored = JSON.parse(localStorage.getItem(storageKey)!)
+        stored.presets.find((candidate: { name: string }) => candidate.name === preset.name).databaseId = 42
+        localStorage.setItem(storageKey, JSON.stringify(stored))
+      }
+      return saved
+    }))
+    vi.mocked(selectLabelPreset)
+      .mockImplementationOnce(() => selectOther.promise)
+      .mockImplementationOnce(() => selectExisting.promise)
+    const editor = await initPresetEditor()
+    const select = document.querySelector<HTMLSelectElement>('#freeform-preset-list')!
+    const load = document.querySelector<HTMLButtonElement>('#freeform-preset-load')!
+    document.querySelector<HTMLInputElement>('#freeform-preset-name')!.value = 'Existing'
+
+    document.querySelector<HTMLButtonElement>('#freeform-preset-save')!.click()
+    await vi.waitFor(() => expect(saveLabelPreset).toHaveBeenCalledOnce())
+    expect(readStoredPresets('database-presets')[0].databaseId).toBeUndefined()
+    select.value = 'own:Other'
+    load.click()
+    select.value = 'own:Existing'
+    expect(select.value).toBe('own:Existing')
+    expect(load.disabled).toBe(false)
+    expect(readStoredPresets('database-presets').map(preset => preset.name)).toEqual(['Existing', 'Other'])
+    load.click()
+
+    expect(document.querySelector<HTMLInputElement>('#freeform-preset-name')!.value).toBe('Existing')
+    expect(editor.getDesign().label.widthMm).toBe(cache.presets[0].data.design.label.widthMm)
+    expect(selectLabelPreset).not.toHaveBeenCalled()
+
+    save.resolve(true)
+    await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledWith(43))
+    expect(selectLabelPreset).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('#freeform-preset-status')!.textContent).toBe('Preset loaded.')
+    selectOther.resolve(true)
+    await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledWith(42))
+    expect(selectLabelPreset).toHaveBeenCalledTimes(2)
+    selectExisting.resolve(true)
+    editor.destroy()
+  })
+
+  it('shows selection synchronization failure and retries through Load', async () => {
+    seedPreset()
+    vi.mocked(selectLabelPreset)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    const editor = await initPresetEditor()
+    const load = document.querySelector<HTMLButtonElement>('#freeform-preset-load')!
+
+    load.click()
+    await vi.waitFor(() => {
+      expect(document.querySelector('#freeform-preset-status')!.textContent).toContain('synchronization failed')
+    })
+
+    load.click()
+    await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledTimes(2))
+    expect(document.querySelector('#freeform-preset-status')!.textContent).toBe('Preset loaded.')
     editor.destroy()
   })
 
@@ -2523,7 +2625,7 @@ describe('freeform editor database-owned presets', () => {
 
     document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
 
-    expect(selectLabelPreset).toHaveBeenCalledWith(null)
+    await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledWith(null))
     editor.destroy()
   })
 
@@ -2543,7 +2645,7 @@ describe('freeform editor database-owned presets', () => {
 
     document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
 
-    expect(selectLabelPreset).toHaveBeenCalledWith(null)
+    await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledWith(null))
     editor.destroy()
   })
 

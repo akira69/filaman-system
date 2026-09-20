@@ -100,6 +100,7 @@ export async function initFreeformLabelDesignerEditor(
   let pendingPresetMutations = 0
   let loadedOwnPreset: string | null = null
   let presetMutationTail: Promise<void> = Promise.resolve()
+  let latestPresetAction = 0
 
   const destroy = () => {
     if (destroyed) return
@@ -260,6 +261,7 @@ export async function initFreeformLabelDesignerEditor(
     const source = value.split(':', 1)[0]
     const preset = selectedPreset(value)
     if (!preset || !controller.reset(preset.data.design)) return false
+    const action = ++latestPresetAction
     if (presetSelect) presetSelect.value = value
     loadedOwnPreset = value.startsWith('own:') ? preset.name : null
     persistFreeformLabelDesign(options.settingsKey, preset.data.design)
@@ -270,13 +272,23 @@ export async function initFreeformLabelDesignerEditor(
     domBinding?.sync()
     void domBinding?.refresh()
     setStatus(options.translate?.('labelDesigner.presetLoaded', 'Preset loaded.') ?? 'Preset loaded.')
-    if (entityType === 'spool') {
-      if (source === 'own' && 'databaseId' in preset && typeof preset.databaseId === 'number') {
-        void selectLabelPreset(preset.databaseId)
-      } else if (source === 'builtin' || source === 'cross') {
-        void selectLabelPreset(null)
+    if (entityType !== 'spool' || !['own', 'builtin', 'cross'].includes(source)) return true
+    const showSelectionFailure = () => {
+      if (action === latestPresetAction) {
+        setStatus(options.translate?.(
+          'labelDesigner.presetSelectionFailed',
+          'Preset loaded, but selection synchronization failed. Load it again to retry.',
+        ) ?? 'Preset loaded, but selection synchronization failed. Load it again to retry.')
       }
     }
+    void enqueuePresetMutation(async () => {
+      if (source !== 'own') return selectLabelPreset(null)
+      const databaseId = readStoredPresets(options.presetsKey)
+        .find(candidate => candidate.name === preset.name)?.databaseId
+      return databaseId ? selectLabelPreset(databaseId) : false
+    }).then(synced => {
+      if (!synced) showSelectionFailure()
+    }, showSelectionFailure)
     return true
   }
   listen<MouseEvent>(presetLoad, 'click', () => { loadPreset() })
@@ -297,6 +309,7 @@ export async function initFreeformLabelDesignerEditor(
     }
     const design = controller.getDesign()
     const replacementVersion = controller.getReplacementVersion()
+    const action = ++latestPresetAction
     return enqueuePresetMutation(async () => {
       const presets = readStoredPresets(options.presetsKey)
       const index = presets.findIndex(candidate => candidate.name === name)
@@ -316,13 +329,17 @@ export async function initFreeformLabelDesignerEditor(
     }).then(saved => {
       if (saved && presetName?.value.trim() === name && controller.getReplacementVersion() === replacementVersion) loadedOwnPreset = name
       refreshPresetList(saved ? name : undefined)
-      setStatus(saved
-        ? (options.translate?.('labelDesigner.presetSaved', 'Preset saved.') ?? 'Preset saved.')
-        : (options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.'))
+      if (action === latestPresetAction) {
+        setStatus(saved
+          ? (options.translate?.('labelDesigner.presetSaved', 'Preset saved.') ?? 'Preset saved.')
+          : (options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.'))
+      }
       return saved ? name : null
     }, () => {
       refreshPresetList()
-      setStatus(options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.')
+      if (action === latestPresetAction) {
+        setStatus(options.translate?.('labelDesigner.presetSaveFailed', 'Preset save failed.') ?? 'Preset save failed.')
+      }
       return null
     })
   }
@@ -335,18 +352,23 @@ export async function initFreeformLabelDesignerEditor(
     const value = presetSelect?.value ?? ''
     if (!value.startsWith('own:')) return
     const name = value.slice(4)
+    const action = ++latestPresetAction
     void enqueuePresetMutation(() => persistStoredPresetMutation(
       options.presetsKey,
       readStoredPresets(options.presetsKey).filter(preset => preset.name !== name),
       () => deleteLabelPreset(options.presetsKey, name),
     )).then(deleted => {
       refreshPresetList()
-      setStatus(deleted
-        ? (options.translate?.('labelDesigner.presetDeleted', 'Preset deleted.') ?? 'Preset deleted.')
-        : (options.translate?.('labelDesigner.presetDeleteFailed', 'Preset delete failed.') ?? 'Preset delete failed.'))
+      if (action === latestPresetAction) {
+        setStatus(deleted
+          ? (options.translate?.('labelDesigner.presetDeleted', 'Preset deleted.') ?? 'Preset deleted.')
+          : (options.translate?.('labelDesigner.presetDeleteFailed', 'Preset delete failed.') ?? 'Preset delete failed.'))
+      }
     }, () => {
       refreshPresetList()
-      setStatus(options.translate?.('labelDesigner.presetDeleteFailed', 'Preset delete failed.') ?? 'Preset delete failed.')
+      if (action === latestPresetAction) {
+        setStatus(options.translate?.('labelDesigner.presetDeleteFailed', 'Preset delete failed.') ?? 'Preset delete failed.')
+      }
     })
   })
 

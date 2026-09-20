@@ -1550,6 +1550,7 @@
     "printBorder": "Rand drucken",
     "selection": "Auswahl",
     "presetLoaded": "Vorlage geladen.",
+    "presetSelectionFailed": "Vorlage geladen, aber die Auswahl konnte nicht synchronisiert werden. Laden Sie sie erneut, um es noch einmal zu versuchen.",
     "presetNameExists": "Dieser Name wird bereits verwendet. Bitte einen neuen Namen wählen.",
     "presetNameRequired": "Geben Sie einen Vorlagennamen ein.",
     "presetSaved": "Vorlage gespeichert.",

@@ -1549,6 +1549,7 @@
     "printBorder": "Print border",
     "selection": "Selection",
     "presetLoaded": "Preset loaded.",
+    "presetSelectionFailed": "Preset loaded, but selection synchronization failed. Load it again to retry.",
     "presetNameExists": "That name is already in use. Choose a new name.",
     "presetNameRequired": "Enter a preset name.",
     "presetSaved": "Preset saved.",
