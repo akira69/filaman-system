@@ -109,11 +109,21 @@ async def list_scale_presets(
     if principal.user_id is None:
         raise HTTPException(status_code=403, detail="Use a user API key to select label presets")
     rows = await db.execute(
-        select(LabelPreset.id, LabelPreset.name)
+        select(LabelPreset.id, LabelPreset.name, LabelPreset.selected_at)
         .where(LabelPreset.user_id == principal.user_id, LabelPreset.preset_type == "spool")
         .order_by(LabelPreset.name)
     )
-    return [{"id": preset_id, "name": name} for preset_id, name in rows]
+    rows = list(rows)
+    marked = [row for row in rows if row.selected_at is not None]
+    selected_id = (
+        max(marked, key=lambda row: (row.selected_at, row.id)).id
+        if marked
+        else None
+    )
+    return [
+        {"id": row.id, "name": row.name, "selected": row.id == selected_id}
+        for row in rows
+    ]
 
 
 def _label_size(settings: dict | None) -> tuple[float, float]:

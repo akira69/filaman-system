@@ -138,6 +138,13 @@ async def test_scale_device_needs_spool_read_scope(client, db_session):
     invalidate_auth_caches()
     assert (await client.get(path, headers=headers)).status_code == 404
     assert (await client.get("/api/v1/labels/presets", headers=headers)).status_code == 403
+    assert (
+        await client.put(
+            "/api/v1/me/label-presets/selection",
+            json={"preset_id": None},
+            headers=headers,
+        )
+    ).status_code == 403
 
 
 @pytest.mark.asyncio
@@ -228,7 +235,7 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
 
     presets = await client.get("/api/v1/labels/presets")
     assert presets.status_code == 200
-    assert presets.json() == [{"id": preset.id, "name": "Small"}]
+    assert presets.json() == [{"id": preset.id, "name": "Small", "selected": False}]
     secret = generate_token_secret()
     api_key = UserApiKey(user_id=admin_user.id, name="Scale", key_hash=hash_token(secret), scopes=["spools:read"])
     db_session.add(api_key)
@@ -314,6 +321,36 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
     other_headers = {"Authorization": f"ApiKey uak.{other_key.id}.{other_secret}"}
     assert (await client.get("/api/v1/labels/print-requests/pending", headers=other_headers)).json() is None
     assert (await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}", headers=other_headers)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_scale_preset_list_exposes_only_newest_selection(
+    auth_client, db_session, admin_user
+):
+    client, _ = auth_client
+    older = LabelPreset(
+        user_id=admin_user.id,
+        preset_type="spool",
+        name="Older",
+        name_key=label_preset_name_key("Older"),
+        data={},
+        selected_at=datetime(2026, 9, 19, tzinfo=timezone.utc),
+    )
+    newer = LabelPreset(
+        user_id=admin_user.id,
+        preset_type="spool",
+        name="Newer",
+        name_key=label_preset_name_key("Newer"),
+        data={},
+        selected_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
+    )
+    db_session.add_all([older, newer])
+    await db_session.commit()
+
+    assert (await client.get("/api/v1/labels/presets")).json() == [
+        {"id": newer.id, "name": "Newer", "selected": True},
+        {"id": older.id, "name": "Older", "selected": False},
+    ]
 
 
 @pytest.mark.asyncio

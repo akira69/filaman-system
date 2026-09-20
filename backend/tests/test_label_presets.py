@@ -10,6 +10,111 @@ from tests.support.backup import export_backup_data
 
 class TestLabelPresets:
     @pytest.mark.asyncio
+    async def test_spool_preset_selection_is_user_scoped(
+        self, auth_client, db_session, admin_user, normal_user
+    ):
+        client, csrf_token = auth_client
+        first = LabelPreset(
+            user_id=admin_user.id,
+            preset_type="spool",
+            name="First",
+            name_key=label_preset_name_key("First"),
+            data={},
+        )
+        second = LabelPreset(
+            user_id=admin_user.id,
+            preset_type="spool",
+            name="Second",
+            name_key=label_preset_name_key("Second"),
+            data={},
+        )
+        foreign = LabelPreset(
+            user_id=normal_user.id,
+            preset_type="spool",
+            name="Foreign",
+            name_key=label_preset_name_key("Foreign"),
+            data={},
+        )
+        filament = LabelPreset(
+            user_id=admin_user.id,
+            preset_type="filament",
+            name="Filament",
+            name_key=label_preset_name_key("Filament"),
+            data={},
+        )
+        db_session.add_all([first, second, foreign, filament])
+        await db_session.commit()
+
+        selection_path = "/api/v1/me/label-presets/selection"
+        response = await client.put(
+            selection_path,
+            json={"preset_id": first.id},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert response.status_code == 204
+        assert (await client.get("/api/v1/labels/presets")).json() == [
+            {"id": first.id, "name": first.name, "selected": True},
+            {"id": second.id, "name": second.name, "selected": False},
+        ]
+
+        for preset_id in (foreign.id, filament.id, 999_999):
+            response = await client.put(
+                selection_path,
+                json={"preset_id": preset_id},
+                headers={"X-CSRF-Token": csrf_token},
+            )
+            assert response.status_code == 404
+
+        after_rejections = await client.get("/api/v1/labels/presets")
+        assert next(
+            item for item in after_rejections.json() if item["id"] == first.id
+        )["selected"] is True
+
+        response = await client.put(
+            selection_path,
+            json={"preset_id": None},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert response.status_code == 204
+        assert all(
+            not item["selected"]
+            for item in (await client.get("/api/v1/labels/presets")).json()
+        )
+
+    @pytest.mark.asyncio
+    async def test_spool_upsert_selects_and_delete_restores_default(
+        self, auth_client, db_session
+    ):
+        client, csrf_token = auth_client
+        first = await client.put(
+            "/api/v1/me/label-presets/spool/item",
+            json={"name": "First", "data": {}},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        second = await client.put(
+            "/api/v1/me/label-presets/spool/item",
+            json={"name": "Second", "data": {}},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert first.status_code == second.status_code == 200
+
+        first_row = await db_session.get(LabelPreset, first.json()["id"])
+        second_row = await db_session.get(LabelPreset, second.json()["id"])
+        await db_session.refresh(first_row)
+        await db_session.refresh(second_row)
+        assert first_row.selected_at is None
+        assert second_row.selected_at is not None
+
+        response = await client.delete(
+            "/api/v1/me/label-presets/spool/item?name=Second",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert response.status_code == 204
+        assert (await client.get("/api/v1/labels/presets")).json() == [
+            {"id": first_row.id, "name": first_row.name, "selected": False}
+        ]
+
+    @pytest.mark.asyncio
     async def test_upsert_and_list_presets(self, auth_client):
         client, csrf_token = auth_client
         for name, width in (("Compact", 40), ("Wide", 70)):

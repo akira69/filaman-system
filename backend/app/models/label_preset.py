@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
@@ -11,7 +12,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, TZDateTime
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -50,6 +51,7 @@ class LabelPreset(Base, TimestampMixin):
     )
     name_key: Mapped[str] = mapped_column(String(64), nullable=False)
     data: Mapped[dict[str, Any]] = mapped_column(nullable=False)
+    selected_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="label_presets")
 

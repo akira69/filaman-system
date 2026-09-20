@@ -1,12 +1,12 @@
 import json
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import DBSession, PrincipalDep
@@ -64,6 +64,10 @@ class LabelPresetMigrationRequest(BaseModel):
     presets: list[LabelPresetMigrationInput] = Field(
         max_length=MAX_PRESETS_PER_TYPE * 3
     )
+
+
+class LabelPresetSelectionInput(BaseModel):
+    preset_id: int | None = Field(default=None, ge=1)
 
 
 class LabelPresetResponse(BaseModel):
@@ -140,6 +144,24 @@ async def _lock_user_presets(db: DBSession, user_id: int) -> None:
     await db.execute(select(User.id).where(User.id == user_id).with_for_update())
 
 
+async def _set_selected_spool_preset(
+    db: DBSession,
+    user_id: int,
+    preset: LabelPreset | None,
+) -> None:
+    await db.execute(
+        update(LabelPreset)
+        .where(
+            LabelPreset.user_id == user_id,
+            LabelPreset.preset_type == "spool",
+            LabelPreset.selected_at.is_not(None),
+        )
+        .values(selected_at=None)
+    )
+    if preset is not None:
+        preset.selected_at = datetime.now(timezone.utc)
+
+
 @asynccontextmanager
 async def _preset_transaction(db: DBSession) -> AsyncIterator[None]:
     try:
@@ -187,6 +209,33 @@ async def list_label_presets(
     preset_type: Annotated[LabelPresetType | None, Query()] = None,
 ):
     return await _list_presets(db, _require_user_id(principal), preset_type)
+
+
+@router.put("/selection", status_code=status.HTTP_204_NO_CONTENT)
+async def select_label_preset(
+    body: LabelPresetSelectionInput,
+    db: DBSession,
+    principal: PrincipalDep,
+):
+    user_id = _require_user_id(principal)
+    async with _preset_transaction(db):
+        await _lock_user_presets(db, user_id)
+        preset = None
+        if body.preset_id is not None:
+            preset = await db.scalar(
+                select(LabelPreset).where(
+                    LabelPreset.id == body.preset_id,
+                    LabelPreset.user_id == user_id,
+                    LabelPreset.preset_type == "spool",
+                )
+            )
+            if preset is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Label preset not found",
+                )
+        await _set_selected_spool_preset(db, user_id, preset)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put("/{preset_type}/item", response_model=LabelPresetResponse)
@@ -281,6 +330,8 @@ async def upsert_label_preset(
             preset.data = body.data
 
         await db.flush()
+        if preset_type == "spool":
+            await _set_selected_spool_preset(db, user_id, preset)
         await set_label_preset_asset_references(db, preset, asset_ids)
 
     await db.refresh(preset)
