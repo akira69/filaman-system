@@ -266,6 +266,13 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
     assert len(physical.content) == 72 * 200
     assert all(physical.content[row * 72:(row * 72) + 22] == bytes(22) for row in range(200))
     assert any(physical.content)
+    portrait_physical = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?format=mono1&width=576&dpi=203&align=right&orientation=portrait&preset_id={preset.id}"
+    )
+    assert portrait_physical.status_code == 200
+    assert portrait_physical.headers["x-image-height"] == "400"
+    assert portrait_physical.headers["x-content-width"] == "200"
+    assert portrait_physical.headers["x-rotated"] == "1"
     portrait = LabelPreset(
         user_id=admin_user.id, preset_type="spool", name="Portrait",
         name_key=label_preset_name_key("Portrait"),

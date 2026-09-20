@@ -339,7 +339,7 @@ async def render_spool_label(
     width: int = Query(576, ge=384, le=1024),
     dpi: int | None = Query(None, ge=100, le=600),
     align: Literal["left", "right"] = "left",
-    orientation: Literal["original", "landscape"] = "original",
+    orientation: Literal["original", "landscape", "portrait"] = "original",
     preset_id: int | None = Query(None, ge=1),
     color: Literal["mono", "color"] = "mono",
     principal=RequirePermission("spools:read"),
@@ -413,7 +413,11 @@ async def render_spool_label(
     ) if design is not None else _label_image(
         spool, label_width, qr_url, settings, colors, color == "color",
     )
-    rotated = orientation == "landscape" and image.height > image.width
+    rotated = (
+        orientation == "landscape" and image.height > image.width
+    ) or (
+        orientation == "portrait" and image.width > image.height
+    )
     if rotated:
         image = image.transpose(Image.Transpose.ROTATE_90)
         label_width = image.width
