@@ -75,6 +75,8 @@ skills-lock.json
 Agents.md
 Claude.md
 .omo
+.superpowers/
+docs/superpowers/
 
 # Installed plugins (only spoolman_import ships as default)
 backend/app/plugins/*/

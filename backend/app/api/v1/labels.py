@@ -359,6 +359,17 @@ async def render_spool_label(
     spool = await SpoolService(db).get_spool(spool_id)
     if spool is None:
         raise HTTPException(status_code=404, detail="Spool not found")
+    if preset_id is None and principal.user_id is not None:
+        preset_id = await db.scalar(
+            select(LabelPreset.id)
+            .where(
+                LabelPreset.user_id == principal.user_id,
+                LabelPreset.preset_type == "spool",
+                LabelPreset.selected_at.is_not(None),
+            )
+            .order_by(LabelPreset.selected_at.desc(), LabelPreset.id.desc())
+            .limit(1)
+        )
     settings = None
     design = None
     assets = {}
@@ -439,6 +450,7 @@ async def render_spool_label(
         image = canvas
     headers = {
         "Cache-Control": "no-store",
+        "X-Preset-Id": str(preset_id or 0),
         "X-Image-Width": str(image.width),
         "X-Image-Height": str(image.height),
         "X-Content-Width": str(label_width),

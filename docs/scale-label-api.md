@@ -57,8 +57,9 @@ names under A–F, G–L, M–R, S–Z, and #, and pages through each group. The
 API returns up to 100 spool presets for one user. FilaMan
 accepts names up to 120 characters; the scale shortens long names for its
 touchscreen while retaining each numeric ID. Refresh the list on demand.
-If no preset is selected, omit `preset_id` and use
-FilaMan's standard spool label. A missing or other user's preset yields `404`.
+Omit `preset_id` to render the user's currently selected spool preset. If the
+user has no selected preset, FilaMan uses its standard spool label. A missing
+or other user's explicit preset yields `404`.
 Preset IDs can disappear when users delete presets, so let the user reselect.
 
 ## Render for the scale's printer
@@ -77,7 +78,9 @@ height before sending it to a printer. The response is a raster, **not**
 printer commands. `X-Content-Width` gives the unpadded image width and
 `X-Rotated` is `1` when the requested orientation required a quarter turn. Use
 those headers to restore the designer's original orientation in a preview.
-FilaMan applies the selected preset before packing.
+FilaMan applies the selected preset before packing. `X-Preset-Id` identifies
+the preset used; `0` means the standard spool label. The scale uses this header
+to keep its cached selection in sync without fetching the preset list first.
 
 `width` is the print row width in pixels, from 384 to 1024. The M220 scale
 driver derives it from the loaded label width, using 576–600 pixels across the

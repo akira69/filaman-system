@@ -364,6 +364,45 @@ async def test_scale_preset_list_exposes_newest_selection_with_id_tiebreak(
 
 
 @pytest.mark.asyncio
+async def test_scale_render_uses_active_preset_when_id_is_omitted(
+    auth_client, db_session, admin_user
+):
+    client, _ = auth_client
+    manufacturer = Manufacturer(name="Selected Label")
+    db_session.add(manufacturer)
+    await db_session.flush()
+    filament = Filament(
+        manufacturer_id=manufacturer.id,
+        designation="Selected PLA",
+        material_type="PLA",
+        diameter_mm=1.75,
+    )
+    db_session.add(filament)
+    await db_session.flush()
+    status = await db_session.scalar(select(SpoolStatus).where(SpoolStatus.key == "active"))
+    spool = Spool(filament_id=filament.id, status_id=status.id)
+    preset = LabelPreset(
+        user_id=admin_user.id,
+        preset_type="spool",
+        name="Active 40 x 30",
+        name_key=label_preset_name_key("Active 40 x 30"),
+        data={"settings": {"label": {"width": 40, "height": 30}}},
+        selected_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
+    )
+    db_session.add_all([spool, preset])
+    await db_session.commit()
+
+    response = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?format=mono1&width=576&dpi=203"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["x-preset-id"] == str(preset.id)
+    assert response.headers["x-content-width"] == "320"
+    assert response.headers["x-image-height"] == "240"
+
+
+@pytest.mark.asyncio
 async def test_scale_renders_version_two_designer_preset(auth_client, db_session, admin_user):
     client, _ = auth_client
     manufacturer = Manufacturer(name="V2 Labels")
