@@ -52,7 +52,9 @@ async def test_render_uses_shared_preview_with_native_data(auth_client, preview_
     assert payload["spool"]["filament"]["custom_fields"]["nozzle"] == {"min": 190, "max": 220}
     assert payload["spool"]["status"]["label"]
     assert payload["preset"] == preset.data
-    assert payload["pixelRatio"] == pytest.approx(320 / (40 * 96 / 25.4))
+    assert (payload["pixelWidth"], payload["pixelHeight"]) == (320, 80)
+    assert "x-row-bytes" not in response.headers
+    assert "x-bit-order" not in response.headers
     image = Image.open(BytesIO(response.content))
     assert image.size == (384, 80)
     assert image.getpixel((20, 20)) == (255, 0, 0)
@@ -134,3 +136,33 @@ async def test_qr_canvases_share_the_render_pixel_budget(
 def test_legacy_empty_dimensions_match_preview_normalization(width):
     assert labels._label_size({"label": {"width": width, "height": 40}}) == (20, 40)
     assert labels._label_size({"label": {}}) == (60, 40)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("label_render_runtime")
+async def test_maximum_height_capture_has_exact_pixels(auth_client, preview_spool, db_session):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.data = {"version": 2, "design": {
+        **preset.data["design"], "label": {"widthMm": 35, "heightMm": 70, "marginMm": 0, "border": False},
+    }}
+    await db_session.commit()
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&width=1024")
+    assert response.status_code == 200, response.text
+    assert Image.open(BytesIO(response.content)).size == (1024, 2048)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("element_type", [[], {}])
+async def test_unknown_unhashable_element_types_are_ignored(auth_client, preview_spool, db_session, monkeypatch, element_type):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.data = {"version": 2, "design": {
+        **preset.data["design"], "elements": [*preset.data["design"]["elements"], {"type": element_type}],
+    }}
+    await db_session.commit()
+    output = BytesIO()
+    Image.new("RGB", (576, 144), "black").save(output, format="PNG")
+    monkeypatch.setattr(labels, "render_preview_png", AsyncMock(return_value=output.getvalue()))
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}")
+    assert response.status_code == 200

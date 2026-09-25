@@ -39,7 +39,7 @@ const payload: ApiLabelRenderPayload = {
     temperature: { id: 1, key: 'temperature', label: 'Temperature', field_type: 'range', config: { unit: '°C' } },
     tags: { id: 2, key: 'tags', label: 'Tags', field_type: 'multiselect' },
   } },
-  assets: {}, pixelRatio: 2.5,
+  assets: {}, pixelWidth: 1024, pixelHeight: 2048,
 }
 let captured: HTMLElement
 
@@ -74,7 +74,7 @@ it('captures shared rendering of canonical, nested and typed native spool values
   expect(captured.querySelector('strong')?.textContent).toBe('1000')
   expect(captured.querySelector<HTMLElement>('[data-label-element-id="text"]')?.style.fontFamily).toContain('Fraunces')
   expect(captured.querySelector('[data-label-editor-chrome]')).toBeNull()
-  expect(raster.toCanvas.mock.calls[0][1].pixelRatio).toBe(2.5)
+  expect(raster.toCanvas.mock.calls[0][1]).toMatchObject({ pixelRatio: 1, canvasWidth: 1024, canvasHeight: 2048 })
   expect(document.body.children).toHaveLength(0)
 })
 

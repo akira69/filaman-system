@@ -10,7 +10,8 @@ export interface ApiLabelRenderPayload {
   fieldDefinitions: SpoolExtraFieldDefinitionMap
   logoUrl?: string | null
   assets: Record<string, string>
-  pixelRatio: number
+  pixelWidth: number
+  pixelHeight: number
 }
 
 /** Server-supplied data uses the same rendering and capture as browser exports. */
@@ -43,7 +44,9 @@ export async function renderApiLabel(payload: ApiLabelRenderPayload): Promise<st
         logoUrl: payload.logoUrl,
       })
     }
-    return await captureLabelElement(element, { pixelRatio: payload.pixelRatio })
+    return await captureLabelElement(element, {
+      pixelRatio: 1, canvasWidth: payload.pixelWidth, canvasHeight: payload.pixelHeight,
+    })
   } finally {
     element.remove()
   }

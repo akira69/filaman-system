@@ -171,9 +171,8 @@ def _number(value, default: float, low: float, high: float) -> float:
 def _mono1(image: Image.Image) -> bytes:
     width, height = image.size
     row_bytes = (width + 7) // 8
-    packed = bytearray(image.convert("1", dither=Image.Dither.FLOYDSTEINBERG).tobytes())
-    for index in range(len(packed)):
-        packed[index] ^= 0xFF  # PIL stores white as 1; the wire format uses black as 1.
+    # PIL stores white as 1; the wire format uses black as 1.
+    packed = bytearray(image.convert("1", dither=Image.Dither.FLOYDSTEINBERG).tobytes().translate(bytes(range(255, -1, -1))))
     if width % 8:
         mask = (0xFF << (8 - width % 8)) & 0xFF
         for row in range(height):
@@ -237,10 +236,9 @@ def _raster_response(png, label_width, label_height, width, rotated, align, form
         "X-Image-Height": str(image.height),
         "X-Content-Width": str(label_width),
         "X-Rotated": "1" if rotated else "0",
-        "X-Row-Bytes": str((image.width + 7) // 8),
-        "X-Bit-Order": "msb-black-1",
     }
     if format == "mono1":
+        headers.update({"X-Row-Bytes": str((image.width + 7) // 8), "X-Bit-Order": "msb-black-1"})
         return Response(_mono1(image), media_type="application/octet-stream", headers=headers)
     output = BytesIO()
     image.save(output, format="PNG")
@@ -356,7 +354,7 @@ async def render_spool_label(
         if design is not None:
             image_uses = Counter(
                 asset_urls[element["assetId"]] if element["type"] == "image" else "/__label-assets/manufacturer.png"
-                for element in design["elements"] if element.get("type") in {"image", "manufacturerLogo"}
+                for element in design["elements"] if element.get("type") in ("image", "manufacturerLogo")
             )
             qr_count = sum(element.get("type") == "qr" for element in design["elements"])
         else:
@@ -376,7 +374,7 @@ async def render_spool_label(
         payload = {
             "spool": spool_data, "preset": preset_data, "fieldDefinitions": definitions,
             "assets": asset_urls, "logoUrl": logo_url,
-            "pixelRatio": label_width / (width_mm * 96 / 25.4),
+            "pixelWidth": label_width, "pixelHeight": label_height,
         }
         png = await render_preview_png(payload, str(request.base_url).rstrip("/"), assets)
         return await to_thread.run_sync(
