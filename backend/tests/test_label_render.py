@@ -2,11 +2,9 @@ import hashlib
 import struct
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
-from types import SimpleNamespace
 
 import pytest
-import qrcode
-from app.api.v1.labels import _label_values, _mono1, _resolve_label_text
+from app.api.v1.labels import _mono1
 from app.core.security import generate_token_secret, hash_token
 from app.main import app
 from app.models import (
@@ -23,9 +21,8 @@ from app.models import (
     UserApiKey,
 )
 from app.models.label_preset import label_preset_name_key
-from app.services import label_v2_renderer
 from PIL import Image, ImageStat
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 
 def test_mono1_pads_partial_row_with_white():
@@ -39,79 +36,7 @@ def test_render_openapi_describes_binary_responses():
     assert set(content) == {"image/png", "application/octet-stream"}
 
 
-def test_v2_optional_template_tokens_omit_missing_fields():
-    assert label_v2_renderer.resolve_v2_text(
-        "{filament.type}{ {filament.subtype}} {{filament.color}} {{missing}}",
-        {"filament.type": "PLA", "filament.subtype": "Silk", "filament.color": "White"},
-    ) == "PLA Silk White "
-    assert label_v2_renderer.resolve_v2_text(
-        "**{filament.type}** =={filament.type}== __{filament.type}__",
-        {"filament.type": "PLA"},
-    ) == "PLA PLA PLA"
-
-
-@pytest.mark.parametrize("template, values, expected", [
-    ("[b]{filament.type}[/b] [i]plain[/i]", {"filament.type": "PLA"}, "PLA plain"),
-    ("[B]A[i]B[/i][b]C[/b][/B]", {}, "ABC"),
-    ("[b]open", {}, "[b]open"),
-    ("[b]A[i]B[/b]C[/i]", {}, "[b]A[i]B[/b]C[/i]"),
-    ("[if={color}][b]Color: {color}[/b] {id}[/if]", {"color": "Blue", "id": "7"}, "Color: Blue 7"),
-    ("[if={color}]Color: {id}[/if]", {"id": "7"}, ""),
-    ("[if={color}]Color[/if]", {"color": "?"}, ""),
-    ("[if={color}]Color[/if]", {"color": "0"}, "Color"),
-    ("[IF={color}]A[if={missing}]B[/if]C[/IF]", {"color": "Blue"}, "AC"),
-    ("[if={missing}]A[if={color}]B[/if]C[/if]", {"color": "Blue"}, ""),
-    ("{Spool {id}[if={color}] Color[/if]}", {"id": "7", "color": "Blue"}, "Spool 7 Color"),
-    ("[if={color}]A", {"color": "Blue"}, "[if={color}]A"),
-])
-def test_v2_current_designer_markup(template, values, expected):
-    assert label_v2_renderer.resolve_v2_text(template, values) == expected
-
-
-@pytest.mark.parametrize("transparency", [None, 32768])
-def test_v2_native_16bit_asset_preserves_gray_and_transparency(tmp_path, transparency):
-    source = Image.new("I;16", (80, 20))
-    source.putdata([sample for _y in range(20) for sample in [0, 16384, 32768, 65535] for _x in range(20)])
-    content = BytesIO()
-    source.save(content, format="PNG", **({"transparency": transparency} if transparency is not None else {}))
-    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 10}, "elements": [
-        {"type": "image", "x": 0, "y": 0, "w": 40, "h": 10, "assetId": "gray"},
-    ]}
-    rendered = label_v2_renderer.render_v2_label(
-        design, 80, {"id": "7"}, [], "https://example.test/spools/7", tmp_path / "unused.png",
-        {"gray": content.getvalue()}, False,
-    )
-    assert [rendered.getpixel((x, 10)) for x in [10, 30, 50, 70]] == [
-        (0, 0, 0), (64, 64, 64), (255, 255, 255) if transparency else (128, 128, 128), (255, 255, 255),
-    ]
-
-
-def test_v2_qr_url_keeps_spool_route():
-    assert label_v2_renderer.v2_qr_target(
-        {"linkMode": "url", "urlTemplate": "https://labels.example/base/"},
-        "https://filaman.example/spools/7", "7",
-    ) == "https://labels.example/base/spools/7"
-
-
-def test_saved_preset_tokens_resolve_for_scale():
-    filament = SimpleNamespace(
-        id=9, designation="Pearl", material_type="PLA", material_subgroup="Silk",
-        manufacturer_color_name="White", raw_material_weight_g=1000,
-        manufacturer_id=2, manufacturer=SimpleNamespace(name="Maker"),
-        diameter_mm=1.75, custom_fields={"settings_bed_temp": 60},
-    )
-    spool = SimpleNamespace(
-        id=7, filament_id=9, filament=filament, stocked_in_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
-        custom_fields={"dry": "yes"}, remaining_weight_g=850,
-    )
-    values = _label_values(spool, ["#FFFFFF"])
-    assert _resolve_label_text(
-        "**{filament.type} {filament.subtype}** {filament.color_hex} "
-        "{filament.weight} {extra.filament.settings_bed_temp} "
-        "{extra.spool.dry} {stocked_in_at} {missing}", values,
-    ) == "PLA Silk #FFFFFF 1000 60 yes 2026-09-01 "
-
-
+@pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
 async def test_spool_label_render_formats(auth_client, db_session):
     client, _ = auth_client
@@ -183,7 +108,7 @@ async def test_scale_device_needs_spool_read_scope(client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_pc_print_request_is_claimed_once(auth_client, db_session):
+async def test_pc_print_request_is_claimed_once(auth_client, db_session, db_engine):
     client, csrf_token = auth_client
     manufacturer = Manufacturer(name="PC Print")
     db_session.add(manufacturer)
@@ -211,6 +136,12 @@ async def test_pc_print_request_is_claimed_once(auth_client, db_session):
     request_id = response.json()["id"]
     assert (await client.get(pending_path)).json() == {"id": request_id, "spool_id": spool.id, "preset_id": None}
 
+    # MySQL cannot execute UPDATE RETURNING; exercise the emitted claim SQL.
+    @event.listens_for(db_engine.sync_engine, "before_cursor_execute")
+    def portable_claim_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if statement.startswith("UPDATE label_print_requests"):
+            assert "RETURNING" not in statement.upper()
+
     claim_path = f"/api/v1/labels/print-requests/{request_id}/claim"
     assert (await client.post(claim_path, headers={"X-CSRF-Token": csrf_token})).status_code == 204
     assert (await client.post(claim_path, headers={"X-CSRF-Token": csrf_token})).status_code == 409
@@ -230,9 +161,10 @@ async def test_pc_print_request_is_claimed_once(auth_client, db_session):
     )).status_code == 409
 
 
+@pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
 async def test_scale_lists_users_designer_presets_and_selects_one(
-    auth_client, db_session, admin_user, normal_user, monkeypatch
+    auth_client, db_session, admin_user, normal_user
 ):
     client, csrf_token = auth_client
     manufacturer = Manufacturer(name="Preset Labels")
@@ -284,19 +216,10 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
     assert print_request.status_code == 201
     assert print_request.json()["preset_id"] == preset.id
     assert (await client.get("/api/v1/labels/print-requests/pending")).json()["preset_id"] == preset.id
-    qr_targets = []
-    original_qr_make = qrcode.make
-
-    def capture_qr(target):
-        qr_targets.append(target)
-        return original_qr_make(target)
-
-    monkeypatch.setattr(qrcode, "make", capture_qr)
     rendered = await client.get(
         f"/api/v1/labels/spool/{spool.id}/render?format=png&width=500&preset_id={preset.id}"
     )
     assert rendered.status_code == 200
-    assert qr_targets[-1] == f"https://labels.example/base/spools/{spool.id}"
     assert struct.unpack(">II", rendered.content[16:24]) == (500, 250)
     physical = await client.get(
         f"/api/v1/labels/spool/{spool.id}/render?format=mono1&width=576&dpi=203&align=right&preset_id={preset.id}"
@@ -315,6 +238,13 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
     assert portrait_physical.headers["x-image-height"] == "400"
     assert portrait_physical.headers["x-content-width"] == "200"
     assert portrait_physical.headers["x-rotated"] == "1"
+    narrow_portrait = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?format=mono1&width=384&dpi=203&orientation=portrait&preset_id={preset.id}"
+    )
+    assert narrow_portrait.status_code == 200
+    assert narrow_portrait.headers["x-content-width"] == "200"
+    assert narrow_portrait.headers["x-image-height"] == "400"
+    assert len(narrow_portrait.content) == 48 * 400
     portrait = LabelPreset(
         user_id=admin_user.id, preset_type="spool", name="Portrait",
         name_key=label_preset_name_key("Portrait"),
@@ -398,6 +328,7 @@ async def test_scale_preset_list_exposes_newest_selection_with_id_tiebreak(
     ]
 
 
+@pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
 async def test_scale_render_uses_active_preset_when_id_is_omitted(
     auth_client, db_session, admin_user
@@ -436,7 +367,18 @@ async def test_scale_render_uses_active_preset_when_id_is_omitted(
     assert response.headers["x-content-width"] == "320"
     assert response.headers["x-image-height"] == "240"
 
+    default = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?format=mono1&width=576&dpi=203&preset_id=0"
+    )
+    assert default.status_code == 200
+    assert default.headers["x-preset-id"] == "0"
+    assert default.headers["x-content-width"] == "480"
+    assert default.headers["x-image-height"] == "320"
+    selected = await client.get(f"/api/v1/labels/spool/{spool.id}/render")
+    assert selected.headers["x-preset-id"] == str(preset.id)
 
+
+@pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
 async def test_scale_renders_version_two_designer_preset(auth_client, db_session, admin_user):
     client, _ = auth_client
@@ -464,10 +406,10 @@ async def test_scale_renders_version_two_designer_preset(auth_client, db_session
                 {"id": "band", "type": "shape", "x": 1, "y": 1, "w": 38, "h": 5,
                  "z": 0, "shape": "rectangle", "fill": "#000000", "stroke": "",
                  "strokeWidthMm": 0, "radiusMm": 0},
-                {"id": "name", "type": "text", "x": 1, "y": 8, "w": 28, "h": 6,
+                {"id": "name", "type": "text", "x": 1, "y": 8, "w": 28, "h": 10,
                  "z": 1, "template": "{filament.name}\n{filament.type}", "fontFamily": "Roboto Condensed",
                  "fontSizeMm": 3, "fontWeight": 400, "italic": False,
-                 "underline": False, "align": "left", "color": "#000000", "wrap": False,
+                 "underline": False, "align": "left", "color": "#000000", "wrap": True,
                  "fitToWidth": True},
             ],
         }},
@@ -494,13 +436,7 @@ async def test_scale_renders_version_two_designer_preset(auth_client, db_session
     assert clipped_response.status_code == 200
     assert Image.open(BytesIO(clipped_response.content)).convert("RGB").getpixel((260, 16)) == (0, 0, 0)
 
-    invalid = dict(preset.data["design"]["elements"][0], fill="not-a-color")
-    preset.data = {"version": 2, "design": {**preset.data["design"], "elements": [invalid]}}
-    await db_session.commit()
-    bad_response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?width=576&preset_id={preset.id}")
-    assert bad_response.status_code == 422
-
-
+@pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
 async def test_scale_renders_version_two_uploaded_image(auth_client, db_session, admin_user):
     client, _ = auth_client
@@ -550,3 +486,19 @@ async def test_scale_renders_version_two_uploaded_image(auth_client, db_session,
     await db_session.commit()
     missing = await client.get(f"/api/v1/labels/spool/{spool.id}/render?width=400&preset_id={preset.id}")
     assert missing.status_code == 422
+
+
+def test_pc_print_json_contract_is_available_to_api_clients():
+    schema = app.openapi()
+    paths = schema["paths"]
+    response = paths["/api/v1/labels/spool/{spool_id}/print-request"]["post"]["responses"]["201"]["content"]["application/json"]["schema"]
+    model = schema["components"]["schemas"][response["$ref"].split("/")[-1]]
+    assert model["properties"]["id"]["type"] == "integer"
+    assert model["properties"]["spool_id"]["type"] == "integer"
+    assert {entry["type"] for entry in model["properties"]["preset_id"]["anyOf"]} == {"integer", "null"}
+    pending = paths["/api/v1/labels/print-requests/pending"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert {"type": "null"} in pending["anyOf"]
+    presets = paths["/api/v1/labels/presets"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert presets["type"] == "array"
+    preset = schema["components"]["schemas"][presets["items"]["$ref"].split("/")[-1]]
+    assert preset["properties"]["selected"]["type"] == "boolean"

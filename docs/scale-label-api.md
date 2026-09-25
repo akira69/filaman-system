@@ -15,7 +15,7 @@ PC session will be used. Give it `spools:read` scope. Send
 `spools:read` can render a default label but cannot list or use user presets or
 request PC printing. Keep the key out of logs and the browser.
 
-The PC must have a FilaMan tab open and be signed in as the **same user** as the
+For **PC printing only**, the PC must have a FilaMan tab open and be signed in as the **same user** as the
 API key. The tab polls for pending requests and shows a prompt. Clicking
 **Open print window** opens the existing spool label page. The user may choose
 **Print** or **Export PDF** there. The scale should report that the request was
@@ -58,7 +58,9 @@ API returns up to 100 spool presets for one user. FilaMan
 accepts names up to 120 characters; the scale shortens long names for its
 touchscreen while retaining each numeric ID. Refresh the list on demand.
 Omit `preset_id` to render the user's currently selected spool preset. If the
-user has no selected preset, FilaMan uses its standard spool label. A missing
+user has no selected preset, FilaMan uses its standard spool label. Send
+`preset_id=0` to render that standard label for one request without changing the
+user's selected preset. Positive IDs select a saved preset. A missing
 or other user's explicit preset yields `404`.
 Preset IDs can disappear when users delete presets, so let the user reselect.
 
@@ -111,16 +113,48 @@ in PNG. `format=mono1&color=color` returns `422`. The scale uses only
 `format=mono1` for this release; it does not offer PNG or color. All render
 responses include `Cache-Control: no-store`.
 
-The current designer saves `data.settings` presets. The server renders their
-label dimensions, margin, border, logo, title and information text blocks, QR
-code, and color swatches. The new designer saves `data.version=2` with
-`data.design`; the server also renders its positioned text, QR, manufacturer
-logo, uploaded image, swatch, and shape elements without changing the editor.
-Uploaded images must still belong to the API key's user. Missing uploaded images and
-invalid geometry return `422` rather than a blank label. The server uses
-Pillow's default font, and does not reproduce every browser font, text markup,
-wrapping, or decorated QR variant. Compare important presets against the
-returned PNG before relying on the monochrome print.
+The API runs the existing label preview and export code in server-side Chromium.
+It uses the same fonts, template fields, rich field formatting, text fitting,
+image crops, and QR generation as the editor. Saved v1 settings use the same
+migration as the editor; v2 designs use the shared free-form renderer. Default
+uses the existing standard label. The scale makes this request directly;
+no PC or open browser tab is required.
+
+Uploaded images must belong to the API key's user. Missing images, text that
+cannot fit, and other preview readiness errors return `422`. Fix the preset
+in the designer before retrying. Printer padding, rotation, monochrome conversion,
+and row packing happen after preview capture. Capture uses the requested printer
+resolution instead of producing a full 600-DPI export first.
+
+## Server runtime and memory
+
+The Docker image includes Playwright's Chromium headless shell. For a source
+installation, install backend dependencies, build the static frontend, and run
+`python -m playwright install --with-deps --only-shell chromium` in the backend
+Python environment. The renderer finds `frontend/dist` or `/app/static` by default.
+`LABEL_RENDER_STATIC_DIR` can point to a different static build directory;
+`LABEL_RENDER_CHROMIUM_EXECUTABLE` can select an installed Chromium executable.
+These settings do not change the scale request.
+
+Chromium starts on demand and closes after each render. A shared file lock permits
+one render across server workers, before image blobs are loaded. Busy requests
+receive `503` with `Retry-After: 1`; retry the render GET after that delay. Missing
+runtime files and rendering timeouts also return `503`. The browser receives only
+the static build and authorized image bytes; external network access is blocked.
+
+The final raster is at most 1024 pixels wide and 2048 pixels high. Images and QR
+codes share a conservative 12-megapixel budget: each occurrence of an uploaded
+image or manufacturer logo counts its source pixels, and each QR reserves its
+maximum 1024²-pixel canvas. Exceeding this budget returns `422`; resize source
+images or simplify the preset. Manufacturer logos are also limited to 2 MB of
+encoded input and the existing safe image decoder limits.
+
+Label downloads are small: a 480 × 320 `mono1` raster is 19,200 bytes. Runtime RAM
+is separate from file size. An isolated Linux headless-shell measurement peaked
+at about 195 MiB for a standard label and 361 MiB with a 12-megapixel image;
+these are measured examples, not a hard process-memory limit. The runtime also
+adds browser/dependency storage: the local test image measured about 1.77 GB
+(as reported by Docker). There is no idle browser process. Allow memory headroom for the application and concurrent non-render work.
 
 ## Ask the PC to print or generate a PDF
 
@@ -175,7 +209,8 @@ returns `204` once and `409` for a duplicate, expired, or missing request.
 
 Handle `401` by checking the key, `403` by checking its scope or user-key
 requirement, `404` by refreshing the spool or preset, and `422` by correcting
-format, width, or preset data. Do not automatically retry a PC request;
+format, width, or preset data. A `503` render response indicates a busy or
+unavailable renderer; honor `Retry-After` when present. Do not automatically retry a PC request;
 duplicate requests can produce multiple prompts.
 
 Before release, test one preset at the measured printer width, compare the

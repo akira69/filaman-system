@@ -8,6 +8,7 @@ from app.models.base import Base, TZDateTime
 
 class LabelPrintRequest(Base):
     __tablename__ = "label_print_requests"
+    __table_args__ = ({"sqlite_autoincrement": True},)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     spool_id: Mapped[int] = mapped_column(Integer, ForeignKey("spools.id", ondelete="CASCADE"), nullable=False)

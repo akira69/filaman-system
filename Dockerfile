@@ -56,6 +56,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Disable in-app migrations because the entrypoint handles them
 ENV RUN_MIGRATIONS_IN_APP=false
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/label-browser
 
 # Install uv, cron, and nginx in the final image
 RUN pip install uv && apt-get update && apt-get install -y cron nginx && rm -rf /var/lib/apt/lists/*
@@ -63,6 +64,10 @@ RUN pip install uv && apt-get update && apt-get install -y cron nginx && rm -rf 
 # Copy installed dependencies from backend-builder
 COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
+
+# Use the existing preview on demand; install only the headless browser runtime.
+RUN python -m playwright install --with-deps --only-shell chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy backend application
 COPY --from=backend-builder /app/backend /app
