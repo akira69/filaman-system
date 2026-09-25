@@ -193,7 +193,7 @@ function presetTypeForStorageKey(storageKey: string): PresetType | null {
 
 export async function saveLabelPreset(
   storageKey: string,
-  preset: { name: string; settings?: unknown; data?: LabelDesignerPresetData; id?: string },
+  preset: { name: string; settings?: unknown; data?: LabelDesignerPresetData; id?: string; databaseId?: number },
   previousName?: string,
   createOnly = false,
 ): Promise<boolean> {
@@ -211,12 +211,7 @@ export async function saveLabelPreset(
       `/me/label-presets/${presetType}/item`,
       buildLabelPresetUpsertBody(storageKey, preset, previousName, createOnly),
     )
-    const cache = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as DesignerPresetCache
-    const cached = cache.presets?.find(item => item.name === preset.name)
-    if (cached) {
-      cached.databaseId = saved.id
-      safeWrite(storageKey, cache)
-    }
+    if (presetType !== 'sheet') preset.databaseId = saved.id
     return true
   } catch (error) {
     console.warn('Could not save label presets to the database', error)

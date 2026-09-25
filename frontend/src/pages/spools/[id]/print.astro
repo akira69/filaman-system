@@ -198,7 +198,7 @@ export function getStaticPaths() {
 
   // --- Tab switching ---
   const resetBtn = document.getElementById('btn-reset') as HTMLButtonElement | null
-  const initialMode = readPrintWorkspaceMode(ACTIVE_MODE_KEY)
+  let initialMode = readPrintWorkspaceMode(ACTIVE_MODE_KEY)
   let designerEditor: Awaited<ReturnType<typeof initPrintDesignerEditor>> | null = null
   let labelLogoUrl: string | null = null
   let labelLogoLoaded = false
@@ -578,7 +578,6 @@ export function getStaticPaths() {
   // A PC print request can open this page with the scale's selected preset.
   const printParams = new URLSearchParams(location.search)
   const requestedPresetId = Number(printParams.get('preset_id'))
-  let initialMode: PrintWorkspaceMode = readPrintWorkspaceMode(ACTIVE_MODE_KEY)
   if (Number.isSafeInteger(requestedPresetId) && requestedPresetId > 0) {
     try {
       const response = await fetch('/api/v1/labels/presets', { credentials: 'include' })
@@ -586,12 +585,9 @@ export function getStaticPaths() {
       const presets: { id: number; name: string }[] = await response.json()
       const preset = presets.find(item => item.id === requestedPresetId)
       const list = document.getElementById('freeform-preset-list') as HTMLSelectElement | null
-      if (!preset || !list || !Array.from(list.options).some(option => option.value === `own:${preset.name}`)) {
+      if (!preset || !list || !Array.from(list.options).some(option => option.value === `own:${preset.name}`) || !designerEditor?.loadPreset(preset.name)) {
         throw new Error('Selected label preset is unavailable')
       }
-      list.value = `own:${preset.name}`
-      list.dispatchEvent(new Event('change'))
-      document.getElementById('freeform-preset-load')?.click()
       initialMode = 'designer'
     } catch (error) {
       initialMode = 'standard'

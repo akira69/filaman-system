@@ -1,25 +1,21 @@
-import struct
 import hashlib
+import struct
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
 import qrcode
-from PIL import Image, ImageStat
-from sqlalchemy import select
-
 from app.api.v1.labels import _label_values, _mono1, _resolve_label_text
-from app.main import app
-from app.services import label_v2_renderer
 from app.core.security import generate_token_secret, hash_token
+from app.main import app
 from app.models import (
     Color,
     Device,
     Filament,
     FilamentColor,
-    LabelPreset,
     LabelAsset,
+    LabelPreset,
     LabelPrintRequest,
     Manufacturer,
     Spool,
@@ -27,6 +23,9 @@ from app.models import (
     UserApiKey,
 )
 from app.models.label_preset import label_preset_name_key
+from app.services import label_v2_renderer
+from PIL import Image, ImageStat
+from sqlalchemy import select
 
 
 def test_mono1_pads_partial_row_with_white():
@@ -51,6 +50,42 @@ def test_v2_optional_template_tokens_omit_missing_fields():
     ) == "PLA PLA PLA"
 
 
+@pytest.mark.parametrize("template, values, expected", [
+    ("[b]{filament.type}[/b] [i]plain[/i]", {"filament.type": "PLA"}, "PLA plain"),
+    ("[B]A[i]B[/i][b]C[/b][/B]", {}, "ABC"),
+    ("[b]open", {}, "[b]open"),
+    ("[b]A[i]B[/b]C[/i]", {}, "[b]A[i]B[/b]C[/i]"),
+    ("[if={color}][b]Color: {color}[/b] {id}[/if]", {"color": "Blue", "id": "7"}, "Color: Blue 7"),
+    ("[if={color}]Color: {id}[/if]", {"id": "7"}, ""),
+    ("[if={color}]Color[/if]", {"color": "?"}, ""),
+    ("[if={color}]Color[/if]", {"color": "0"}, "Color"),
+    ("[IF={color}]A[if={missing}]B[/if]C[/IF]", {"color": "Blue"}, "AC"),
+    ("[if={missing}]A[if={color}]B[/if]C[/if]", {"color": "Blue"}, ""),
+    ("{Spool {id}[if={color}] Color[/if]}", {"id": "7", "color": "Blue"}, "Spool 7 Color"),
+    ("[if={color}]A", {"color": "Blue"}, "[if={color}]A"),
+])
+def test_v2_current_designer_markup(template, values, expected):
+    assert label_v2_renderer.resolve_v2_text(template, values) == expected
+
+
+@pytest.mark.parametrize("transparency", [None, 32768])
+def test_v2_native_16bit_asset_preserves_gray_and_transparency(tmp_path, transparency):
+    source = Image.new("I;16", (80, 20))
+    source.putdata([sample for _y in range(20) for sample in [0, 16384, 32768, 65535] for _x in range(20)])
+    content = BytesIO()
+    source.save(content, format="PNG", **({"transparency": transparency} if transparency is not None else {}))
+    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 10}, "elements": [
+        {"type": "image", "x": 0, "y": 0, "w": 40, "h": 10, "assetId": "gray"},
+    ]}
+    rendered = label_v2_renderer.render_v2_label(
+        design, 80, {"id": "7"}, [], "https://example.test/spools/7", tmp_path / "unused.png",
+        {"gray": content.getvalue()}, False,
+    )
+    assert [rendered.getpixel((x, 10)) for x in [10, 30, 50, 70]] == [
+        (0, 0, 0), (64, 64, 64), (255, 255, 255) if transparency else (128, 128, 128), (255, 255, 255),
+    ]
+
+
 def test_v2_qr_url_keeps_spool_route():
     assert label_v2_renderer.v2_qr_target(
         {"linkMode": "url", "urlTemplate": "https://labels.example/base/"},
@@ -66,7 +101,7 @@ def test_saved_preset_tokens_resolve_for_scale():
         diameter_mm=1.75, custom_fields={"settings_bed_temp": 60},
     )
     spool = SimpleNamespace(
-        id=7, filament_id=9, filament=filament, stocked_in_at=datetime(2026, 9, 1),
+        id=7, filament_id=9, filament=filament, stocked_in_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
         custom_fields={"dry": "yes"}, remaining_weight_g=850,
     )
     values = _label_values(spool, ["#FFFFFF"])

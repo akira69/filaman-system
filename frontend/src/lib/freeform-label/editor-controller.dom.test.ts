@@ -9,7 +9,7 @@ import PrintSidebar from '../../components/PrintSidebar.astro'
 import de from '../../i18n/de.json'
 import { createDefaultLabelDesign } from './defaults'
 import { createLabelAssetClient } from './assets'
-import { activeEditors, readStoredPresets } from './editor-storage'
+import { activeEditors, readStoredPresets, type StoredPreset } from './editor-storage'
 import type { FreeformEditorState } from './editor-types'
 import type { InteractFactory } from './interaction-adapter'
 import { deleteLabelPreset, saveLabelPreset, selectLabelPreset } from '../label-preset-storage'
@@ -2297,7 +2297,7 @@ describe('freeform editor database-owned presets', () => {
     const design = createDefaultLabelDesign('spool', () => `preset-${Math.random()}`)
     const otherDesign = createDefaultLabelDesign('spool', () => `other-${Math.random()}`)
     otherDesign.label.widthMm = design.label.widthMm + 10
-    const cache = {
+    const cache: { version: 2; presets: (StoredPreset & { settings?: unknown })[] } = {
       version: 2,
       presets: [{
         databaseId: 42,
@@ -2364,7 +2364,7 @@ describe('freeform editor database-owned presets', () => {
       expect(status.textContent).toBe('Existing status')
       select.value = 'own:Existing'
       select.dispatchEvent(new Event('change'))
-      expect(update.disabled).toBe(false)
+      await vi.waitFor(() => expect(update.disabled).toBe(false))
     } finally {
       pending.resolve()
       await deleting
@@ -2384,7 +2384,7 @@ describe('freeform editor database-owned presets', () => {
       expect(update).not.toBeNull()
       expect(update!.disabled).toBe(true)
       document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
-      expect(update!.disabled).toBe(false)
+      await vi.waitFor(() => expect(update!.disabled).toBe(false))
       const width = document.querySelector<HTMLInputElement>('#freeform-label-width')!
       width.value = '70'
       width.dispatchEvent(new Event('change'))
@@ -2408,6 +2408,7 @@ describe('freeform editor database-owned presets', () => {
     const editor = await initPresetEditor()
     try {
       document.querySelector<HTMLButtonElement>('#freeform-preset-load')!.click()
+      await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('#freeform-preset-update')!.disabled).toBe(false))
       const width = document.querySelector<HTMLInputElement>('#freeform-label-width')!
       width.value = '70'
       width.dispatchEvent(new Event('change'))
@@ -2472,7 +2473,7 @@ describe('freeform editor database-owned presets', () => {
       select.dispatchEvent(new Event('change'))
       expect(update.disabled).toBe(true)
       load.click()
-      expect(update.disabled).toBe(false)
+      await vi.waitFor(() => expect(update.disabled).toBe(false))
       name.value = 'Renamed'
       name.dispatchEvent(new Event('input'))
       expect(update.disabled).toBe(true)
@@ -2480,7 +2481,7 @@ describe('freeform editor database-owned presets', () => {
       expect(saveLabelPreset).not.toHaveBeenCalled()
       name.value = 'Existing'
       name.dispatchEvent(new Event('input'))
-      expect(update.disabled).toBe(false)
+      await vi.waitFor(() => expect(update.disabled).toBe(false))
       editor.loadSettings()
       expect(update.disabled).toBe(true)
       expect(JSON.parse(localStorage.getItem('database-presets')!)).toEqual(original)
@@ -2556,12 +2557,8 @@ describe('freeform editor database-owned presets', () => {
     const save = deferred<boolean>()
     const selectOther = deferred<boolean>()
     const selectExisting = deferred<boolean>()
-    vi.mocked(saveLabelPreset).mockImplementation((storageKey, preset) => save.promise.then(saved => {
-      if (saved) {
-        const stored = JSON.parse(localStorage.getItem(storageKey)!)
-        stored.presets.find((candidate: { name: string }) => candidate.name === preset.name).databaseId = 42
-        localStorage.setItem(storageKey, JSON.stringify(stored))
-      }
+    vi.mocked(saveLabelPreset).mockImplementation((_storageKey, preset) => save.promise.then(saved => {
+      if (saved) preset.databaseId = 42
       return saved
     }))
     vi.mocked(selectLabelPreset)
@@ -2572,9 +2569,9 @@ describe('freeform editor database-owned presets', () => {
     const load = document.querySelector<HTMLButtonElement>('#freeform-preset-load')!
     document.querySelector<HTMLInputElement>('#freeform-preset-name')!.value = 'Existing'
 
-    document.querySelector<HTMLButtonElement>('#freeform-preset-save')!.click()
+    const saving = editor.savePreset()
     await vi.waitFor(() => expect(saveLabelPreset).toHaveBeenCalledOnce())
-    expect(readStoredPresets('database-presets')[0].databaseId).toBeUndefined()
+    expect(readStoredPresets('database-presets')[0].databaseId).toBe(42)
     select.value = 'own:Other'
     load.click()
     select.value = 'own:Existing'
@@ -2588,6 +2585,7 @@ describe('freeform editor database-owned presets', () => {
     expect(selectLabelPreset).not.toHaveBeenCalled()
 
     save.resolve(true)
+    await saving
     await vi.waitFor(() => expect(selectLabelPreset).toHaveBeenCalledWith(43))
     expect(selectLabelPreset).toHaveBeenCalledTimes(1)
     expect(document.querySelector('#freeform-preset-status')!.textContent).toBe('Preset loaded.')

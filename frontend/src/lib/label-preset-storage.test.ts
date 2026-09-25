@@ -391,15 +391,16 @@ describe('label preset cache migration', () => {
     })
   })
 
-  it('keeps a successful new preset database ID in the browser cache', async () => {
+  it.each([false, true])('keeps a saved database ID after committing the cache (quota failure: %s)', async quotaFails => {
     const data = {
       version: 2 as const,
       design: createDefaultLabelDesign('spool', () => 'saved-id'),
     }
-    localStorage.setItem('filaman-spool-label-presets-v1', JSON.stringify({
-      version: 2,
-      presets: [{ name: 'Saved', data, settings: {} }],
-    }))
+    const key = 'filaman-spool-label-presets-v1'
+    const preset = { name: 'Saved', data }
+    if (quotaFails) vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError')
+    })
     vi.spyOn(api, 'put').mockResolvedValue({
       id: 42,
       preset_type: 'spool',
@@ -407,8 +408,8 @@ describe('label preset cache migration', () => {
       data,
     })
 
-    expect(await saveLabelPreset('filaman-spool-label-presets-v1', { name: 'Saved', data })).toBe(true)
-    expect(JSON.parse(localStorage.getItem('filaman-spool-label-presets-v1')!).presets[0].databaseId).toBe(42)
+    expect(await persistStoredPresetMutation(key, [preset], () => saveLabelPreset(key, preset))).toBe(true)
+    expect(readStoredPresets(key)[0].databaseId).toBe(42)
   })
 
   it('writes numeric and Default spool selections through the selection endpoint', async () => {

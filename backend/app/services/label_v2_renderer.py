@@ -1,14 +1,14 @@
 """Rasterize saved version 2 label geometry for the scale's image API."""
 
+import re
 from io import BytesIO
 from math import ceil, floor, isfinite
 from pathlib import Path
-import re
 from urllib.parse import urlsplit
 
 import qrcode
 from fastapi import HTTPException
-from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageFont, ImageMath, UnidentifiedImageError
 
 
 def _mm(value: object, maximum: float) -> float:
@@ -33,16 +33,52 @@ def _color(value: object, *, allow_empty: bool = False) -> str | None:
 
 
 def resolve_v2_text(template: str, values: dict[str, str]) -> str:
-    def replace(match: re.Match[str]) -> str:
-        token = match.group(0)
-        optional = re.fullmatch(r"\{(.*?)\{([^{}]+)\}(.*?)\}", token)
-        if optional:
-            value = values.get(optional.group(2).strip(), "")
-            return optional.group(1) + value + optional.group(3) if value else ""
-        return values.get(token[1:-1].strip(), "")
+    def replace_ranges(text, edits):
+        parts, cursor = [], 0
+        for start, end, replacement in sorted(edits, key=lambda edit: (edit[0], -edit[1])):
+            if start >= cursor:
+                parts.extend((text[cursor:start], replacement))
+                cursor = end
+        return "".join(parts) + text[cursor:]
 
-    expanded = re.sub(r"\{(?:[^{}]|\{[^{}]*\})*\}", replace, template.replace("\\n", "\n"))
+    # Match templateFieldRanges: explicit conditions retain their named field;
+    # legacy optional braces inherit the first nested field's condition.
+    template = template.replace("\\n", "\n")
+    stack, edits = [], []
+    for match in re.finditer(r"\[if=\{([^{}\n]+)\}\]|\[/if\]|\{|\}", template, re.IGNORECASE):
+        part = match.group()
+        if part == "{" or match[1] is not None:
+            stack.append((match.start(), match.end(), part != "{", match[1].strip() if match[1] is not None else None))
+            continue
+        if not stack or stack[-1][2] != (part != "}"):
+            continue
+        start, inner_start, explicit, condition = stack.pop()
+        token = not explicit and condition is None
+        key = condition if condition is not None else template[inner_start:match.start()].strip()
+        value = values.get(key, "")
+        if token or value in {"", "?"}:
+            edits.append((start, match.end(), value if token and value != "?" else ""))
+        else:
+            edits.extend(((start, inner_start, ""), (match.start(), match.end(), "")))
+        if stack and stack[-1][3] is None:
+            stack[-1] = (*stack[-1][:3], key)
+    expanded = replace_ranges(template, edits)
     expanded = re.sub(r"\^\^([\s\S]*?)\^\^", lambda match: match.group(1).upper(), expanded)
+
+    # Preserve malformed tags just as templateMarkupMatches does in the browser.
+    stack, edits = [], []
+    tags = r"\[(?:(font)=[^\]\n]+|(size)=\d{1,3}%?|([bi]))\]|\[/(font|size|b|i)\]"
+    for match in re.finditer(tags, expanded, re.IGNORECASE):
+        if match[4]:
+            opening = stack.pop() if stack else None
+            if opening and opening[0] == match[4].lower():
+                if opening[0] in {"b", "i"}:
+                    edits.extend(((opening[1], opening[2], ""), (match.start(), match.end(), "")))
+            else:
+                stack.clear()
+        else:
+            stack.append(((match[1] or match[2] or match[3]).lower(), match.start(), match.end()))
+    expanded = replace_ranges(expanded, edits)
     expanded = re.sub(r"\[/?size(?:=\d{1,3}%?)?\]", "", expanded, flags=re.IGNORECASE)
     return re.sub(r"\*{1,3}|==|__|@@", "", expanded)
 
@@ -146,7 +182,19 @@ def render_v2_label(
                     if isinstance(source, Path) and source.stat().st_size > 2_000_000:
                         raise OSError("Logo is too large")
                     with Image.open(BytesIO(source) if isinstance(source, bytes) else source) as original:
-                        picture = original.convert("RGBA")
+                        if original.mode == "I;16":
+                            samples = original.convert("I")
+                            gray = samples.point(lambda sample: sample * (255 / 65535) + 0.5).convert("L")
+                            gray.info.pop("transparency", None)
+                            picture = gray.convert("RGBA")
+                            if "transparency" in original.info:
+                                alpha = ImageMath.lambda_eval(
+                                    lambda images: (images["samples"] != original.info["transparency"]) * 255,
+                                    samples=samples,
+                                ).convert("L")
+                                picture.putalpha(alpha)
+                        else:
+                            picture = original.convert("RGBA")
                     crop = element.get("crop")
                     if isinstance(crop, dict):
                         cx, cy, cw, ch = (_mm(crop.get(key), 1) for key in ("x", "y", "w", "h"))
