@@ -187,9 +187,7 @@ def browser_executable():
 
     chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 
-    executable = os.environ.get("LABEL_RENDER_CHROMIUM_EXECUTABLE") or shutil.which("chromium")
-    if not executable and os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
-        return None  # Exercise Playwright's bundled browser selection.
+    executable = os.environ.get("LABEL_RENDER_CHROMIUM_EXECUTABLE") or shutil.which("chromium-headless-shell") or shutil.which("chromium")
     if not executable and chrome.is_file():
         executable = str(chrome)
     if not executable:

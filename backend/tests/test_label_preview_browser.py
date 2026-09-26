@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 from PIL import Image
-from playwright.async_api import BrowserType
 
 
 def write_render_page(root: Path, script: str):
@@ -24,7 +23,8 @@ async def test_render_uses_local_files_and_owned_assets_without_network(tmp_path
     requests = []
 
     async def record_network(reader, writer):
-        requests.append(await reader.read(4096))
+        requests.append(True)
+        await reader.read(4096)
         writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nSECRET")
         await writer.drain()
         writer.close()
@@ -41,6 +41,17 @@ async def test_render_uses_local_files_and_owned_assets_without_network(tmp_path
             try { await fetch(path, {mode: 'no-cors'}); } catch { denied = true; }
             if (!denied) throw Error('Unexpected access to ' + path);
           }
+          const link = document.createElement('link');
+          link.rel = 'preconnect'; link.href = payload.trap;
+          document.head.append(link);
+          await new Promise((resolve, reject) => {
+            const socket = new WebSocket(payload.trap.replace('http:', 'ws:'));
+            socket.onerror = resolve; socket.onopen = () => reject(Error('WebSocket escaped'));
+          });
+          let workerBlocked = false;
+          try { await navigator.serviceWorker.register('/_astro/render.js'); }
+          catch { workerBlocked = true; }
+          if (!workerBlocked) throw Error('Service worker escaped');
           const image = await createImageBitmap(await (await fetch(payload.asset)).blob());
           const canvas = document.createElement('canvas');
           canvas.width = 3; canvas.height = 2;
@@ -64,7 +75,7 @@ async def test_render_uses_local_files_and_owned_assets_without_network(tmp_path
     try:
         result = await render_preview_png(
             {
-                "asset": asset_path, "color": "#00ff00",
+                "asset": asset_path, "color": "#00ff00", "trap": origin,
                 "blocked": [
                     "/api/private", "/uploads/private.png", "/missing.txt", "/escape.txt",
                     "/..%2Fsecret.txt", f"{origin}/outside", "https://example.invalid/private",
@@ -89,15 +100,15 @@ async def test_render_closes_browser_after_failure_and_does_not_retain_cookies(
 ):
     from app.services.label_preview_browser import render_preview_png
 
-    browsers = []
-    original_launch = BrowserType.launch
+    processes = []
+    launch = asyncio.create_subprocess_exec
 
-    async def capture_browser(self, **kwargs):
-        browser = await original_launch(self, **kwargs)
-        browsers.append(browser)
-        return browser
+    async def capture_process(*args, **kwargs):
+        process = await launch(*args, **kwargs)
+        processes.append(process)
+        return process
 
-    monkeypatch.setattr(BrowserType, "launch", capture_browser)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
     write_render_page(tmp_path, """
         window.renderApiLabel = async payload => {
           if (document.cookie) throw Error('Previous request cookie leaked');
@@ -111,13 +122,13 @@ async def test_render_closes_browser_after_failure_and_does_not_retain_cookies(
             static_dir=tmp_path, executable_path=browser_executable,
         )
     assert rejected.value.status_code == 422
-    assert browsers and all(not browser.is_connected() for browser in browsers)
+    assert processes and all(process.returncode is not None for process in processes)
     png = await render_preview_png(
         {}, "http://labels.invalid", {}, static_dir=tmp_path, executable_path=browser_executable,
     )
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
-    assert len(browsers) == 2
-    assert all(not browser.is_connected() for browser in browsers)
+    assert len(processes) == 2
+    assert all(process.returncode is not None for process in processes)
 
 
 @pytest.mark.asyncio
@@ -172,3 +183,73 @@ async def test_origin_credentials_are_rejected_before_loading_page(tmp_path, bro
         )
     assert rejected.value.status_code == 422
     assert rejected.value.detail == "Invalid label renderer origin"
+
+
+def test_service_imports_without_playwright():
+    import subprocess
+    import sys
+    result = subprocess.run([sys.executable, "-c", "import sys; sys.modules['playwright'] = None; from app.services.label_preview_browser import render_preview_png"], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["crash", "timeout", "cancel", "resource"])
+async def test_browser_failure_reaps_process_and_profile(tmp_path, browser_executable, monkeypatch, failure):
+    import os
+    import signal
+
+    from app.services import label_preview_browser as service
+
+    launched = asyncio.Event()
+    processes, profiles = [], []
+    original = asyncio.create_subprocess_exec
+
+    async def capture(*args, **kwargs):
+        process = await original(*args, **kwargs)
+        processes.append(process)
+        profiles.extend(Path(arg.split("=", 1)[1]) for arg in args if arg.startswith("--user-data-dir="))
+        launched.set()
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture)
+    write_render_page(tmp_path, "window.renderApiLabel = async () => new Promise(() => {})")
+    if failure == "timeout":
+        monkeypatch.setattr(service, "_RENDER_TIMEOUT_SECONDS", 0.5)
+    if failure == "resource":
+        read = Path.read_bytes
+        def broken_read(path):
+            if path.name == "render.js":
+                raise RuntimeError("resource failed")
+            return read(path)
+        monkeypatch.setattr(Path, "read_bytes", broken_read)
+    async def run():
+        async with service.label_render_slot():
+            return await service.render_preview_png({}, "http://labels.invalid", {}, static_dir=tmp_path, executable_path=browser_executable)
+    task = asyncio.create_task(run())
+    await asyncio.wait_for(launched.wait(), 5)
+    if not profiles:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        pytest.fail("Chromium must be launched directly")
+    if failure in ("crash", "cancel"):
+        await asyncio.sleep(0.5)
+        if failure == "crash":
+            os.kill(processes[0].pid, signal.SIGKILL)
+        else:
+            task.cancel()
+    with pytest.raises(asyncio.CancelledError if failure == "cancel" else HTTPException) as caught:
+        await asyncio.wait_for(task, 6)
+    if failure != "cancel":
+        assert caught.value.status_code == 503
+        assert bool(caught.value.headers and "Retry-After" in caught.value.headers) == (failure == "timeout")
+    assert all(process.returncode is not None for process in processes)
+    assert all(not profile.exists() for profile in profiles)
+    member_process = await original(
+        "ps", "-axo", "pgid=,stat=", stdout=asyncio.subprocess.PIPE,
+    )
+    members, _ = await member_process.communicate()
+    groups = {process.pid for process in processes}
+    assert not [line for line in members.decode().splitlines()
+                if int(line.split()[0]) in groups and not line.split()[1].startswith("Z")]
+    async with service.label_render_slot():
+        pass

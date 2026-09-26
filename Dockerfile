@@ -21,7 +21,7 @@ COPY version.txt ./
 RUN BUILD_MODE=static npm run build
 
 # --- Backend Build Stage ---
-FROM python:3.11-slim AS backend-builder
+FROM python:3.11-slim-trixie AS backend-builder
 
 WORKDIR /app/backend
 
@@ -46,7 +46,7 @@ RUN uv pip install --system --no-cache -r pyproject.toml
 COPY backend/ ./
 
 # --- Final Image Stage ---
-FROM python:3.11-slim
+FROM python:3.11-slim-trixie
 
 WORKDIR /app
 
@@ -56,7 +56,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Disable in-app migrations because the entrypoint handles them
 ENV RUN_MIGRATIONS_IN_APP=false
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/label-browser
+ENV LABEL_RENDER_CHROMIUM_EXECUTABLE=/usr/lib/chromium/chromium-headless-shell
 
 # Install uv, cron, and nginx in the final image
 RUN pip install uv && apt-get update && apt-get install -y cron nginx && rm -rf /var/lib/apt/lists/*
@@ -66,7 +66,7 @@ COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/l
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
 # Use the existing preview on demand; install only the headless browser runtime.
-RUN python -m playwright install --with-deps --only-shell chromium \
+RUN apt-get update && apt-get install -y --no-install-recommends chromium-headless-shell \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy backend application
