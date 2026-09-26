@@ -29,6 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     libffi-dev \
+    libjpeg62-turbo-dev \
+    zlib1g-dev \
     default-libmysqlclient-dev \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -58,15 +60,18 @@ ENV PYTHONUNBUFFERED=1
 ENV RUN_MIGRATIONS_IN_APP=false
 ENV LABEL_RENDER_CHROMIUM_EXECUTABLE=/usr/lib/chromium/chromium-headless-shell
 
-# Install uv, cron, and nginx in the final image
-RUN pip install uv && apt-get update && apt-get install -y cron nginx && rm -rf /var/lib/apt/lists/*
+# Install uv, services, and the Pillow runtime library used by ARMv7 source builds.
+RUN pip install uv && apt-get update && apt-get install -y cron nginx libjpeg62-turbo && rm -rf /var/lib/apt/lists/*
 
 # Copy installed dependencies from backend-builder
 COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
-# Use the existing preview on demand; install only the headless browser runtime.
-RUN apt-get update && apt-get install -y --no-install-recommends chromium-headless-shell \
+# The default image stays small; the -chromium image enables shared-preview rendering.
+ARG INSTALL_LABEL_BROWSER=false
+RUN if [ "$INSTALL_LABEL_BROWSER" = "true" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends chromium-headless-shell; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy backend application

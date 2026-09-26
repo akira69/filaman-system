@@ -120,6 +120,24 @@ migration as the editor; v2 designs use the shared free-form renderer. Default
 uses the existing standard label. The scale makes this request directly;
 no PC or open browser tab is required.
 
+Chromium is the default renderer. Use the `-chromium` Docker image for exact
+editor-preview output. A smaller fixed layout is available without a browser:
+
+```http
+GET /api/v1/labels/spool/123/render?renderer=basic&preset_id=0&format=mono1&width=576
+```
+
+Basic uses a fixed 60 × 40 mm layout with manufacturer, designation, material,
+color name and swatch, remaining weight when present, spool ID, and the spool
+QR link. Display text is limited to printable Latin-1. Basic supports only
+Default (`preset_id=0`); it does not reproduce saved designer presets, custom
+fields, logos, uploads, or free-form positions. If a saved preset is explicit
+or currently selected, FilaMan returns `422`,
+`X-Label-Error: preset_requires_chromium`, and a JSON explanation. It never
+silently substitutes the fixed layout. Set `LABEL_RENDERER=basic` to use Basic
+for existing clients that omit `renderer`; those clients must have Default
+selected. A request can override the setting with `renderer=chromium`.
+
 Uploaded images must belong to the API key's user. Missing images, text that
 cannot fit, and other preview readiness errors return `422`. Fix the preset
 in the designer before retrying. Printer padding, rotation, monochrome conversion,
@@ -128,18 +146,26 @@ resolution instead of producing a full 600-DPI export first.
 
 ## Server runtime and memory
 
-The Docker image includes Playwright's Chromium headless shell. For a source
-installation, install backend dependencies, build the static frontend, and run
-`python -m playwright install --with-deps --only-shell chromium` in the backend
-Python environment. The renderer finds `frontend/dist` or `/app/static` by default.
+The default Docker tags (`latest`, version, and SHA) do not include Chromium.
+They run the normal browser editor and Basic API labels. Matching
+`latest-chromium`, `vX.Y.Z-chromium`, and `sha-<commit>-chromium` tags add Debian's
+headless Chromium for exact API preview rendering. Changing image tags is the
+only deployment change required; both variants otherwise expose the same app
+and API and default to `LABEL_RENDERER=chromium` for compatibility.
+
+For a source installation, install backend dependencies and the operating
+system's `chromium-headless-shell` (or Chromium), then build the static frontend.
+The renderer finds `frontend/dist` or `/app/static` by default.
 `LABEL_RENDER_STATIC_DIR` can point to a different static build directory;
 `LABEL_RENDER_CHROMIUM_EXECUTABLE` can select an installed Chromium executable.
 These settings do not change the scale request.
 
 Chromium starts on demand and closes after each render. A shared file lock permits
 one render across server workers, before image blobs are loaded. Busy requests
-receive `503` with `Retry-After: 1`; retry the render GET after that delay. Missing
-runtime files and rendering timeouts also return `503`. The browser receives only
+receive `503` with `Retry-After: 1`; retry the render GET after that delay.
+Timeouts also include that retry hint. A Chromium request in the browserless
+image returns a clear `503` without a retry hint; install the Chromium image or
+request Basic Default. The browser receives only
 the static build and authorized image bytes; external network access is blocked.
 
 The final raster is at most 1024 pixels wide and 2048 pixels high. Images and QR
@@ -150,11 +176,16 @@ images or simplify the preset. Manufacturer logos are also limited to 2 MB of
 encoded input and the existing safe image decoder limits.
 
 Label downloads are small: a 480 × 320 `mono1` raster is 19,200 bytes. Runtime RAM
-is separate from file size. An isolated Linux headless-shell measurement peaked
-at about 195 MiB for a standard label and 361 MiB with a 12-megapixel image;
-these are measured examples, not a hard process-memory limit. The runtime also
-adds browser/dependency storage: the local test image measured about 1.77 GB
-(as reported by Docker). There is no idle browser process. Allow memory headroom for the application and concurrent non-render work.
+is separate from file size and from the complete application's RAM. In isolated
+Linux measurements, direct headless Chromium peaked near 116 MiB for a standard
+label and 317 MiB with a 12-megapixel image. Those are observations under the
+test's browser, fonts, container limit, and inputs, not hard guarantees. Basic
+adds only the Pillow/QR rendering work and no browser process. There is no idle
+Chromium process. The final local ARM64 images measured about 722 MB without
+Chromium and 1.48 GB with it (Docker's unpacked image size), so the optional
+browser added about 761 MB. The QR package itself is a roughly 46 KB wheel;
+Pillow was already an application dependency. Allow headroom for the app and
+concurrent non-render work.
 
 ## Ask the PC to print or generate a PDF
 
