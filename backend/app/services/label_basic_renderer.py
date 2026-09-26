@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from PIL import Image, ImageDraw, ImageFont
 
 from app.models import Spool
+from app.utils.colors import visible_rgb_hex
 
 
 def render_basic_label(
@@ -56,10 +57,16 @@ def render_basic_label(
         y = line(values[3], y, label_width // 24)
     if spool.remaining_weight_g is not None:
         y = line(f"{round(spool.remaining_weight_g)} g remaining", y, label_width // 26)
-    if colors:
+    valid_colors = []
+    for color in colors:
+        try:
+            valid_colors.append(visible_rgb_hex(color))
+        except ValueError:
+            pass
+    if valid_colors:
         swatch_width = min(text_width, label_width // 4)
-        segment = max(1, swatch_width // len(colors))
-        for index, hex_code in enumerate(colors):
+        segment = max(1, swatch_width // len(valid_colors))
+        for index, hex_code in enumerate(valid_colors):
             draw.rectangle(
                 (margin + index * segment, y, margin + (index + 1) * segment - 1,
                  y + max(8, label_width // 50)),

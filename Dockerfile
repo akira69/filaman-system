@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libffi-dev \
     libjpeg62-turbo-dev \
+    libfreetype6-dev \
     zlib1g-dev \
     default-libmysqlclient-dev \
     libpq-dev \
@@ -60,8 +61,8 @@ ENV PYTHONUNBUFFERED=1
 ENV RUN_MIGRATIONS_IN_APP=false
 ENV LABEL_RENDER_CHROMIUM_EXECUTABLE=/usr/lib/chromium/chromium-headless-shell
 
-# Install uv, services, and the Pillow runtime library used by ARMv7 source builds.
-RUN pip install uv && apt-get update && apt-get install -y cron nginx libjpeg62-turbo && rm -rf /var/lib/apt/lists/*
+# Install uv, services, and the Pillow runtime libraries used by ARMv7 source builds.
+RUN pip install uv && apt-get update && apt-get install -y cron nginx libjpeg62-turbo libfreetype6 && rm -rf /var/lib/apt/lists/*
 
 # Copy installed dependencies from backend-builder
 COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages

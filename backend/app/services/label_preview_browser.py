@@ -178,11 +178,13 @@ async def render_preview_png(
             if sys.platform != "darwin":
                 raise
             members = subprocess.run(
-                ["/bin/ps", "-o", "pid=,stat=", "-g", str(process.pid)],
+                ["/bin/ps", "-axo", "pgid=,stat="],
                 capture_output=True, text=True, timeout=.2, check=False,
             )
-            if members.returncode not in (0, 1) or any(
-                not line.split()[1].startswith("Z") for line in members.stdout.splitlines()
+            live = [line.split() for line in members.stdout.splitlines()]
+            if members.returncode or any(
+                row[0] == str(process.pid) and not any(state in row[1] for state in "EZ")
+                for row in live if len(row) >= 2
             ):
                 raise
 

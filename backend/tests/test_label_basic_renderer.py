@@ -1,9 +1,10 @@
 from io import BytesIO
 
 import pytest
-from app.models import Filament, Manufacturer, Spool
 from fastapi import HTTPException
 from PIL import Image, ImageChops
+
+from app.models import Filament, Manufacturer, Spool
 
 
 def _spool(**filament_values):
@@ -22,11 +23,12 @@ def _spool(**filament_values):
 
 def test_basic_label_has_fixed_fields_color_and_exact_qr():
     import qrcode
+
     from app.services.label_basic_renderer import render_basic_label
 
     width, height = 480, 320
     target = "http://test/spools/7"
-    image = render_basic_label(_spool(), width, height, target, ["#e02020", "#2040e0"])
+    image = render_basic_label(_spool(), width, height, target, ["legacy", "#e02020", "#2040e0"])
     assert image.mode == "RGB"
     assert image.size == (width, height)
     assert image.getbbox() == (0, 0, width, height)
@@ -42,7 +44,7 @@ def test_basic_label_has_fixed_fields_color_and_exact_qr():
     without_remaining.remaining_weight_g = None
     assert ImageChops.difference(
         image,
-        render_basic_label(without_remaining, width, height, target, ["#e02020", "#2040e0"]),
+        render_basic_label(without_remaining, width, height, target, ["legacy", "#e02020", "#2040e0"]),
     ).getbbox() is not None
 
 
