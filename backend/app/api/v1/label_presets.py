@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import DBSession, PrincipalDep
+from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.core.security import Principal
 from app.models import LabelPreset, User
 from app.models.label_preset import (
@@ -215,7 +215,7 @@ async def list_label_presets(
 async def select_label_preset(
     body: LabelPresetSelectionInput,
     db: DBSession,
-    principal: PrincipalDep,
+    principal=RequirePermission("spools:read"),
 ):
     user_id = _require_user_id(principal)
     async with _preset_transaction(db):

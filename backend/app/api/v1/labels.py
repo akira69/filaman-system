@@ -17,7 +17,8 @@ from sqlalchemy.orm import selectinload, undefer
 from app.api.deps import DBSession, RequirePermission
 from app.api.v1.schemas_spool import SpoolResponse
 from app.api.v1.schemas_system_extra_field import SystemExtraFieldResponse
-from app.core.config import MANUFACTURER_LOGO_DIR, settings as app_settings
+from app.core.config import MANUFACTURER_LOGO_DIR
+from app.core.config import settings as app_settings
 from app.models import (
     Filament,
     FilamentColor,
@@ -354,7 +355,11 @@ async def render_spool_label(
         else:
             width_mm, height_mm = _label_size(settings)
         label_width = round(width_mm * dpi / 25.4) if dpi else width
-        label_height = round(label_width * height_mm / width_mm)
+        label_height = (
+            round(height_mm * dpi / 25.4)
+            if dpi
+            else round(label_width * height_mm / width_mm)
+        )
         rotated = (
             orientation == "landscape" and label_height > label_width
         ) or (

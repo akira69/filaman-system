@@ -132,6 +132,137 @@ async def test_render_closes_browser_after_failure_and_does_not_retain_cookies(
 
 
 @pytest.mark.asyncio
+async def test_render_keeps_chromium_sandboxed_under_the_configured_user(
+    tmp_path, browser_executable, monkeypatch
+):
+    import os
+    import pwd
+
+    from app.services.label_preview_browser import render_preview_png
+
+    account = pwd.getpwuid(os.getuid())
+    monkeypatch.setenv("LABEL_RENDER_CHROMIUM_USER", account.pw_name)
+    monkeypatch.setenv("SECRET_KEY", "must-not-reach-chromium")
+    launches = []
+
+    async def capture_process(*args, **kwargs):
+        launches.append((args, kwargs))
+        raise OSError("stop after launch options are captured")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
+    write_render_page(
+        tmp_path,
+        "window.renderApiLabel = () => document.createElement('canvas').toDataURL('image/png')",
+    )
+
+    with pytest.raises(HTTPException):
+        await render_preview_png(
+            {},
+            "http://labels.invalid",
+            {},
+            static_dir=tmp_path,
+            executable_path=browser_executable,
+        )
+
+    args, options = launches[0]
+    assert "--no-sandbox" not in args
+    assert options["user"] == account.pw_uid
+    assert options["group"] == account.pw_gid
+    assert "SECRET_KEY" not in options["env"]
+
+
+@pytest.mark.asyncio
+async def test_armv7_keeps_the_zygote_required_by_the_sandbox(
+    tmp_path, browser_executable, monkeypatch
+):
+    from app.services import label_preview_browser
+
+    launches = []
+
+    async def capture_process(*args, **kwargs):
+        launches.append(args)
+        raise OSError("stop after argv is captured")
+
+    monkeypatch.setattr(label_preview_browser.sys, "platform", "linux")
+    monkeypatch.setattr(label_preview_browser.platform, "machine", lambda: "armv7l")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
+    write_render_page(tmp_path, "window.renderApiLabel = () => ''")
+
+    with pytest.raises(HTTPException):
+        await label_preview_browser.render_preview_png(
+            {}, "http://labels.invalid", {},
+            static_dir=tmp_path, executable_path=browser_executable,
+        )
+
+    assert "--disable-gpu" in launches[0]
+    assert "--in-process-gpu" in launches[0]
+    assert "--no-zygote" not in launches[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("render_user", [None, "root"])
+async def test_root_renderer_requires_a_non_root_browser_user(
+    tmp_path, browser_executable, monkeypatch, render_user
+):
+    from app.services.label_preview_browser import render_preview_png
+
+    write_render_page(
+        tmp_path,
+        "window.renderApiLabel = () => document.createElement('canvas').toDataURL('image/png')",
+    )
+    monkeypatch.setattr("os.geteuid", lambda: 0)
+    if render_user is None:
+        monkeypatch.delenv("LABEL_RENDER_CHROMIUM_USER", raising=False)
+    else:
+        monkeypatch.setenv("LABEL_RENDER_CHROMIUM_USER", render_user)
+
+    with pytest.raises(HTTPException) as rejected:
+        await render_preview_png(
+            {},
+            "http://labels.invalid",
+            {},
+            static_dir=tmp_path,
+            executable_path=browser_executable,
+        )
+
+    assert rejected.value.status_code == 503
+    assert rejected.value.detail == "Label renderer requires an unprivileged user"
+
+
+@pytest.mark.asyncio
+async def test_root_renderer_drops_supplementary_groups(
+    tmp_path, browser_executable, monkeypatch
+):
+    import os
+    import pwd
+
+    from app.services.label_preview_browser import render_preview_png
+
+    account = pwd.getpwuid(os.getuid())
+    monkeypatch.setenv("LABEL_RENDER_CHROMIUM_USER", account.pw_name)
+    monkeypatch.setattr("os.geteuid", lambda: 0)
+    launches = []
+
+    async def capture_process(*args, **kwargs):
+        launches.append((args, kwargs))
+        raise OSError("stop after launch options are captured")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
+    write_render_page(tmp_path, "window.renderApiLabel = () => ''")
+
+    with pytest.raises(HTTPException):
+        await render_preview_png(
+            {},
+            "http://labels.invalid",
+            {},
+            static_dir=tmp_path,
+            executable_path=browser_executable,
+        )
+
+    assert launches[0][1]["extra_groups"] == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("missing", ["build", "binary"])
 async def test_missing_browser_runtime_returns_clear_503(tmp_path, missing):
     from app.services.label_preview_browser import render_preview_png

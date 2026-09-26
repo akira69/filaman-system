@@ -62,6 +62,36 @@ async def test_render_uses_shared_preview_with_native_data(auth_client, preview_
 
 
 @pytest.mark.asyncio
+async def test_dpi_converts_both_physical_dimensions_independently(
+    auth_client, preview_spool, db_session, monkeypatch,
+):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.data = {
+        "version": 2,
+        "design": {
+            **preset.data["design"],
+            "label": {"widthMm": 20, "heightMm": 200},
+        },
+    }
+    await db_session.commit()
+    output = BytesIO()
+    Image.new("RGB", (1, 1), "white").save(output, format="PNG")
+    browser = AsyncMock(return_value=output.getvalue())
+    monkeypatch.setattr(labels, "render_preview_png", browser)
+
+    response = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render"
+        f"?preset_id={preset.id}&dpi=203&width=576&format=mono1"
+    )
+
+    assert response.status_code == 200
+    assert browser.call_args.args[0]["pixelWidth"] == 160
+    assert browser.call_args.args[0]["pixelHeight"] == 1598
+    assert response.headers["x-image-height"] == "1598"
+
+
+@pytest.mark.asyncio
 async def test_oversized_logo_is_rejected_before_browser_decode(auth_client, preview_spool, monkeypatch, tmp_path):
     import struct
     import zlib

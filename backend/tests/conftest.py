@@ -201,7 +201,9 @@ def label_render_runtime(browser_executable, monkeypatch):
 
     frontend = Path(__file__).resolve().parents[2] / "frontend/dist"
     if not (frontend / "label-render/index.html").is_file():
-        pytest.skip("Build the static frontend for label rendering integration tests")
+        frontend /= "client"
+    if not (frontend / "label-render/index.html").is_file():
+        pytest.skip("Build the frontend for label rendering integration tests")
     monkeypatch.setenv("LABEL_RENDER_STATIC_DIR", str(frontend))
     if browser_executable:
         monkeypatch.setenv("LABEL_RENDER_CHROMIUM_EXECUTABLE", browser_executable)

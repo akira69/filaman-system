@@ -119,6 +119,14 @@ image crops, and QR generation as the editor. Saved v1 settings use the same
 migration as the editor; v2 designs use the shared free-form renderer. Default
 uses the existing standard label. The scale makes this request directly;
 no PC or open browser tab is required.
+The Chromium image runs each browser under a dedicated unprivileged user with
+the browser sandbox enabled. Docker deployments must use the supplied seccomp
+profile so Chromium can create its sandbox namespaces without `SYS_ADMIN` or
+an unconfined container:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.chromium.yml up -d
+```
 
 Chromium is the default renderer. Use the `-chromium` Docker image for exact
 editor-preview output. A smaller fixed layout is available without a browser:
@@ -150,8 +158,11 @@ The default Docker tags (`latest`, version, and SHA) do not include Chromium.
 They run the normal browser editor and Basic API labels. Matching
 `latest-chromium`, `vX.Y.Z-chromium`, and `sha-<commit>-chromium` tags add Debian's
 headless Chromium for exact API preview rendering. Changing image tags is the
-only deployment change required; both variants otherwise expose the same app
-and API and default to `LABEL_RENDERER=chromium` for compatibility.
+only image change; the supplied Compose override also applies
+`docker/chromium-seccomp.json`. Both variants otherwise expose the same app and
+API and default to `LABEL_RENDERER=chromium` for compatibility. A raw Docker
+launch must pass `--security-opt seccomp=./docker/chromium-seccomp.json`.
+Without that profile Chromium fails closed instead of running unsandboxed.
 
 For a source installation, install backend dependencies and the operating
 system's `chromium-headless-shell` (or Chromium), then build the static frontend.

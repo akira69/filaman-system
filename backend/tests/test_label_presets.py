@@ -82,6 +82,52 @@ class TestLabelPresets:
         )
 
     @pytest.mark.asyncio
+    async def test_spool_preset_selection_requires_spool_read_scope(
+        self, client, db_session, normal_user
+    ):
+        from app.core.middleware import invalidate_auth_caches
+        from app.core.security import generate_token_secret, hash_token
+        from app.models import UserApiKey
+
+        preset = LabelPreset(
+            user_id=normal_user.id,
+            preset_type="spool",
+            name="Restricted",
+            name_key=label_preset_name_key("Restricted"),
+            data={},
+        )
+        secret = generate_token_secret()
+        api_key = UserApiKey(
+            user_id=normal_user.id,
+            name="Restricted scale",
+            key_hash=hash_token(secret),
+            scopes=[],
+        )
+        db_session.add_all([preset, api_key])
+        await db_session.commit()
+        headers = {"Authorization": f"ApiKey uak.{api_key.id}.{secret}"}
+
+        denied = await client.put(
+            "/api/v1/me/label-presets/selection",
+            json={"preset_id": preset.id},
+            headers=headers,
+        )
+
+        assert denied.status_code == 403
+        await db_session.refresh(preset)
+        assert preset.selected_at is None
+
+        api_key.scopes = ["spools:read"]
+        await db_session.commit()
+        invalidate_auth_caches()
+        allowed = await client.put(
+            "/api/v1/me/label-presets/selection",
+            json={"preset_id": preset.id},
+            headers=headers,
+        )
+        assert allowed.status_code == 204
+
+    @pytest.mark.asyncio
     async def test_spool_upsert_selects_and_delete_restores_default(
         self, auth_client, db_session
     ):

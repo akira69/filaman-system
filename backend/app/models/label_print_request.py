@@ -13,6 +13,6 @@ class LabelPrintRequest(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     spool_id: Mapped[int] = mapped_column(Integer, ForeignKey("spools.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    preset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("label_presets.id", ondelete="SET NULL"), nullable=True)
+    preset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("label_presets.id", ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TZDateTime(), server_default=func.now(), nullable=False)
     claimed_at: Mapped[datetime | None] = mapped_column(TZDateTime(), nullable=True)

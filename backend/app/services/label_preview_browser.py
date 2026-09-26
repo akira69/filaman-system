@@ -62,6 +62,21 @@ async def render_preview_png(
                            if (path := shutil.which(name))), None)
     if not executable or not Path(executable).is_file() or not os.access(executable, os.X_OK):
         raise HTTPException(503, "Label renderer Chromium executable is unavailable; use the Chromium-enabled FilaMan image or configure LABEL_RENDER_CHROMIUM_EXECUTABLE")
+    render_user = os.environ.get("LABEL_RENDER_CHROMIUM_USER")
+    render_account = None
+    if render_user:
+        if not hasattr(os, "geteuid"):
+            raise HTTPException(503, "Label renderer user isolation is unavailable")
+        import pwd
+        try:
+            render_account = pwd.getpwnam(render_user)
+        except KeyError as exc:
+            raise HTTPException(503, "Label renderer user is unavailable") from exc
+    parent_is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+    if (parent_is_root and render_account is None) or (
+        render_account is not None and render_account.pw_uid == 0
+    ):
+        raise HTTPException(503, "Label renderer requires an unprivileged user")
     try:
         expected = urlsplit(origin)
         def authority(url):
@@ -222,8 +237,33 @@ async def render_preview_png(
 
     try:
         async with asyncio.timeout(_RENDER_TIMEOUT_SECONDS):
+            sensitive_env = (
+                "AUTH", "CONFIG", "CREDENTIAL", "DATABASE", "KEY", "PASSWORD", "PASSWD",
+                "PROXY", "SECRET", "SESSION", "TOKEN", "URL", "WEBHOOK",
+            )
+            browser_env = {
+                key: value for key, value in os.environ.items()
+                if not any(part in key.upper() for part in sensitive_env)
+            }
+            browser_env.update({
+                "LOGNAME": render_user or os.environ.get("LOGNAME", "label-render"),
+                "PATH": os.defpath,
+                "USER": render_user or os.environ.get("USER", "label-render"),
+            })
+            if sys.platform != "darwin":
+                browser_env.update(
+                    HOME=profile, XDG_CACHE_HOME=profile, XDG_CONFIG_HOME=profile,
+                )
+            launch_options = {
+                "env": browser_env,
+            }
+            if render_account is not None:
+                os.chown(profile, render_account.pw_uid, render_account.pw_gid)
+                launch_options.update(user=render_account.pw_uid, group=render_account.pw_gid)
+                if parent_is_root:
+                    launch_options["extra_groups"] = []
             args = [
-                executable, "--headless", "--no-sandbox", "--disable-dev-shm-usage",
+                executable, "--headless", "--disable-dev-shm-usage",
                 "--no-first-run", "--disable-background-networking", "--disable-component-update",
                 "--disable-extensions", "--disable-sync", "--disable-default-apps",
                 "--hide-scrollbars", "--mute-audio", "--force-color-profile=srgb",
@@ -232,10 +272,11 @@ async def render_preview_png(
                 "--remote-debugging-address=127.0.0.1", f"--user-data-dir={profile}", "about:blank",
             ]
             if sys.platform == "linux" and platform.machine().startswith("armv7"):
-                args.extend(["--disable-gpu", "--in-process-gpu", "--no-zygote"])
+                args.extend(["--disable-gpu", "--in-process-gpu"])
             process = await asyncio.create_subprocess_exec(
                 *args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
                 start_new_session=True,
+                **launch_options,
             )
             portfile = Path(profile) / "DevToolsActivePort"
             while not portfile.exists():

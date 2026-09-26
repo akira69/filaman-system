@@ -1,10 +1,9 @@
 from io import BytesIO
 
 import pytest
+from app.models import Filament, Manufacturer, Spool
 from fastapi import HTTPException
 from PIL import Image, ImageChops
-
-from app.models import Filament, Manufacturer, Spool
 
 
 def _spool(**filament_values):
@@ -23,7 +22,6 @@ def _spool(**filament_values):
 
 def test_basic_label_has_fixed_fields_color_and_exact_qr():
     import qrcode
-
     from app.services.label_basic_renderer import render_basic_label
 
     width, height = 480, 320

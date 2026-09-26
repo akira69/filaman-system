@@ -32,6 +32,27 @@ def test_model_does_not_reuse_ids_after_queue_cleanup():
     engine.dispose()
 
 
+def test_model_cascades_requests_when_their_explicit_preset_is_deleted():
+    metadata = related_tables()
+    requests = LabelPrintRequest.__table__.to_metadata(metadata)
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        metadata.create_all(connection)
+        for name in ("spools", "users", "label_presets"):
+            connection.exec_driver_sql(f"INSERT INTO {name} (id) VALUES (1)")
+        connection.execute(
+            requests.insert().values(spool_id=1, user_id=1, preset_id=1)
+        )
+
+        connection.exec_driver_sql("DELETE FROM label_presets WHERE id = 1")
+
+        assert connection.exec_driver_sql(
+            "SELECT COUNT(*) FROM label_print_requests"
+        ).scalar_one() == 0
+    engine.dispose()
+
+
 def test_upgrade_preserves_requests_and_prevents_reuse_after_cleanup():
     backend = Path(__file__).parents[1]
     config = Config(str(backend / "alembic.ini"))
@@ -70,4 +91,38 @@ def test_upgrade_preserves_requests_and_prevents_reuse_after_cleanup():
         with Operations.context(MigrationContext.configure(connection)):
             migration.downgrade()
         assert connection.exec_driver_sql("SELECT * FROM label_print_requests").all() == before_downgrade
+    engine.dispose()
+
+
+def test_migration_head_cascades_requests_when_their_preset_is_deleted():
+    backend = Path(__file__).parents[1]
+    config = Config(str(backend / "alembic.ini"))
+    config.set_main_option("script_location", str(backend / "alembic"))
+    scripts = ScriptDirectory.from_config(config)
+    engine = sa.create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        related_tables().create_all(connection)
+        for name in ("spools", "users", "label_presets"):
+            connection.exec_driver_sql(f"INSERT INTO {name} (id) VALUES (1)")
+        with Operations.context(MigrationContext.configure(connection)):
+            scripts.get_revision("add_label_print_requests").module.upgrade()
+            for migration in reversed(
+                list(
+                    scripts.iterate_revisions(
+                        "heads", "add_label_print_requests"
+                    )
+                )
+            ):
+                migration.module.upgrade()
+        connection.exec_driver_sql(
+            "INSERT INTO label_print_requests (spool_id, user_id, preset_id) "
+            "VALUES (1, 1, 1)"
+        )
+
+        connection.exec_driver_sql("DELETE FROM label_presets WHERE id = 1")
+
+        assert connection.exec_driver_sql(
+            "SELECT COUNT(*) FROM label_print_requests"
+        ).scalar_one() == 0
     engine.dispose()

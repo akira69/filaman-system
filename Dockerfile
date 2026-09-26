@@ -60,9 +60,12 @@ ENV PYTHONUNBUFFERED=1
 # Disable in-app migrations because the entrypoint handles them
 ENV RUN_MIGRATIONS_IN_APP=false
 ENV LABEL_RENDER_CHROMIUM_EXECUTABLE=/usr/lib/chromium/chromium-headless-shell
+ENV LABEL_RENDER_CHROMIUM_USER=label-render
 
 # Install uv, services, and the Pillow runtime libraries used by ARMv7 source builds.
 RUN pip install uv && apt-get update && apt-get install -y cron nginx libjpeg62-turbo libfreetype6 && rm -rf /var/lib/apt/lists/*
+RUN groupadd --system label-render \
+    && useradd --system --gid label-render --no-create-home --shell /usr/sbin/nologin label-render
 
 # Copy installed dependencies from backend-builder
 COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
@@ -71,7 +74,7 @@ COPY --from=backend-builder /usr/local/bin /usr/local/bin
 # The default image stays small; the -chromium image enables shared-preview rendering.
 ARG INSTALL_LABEL_BROWSER=false
 RUN if [ "$INSTALL_LABEL_BROWSER" = "true" ]; then \
-      apt-get update && apt-get install -y --no-install-recommends chromium-headless-shell; \
+      apt-get update && apt-get install -y --no-install-recommends chromium-headless-shell chromium-sandbox; \
     fi \
     && rm -rf /var/lib/apt/lists/*
 
@@ -80,6 +83,7 @@ COPY --from=backend-builder /app/backend /app
 
 # Copy the generated .env file for production
 COPY .env /app/.env
+RUN chmod 600 /app/.env
 
 # Copy built frontend to the static directory
 # The FastAPI app must be configured to serve static files from this directory.
