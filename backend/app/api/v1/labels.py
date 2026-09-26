@@ -1,6 +1,7 @@
 """Spool labels for clients that cannot run the browser label designer."""
 
 from collections import Counter
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from math import isfinite
@@ -16,7 +17,7 @@ from sqlalchemy.orm import selectinload, undefer
 from app.api.deps import DBSession, RequirePermission
 from app.api.v1.schemas_spool import SpoolResponse
 from app.api.v1.schemas_system_extra_field import SystemExtraFieldResponse
-from app.core.config import MANUFACTURER_LOGO_DIR
+from app.core.config import MANUFACTURER_LOGO_DIR, settings as app_settings
 from app.models import (
     Filament,
     FilamentColor,
@@ -32,6 +33,7 @@ from app.services.label_asset_service import (
     canonicalize_label_image,
     validate_canonical_label_image,
 )
+from app.services.label_basic_renderer import render_basic_label
 from app.services.label_preview_browser import label_render_slot, render_preview_png
 from app.services.spool_service import SpoolService
 
@@ -210,11 +212,7 @@ def _preview_images(assets: dict[str, bytes], logo_path, image_uses: Counter, qr
     return assets, logo_url
 
 
-def _raster_response(png, label_width, label_height, width, rotated, align, format, color, preset_id):
-    with Image.open(BytesIO(png)) as source:
-        if source.width > 2048 or source.height > 2048:
-            raise HTTPException(status_code=422, detail="Rendered label exceeds the image limit")
-        image = source.convert("RGB")
+def _finish_raster(image, label_width, label_height, width, rotated, align, format, color, preset_id):
     # CSS millimetres round to fractional pixels; make the wire dimensions exact.
     if image.size != (label_width, label_height):
         image = image.resize((label_width, label_height), Image.Resampling.LANCZOS)
@@ -245,6 +243,16 @@ def _raster_response(png, label_width, label_height, width, rotated, align, form
     return Response(output.getvalue(), media_type="image/png", headers=headers)
 
 
+def _raster_response(png, label_width, label_height, width, rotated, align, format, color, preset_id):
+    with Image.open(BytesIO(png)) as source:
+        if source.width > 2048 or source.height > 2048:
+            raise HTTPException(status_code=422, detail="Rendered label exceeds the image limit")
+        image = source.convert("RGB")
+    return _finish_raster(
+        image, label_width, label_height, width, rotated, align, format, color, preset_id,
+    )
+
+
 @router.get("/spool/{spool_id}/render", response_class=Response, responses={
     200: {"content": {"image/png": {}, "application/octet-stream": {}}, "description": "Rendered label image"},
 })
@@ -259,11 +267,13 @@ async def render_spool_label(
     orientation: Literal["original", "landscape", "portrait"] = "original",
     preset_id: int | None = Query(None, ge=0, description="Omit for the selected preset; 0 uses Default for this request"),
     color: Literal["mono", "color"] = "mono",
+    renderer: Literal["chromium", "basic"] | None = None,
     principal=RequirePermission("spools:read"),
 ):
     if format == "mono1" and color == "color":
         raise HTTPException(status_code=422, detail="mono1 is always monochrome")
-    async with label_render_slot():
+    renderer = renderer or app_settings.label_renderer
+    async with label_render_slot() if renderer == "chromium" else nullcontext():
         spool = await db.scalar(select(Spool).where(Spool.id == spool_id).options(
             selectinload(Spool.filament).selectinload(Filament.manufacturer),
             selectinload(Spool.filament).selectinload(Filament.filament_colors).selectinload(FilamentColor.color),
@@ -299,6 +309,12 @@ async def render_spool_label(
             )
             if preset is None:
                 raise HTTPException(status_code=404, detail="Label preset not found")
+            if renderer == "basic":
+                raise HTTPException(
+                    status_code=422,
+                    detail="This preset requires Chromium on FilaMan. Basic supports only Default (preset_id=0).",
+                    headers={"X-Label-Error": "preset_requires_chromium"},
+                )
             preset_data = preset.data
             if preset.data.get("version") == 2:
                 design = preset.data.get("design")
@@ -349,6 +365,27 @@ async def render_spool_label(
             raise HTTPException(status_code=422, detail="Label is wider than the requested print area")
         if content_height > 2048:
             raise HTTPException(status_code=422, detail="Preset is too tall for the requested width")
+        if renderer == "basic":
+            image = await to_thread.run_sync(
+                render_basic_label,
+                spool,
+                label_width,
+                label_height,
+                str(request.base_url).rstrip("/") + f"/spools/{spool_id}",
+                [item.color.hex_code for item in spool.filament.filament_colors],
+            )
+            return await to_thread.run_sync(
+                _finish_raster,
+                image,
+                label_width,
+                label_height,
+                width,
+                rotated,
+                align,
+                format,
+                color,
+                preset_id,
+            )
         asset_urls = {asset_id: f"/__label-assets/{index}.png" for index, asset_id in enumerate(assets)}
         assets = {asset_urls[asset_id]: content for asset_id, content in assets.items()}
         if design is not None:

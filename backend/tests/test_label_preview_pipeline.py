@@ -166,3 +166,64 @@ async def test_unknown_unhashable_element_types_are_ignored(auth_client, preview
     monkeypatch.setattr(labels, "render_preview_png", AsyncMock(return_value=output.getvalue()))
     response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}")
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_basic_renderer_is_explicit_and_never_substitutes_a_saved_preset(
+    auth_client, preview_spool, db_session, monkeypatch,
+):
+    from fastapi import HTTPException
+
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.selected_at = preset.created_at
+    await db_session.commit()
+    browser = AsyncMock(side_effect=HTTPException(503, "Chromium unavailable"))
+    monkeypatch.setattr(labels, "render_preview_png", browser)
+
+    default = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?renderer=basic&preset_id=0&color=color"
+    )
+    assert default.status_code == 200
+    assert default.headers["x-preset-id"] == "0"
+    assert Image.open(BytesIO(default.content)).mode == "RGB"
+    browser.assert_not_called()
+    mono = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?renderer=basic&preset_id=0"
+        "&format=mono1&dpi=203&width=576&align=right&orientation=portrait"
+    )
+    assert mono.status_code == 200
+    assert mono.headers["x-image-width"] == "576"
+    assert mono.headers["x-image-height"] == "480"
+    assert mono.headers["x-content-width"] == "320"
+    assert mono.headers["x-row-bytes"] == "72"
+    assert len(mono.content) == 72 * 480
+    assert all(mono.content[row * 72:row * 72 + 32] == bytes(32) for row in range(480))
+
+    for suffix in (f"renderer=basic&preset_id={preset.id}", "renderer=basic"):
+        rejected = await client.get(f"/api/v1/labels/spool/{spool.id}/render?{suffix}")
+        assert rejected.status_code == 422
+        assert rejected.headers["x-label-error"] == "preset_requires_chromium"
+        assert rejected.json()["detail"] == (
+            "This preset requires Chromium on FilaMan. Basic supports only Default (preset_id=0)."
+        )
+        assert rejected.headers["content-type"].startswith("application/json")
+
+    monkeypatch.setattr(labels.app_settings, "label_renderer", "basic")
+    configured = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?preset_id=0&color=color"
+    )
+    assert configured.status_code == 200
+    overridden = await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?renderer=chromium&preset_id=0"
+    )
+    assert overridden.status_code == 503
+    assert "retry-after" not in overridden.headers
+    assert (await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?renderer=basic&preset_id=999999"
+    )).status_code == 404
+    assert (await client.get(
+        f"/api/v1/labels/spool/{spool.id}/render?renderer=basic&preset_id=0"
+        "&format=mono1&color=color"
+    )).status_code == 422
+    assert preset.selected_at is not None
