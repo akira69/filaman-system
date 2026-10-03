@@ -89,6 +89,7 @@
     "errorLoadingData": "Error loading data",
     "copied": "Copied!",
     "systemFieldsUnavailable": "System Extra Fields could not be loaded. Reload the page before saving.",
+    "derivedFields": "Derived Fields",
     "clearSearch": "Clear search",
     "clearColumnFilters": "Clear column filters",
     "clearAllFilters": "Clear all filters",

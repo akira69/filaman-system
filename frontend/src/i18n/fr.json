@@ -89,6 +89,7 @@
     "errorLoadingData": "Erreur lors du chargement des données",
     "copied": "Copié !",
     "systemFieldsUnavailable": "Les champs supplémentaires système n'ont pas pu être chargés. Rechargez la page avant d'enregistrer.",
+    "derivedFields": "Champs dérivés",
     "clearSearch": "Effacer la recherche",
     "clearColumnFilters": "Effacer les filtres de colonne",
     "clearAllFilters": "Effacer tous les filtres",
