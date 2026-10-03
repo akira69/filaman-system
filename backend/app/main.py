@@ -10,8 +10,9 @@ import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from sqlalchemy import text
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.auth import router as auth_router
 from app.api.auth_oidc import router as auth_oidc_router
@@ -21,7 +22,7 @@ from app.core.database import async_session_maker
 from app.core.logging_config import setup_logging
 from app.core.middleware import AuthMiddleware, CsrfMiddleware, RequestIdMiddleware
 from app.core.seeds import run_all_seeds
-from app.core.shared_health import shared_health_store
+from app.core.shared_health import shared_display_store, shared_health_store
 from app.plugins.manager import plugin_manager
 from app.services.plugin_service import PLUGINS_DIR
 
@@ -37,6 +38,75 @@ _STARTUP_LOCK_PATH = Path(tempfile.gettempdir()) / "filaman-startup.lock"
 _is_primary = False
 _lock_fd = None
 _WATCHDOG_INTERVAL = 60  # seconds
+_LABEL_ASSET_CLEANUP_INTERVAL = 24 * 60 * 60
+_LABEL_ASSET_REQUEST_BYTES = 6 * 1024 * 1024
+_next_label_asset_cleanup = 0.0
+
+
+def _label_asset_request_too_large_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=413,
+        content={
+            "detail": {
+                "code": "request_too_large",
+                "message": "Label image request cannot exceed 6 MiB",
+            }
+        },
+    )
+
+
+class _LabelAssetBodyLimitMiddleware:
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if (
+            scope["type"] != "http"
+            or scope["method"] != "POST"
+            or scope["path"] != "/api/v1/me/label-assets"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        content_length = dict(scope["headers"]).get(b"content-length", b"")
+        if content_length.isdigit():
+            if int(content_length) > _LABEL_ASSET_REQUEST_BYTES:
+                await _label_asset_request_too_large_response()(
+                    scope, receive, send
+                )
+                return
+            await self.app(scope, receive, send)
+            return
+
+        received = 0
+        messages: list[Message] = []
+        while True:
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > _LABEL_ASSET_REQUEST_BYTES:
+                    await _label_asset_request_too_large_response()(
+                        scope, receive, send
+                    )
+                    return
+            messages.append(message)
+            if message["type"] == "http.disconnect" or not message.get(
+                "more_body", False
+            ):
+                break
+
+        replay = iter(messages)
+
+        async def replay_receive() -> Message:
+            return next(replay, {
+                "type": "http.request",
+                "body": b"",
+                "more_body": False,
+            })
+
+        await self.app(scope, replay_receive, send)
 
 
 def run_migrations() -> None:
@@ -78,6 +148,12 @@ async def _driver_watchdog() -> None:
     while True:
         try:
             if _is_primary:
+                try:
+                    await _cleanup_stale_label_assets()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Label asset cleanup error (will retry tomorrow)")
                 await _watchdog_health_check()
             else:
                 await _watchdog_try_takeover()
@@ -87,6 +163,23 @@ async def _driver_watchdog() -> None:
             logger.exception("Driver watchdog error (will retry next cycle)")
 
         await asyncio.sleep(_WATCHDOG_INTERVAL)
+
+
+async def _cleanup_stale_label_assets() -> None:
+    """Delete label images that have remained unreferenced for 30 days."""
+    global _next_label_asset_cleanup
+    now = time.monotonic()
+    if now < _next_label_asset_cleanup:
+        return
+    _next_label_asset_cleanup = now + _LABEL_ASSET_CLEANUP_INTERVAL
+
+    from app.services.label_asset_service import cleanup_orphaned_label_assets
+
+    async with async_session_maker() as db:
+        deleted = await cleanup_orphaned_label_assets(db)
+        await db.commit()
+    if deleted:
+        logger.info("Removed %s stale label image(s)", deleted)
 
 
 async def _watchdog_health_check() -> None:
@@ -101,6 +194,12 @@ async def _watchdog_health_check() -> None:
     # can return accurate status to the frontend.
     if health:
         shared_health_store.publish(health)
+
+    # Same for the Display API: a board whose polls never land on the primary
+    # would otherwise show nothing at all.
+    display_states = await plugin_manager.get_display_states()
+    if display_states:
+        shared_display_store.publish(display_states)
 
     # Deaktivierte Plugins ermitteln
     async with async_session_maker() as db:
@@ -271,6 +370,9 @@ async def lifespan(app: FastAPI):
         initial_health = plugin_manager.get_health()
         if initial_health:
             shared_health_store.publish(initial_health)
+        initial_display = await plugin_manager.get_display_states()
+        if initial_display:
+            shared_display_store.publish(initial_display)
 
     # Start the driver watchdog in every worker (handles health checks
     # for the primary and automatic takeover for secondary workers).
@@ -289,8 +391,9 @@ async def lifespan(app: FastAPI):
 
     if _is_primary:
         await plugin_manager.stop_all()
-        # Clean up shared health memory (primary is the owner)
+        # Clean up shared memory (primary is the owner of both blocks)
         shared_health_store.cleanup()
+        shared_display_store.cleanup()
         # Release the file lock (OS also releases automatically on exit).
         # We intentionally do NOT delete the lock file so that secondary
         # workers can still attempt flock() on it during takeover.
@@ -303,8 +406,9 @@ async def lifespan(app: FastAPI):
             _lock_fd = None
         _is_primary = False
     else:
-        # Secondary workers just close their handle (don't unlink)
+        # Secondary workers just close their handles (don't unlink)
         shared_health_store.close()
+        shared_display_store.close()
     logger.info("FilaMan backend stopped")
 
 
@@ -350,6 +454,7 @@ app.add_middleware(RequestIdMiddleware)
 app.add_middleware(CsrfMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(_LabelAssetBodyLimitMiddleware)
 
 # Note: Rate limiting for /auth/login is handled by nginx (see nginx.conf)
 # This ensures consistent limits across all Gunicorn workers

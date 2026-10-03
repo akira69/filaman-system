@@ -6,9 +6,10 @@ remaining amount), plus a small printer/job summary. It exists so you can build
 a wall display, an e-paper swatch panel, a tablet kiosk or a Home Assistant card
 without knowing anything about FilaMan's internals or the printer driver.
 
-FilaMan ships a reference client at `/display` (a full-screen swatch board that
-runs in any browser). Read its source in `frontend/src/pages/display.astro` —
-it is ~200 lines and uses nothing but this endpoint.
+FilaMan ships a reference client at `/display`, listed in the sidebar as
+**AMS View** (a full-screen swatch board that runs in any browser). Read its
+source in `frontend/src/pages/display.astro` — it uses nothing but this
+endpoint.
 
 ## Endpoints
 
@@ -80,6 +81,7 @@ Authorization: Device 12.34.abcdef…
         {
           "ams_id": 0,                // as the printer numbers it (AMS-HT start at 128)
           "kind": "ams",              // "ams" | "ams_ht" | "external" (spool holder, id 254/255)
+          "model": "ams_2_pro",       // "ams" | "ams_lite" | "ams_2_pro" | "ams_ht", null when the driver does not say
           "label": "AMS A",           // "AMS A".."AMS D", "HT1".. — use it or make your own
           "temperature": 25.4, "humidity": 3,
           "drying": null,             // or { status, target_temp, time }
@@ -88,7 +90,10 @@ Authorization: Device 12.34.abcdef…
               "ams_id": 0, "slot": 0, "label": "A1",
               "empty": false,
               "active": false,
-              "color": "#F8A813",     // always #RRGGBB; "#202020" when empty
+              "color": "#F8A813",     // always #RRGGBB; first color; "#202020" when empty
+              "colors": ["#F8A813"],  // ordered #RRGGBB; more than one when the filament is multi
+              "color_style": "",      // "striped" | "gradient" | "" (only when colors has 2+)
+              "finish": "",           // "solid" | "translucent" | "neon" | "glow" | ""
               "color_name": "Orange",
               "material": "PLA",
               "manufacturer": "SUNLU",
@@ -113,7 +118,7 @@ Authorization: Device 12.34.abcdef…
 Rules you can rely on:
 
 - Numbers are raw. No pre-formatted strings, no thresholds — decide "low" yourself.
-- `color` is always a 7-char `#RRGGBB`. Alpha is stripped.
+- `color` is always a 7-char `#RRGGBB`. Alpha is stripped. `colors` is that same list in filament order: one entry unless the filament's color mode is multi. `color_style` is `striped` or `gradient` only then. `finish` is the filament finish type (`translucent` and `glow` are the ones AMS View paints over the swatch). `fields=slots` does not include these extra keys.
 - A regular AMS always lists slots 0–3, even when empty. An AMS-HT lists slot 0; the external holder lists as many trays as the printer reports (labels `Ext1`, `Ext2`, …).
 - `spool_id` is set only when FilaMan has a spool assigned to that slot; a slot
   can still be non-empty (the printer sees filament) with `spool_id: null`.
@@ -126,10 +131,25 @@ Rules you can rely on:
    spool record.
 2. **The driver's live state (optional)** — a driver may implement
    `get_display_state()` on its `BaseDriver` subclass to add tray contents as the
-   printer sees them, job progress, temperatures and the active slot. The
-   Bambuddy driver does. Without it, `connected`, `job` and `temperatures` are
-   `null` and the board is still complete.
+   printer sees them, job progress, temperatures, drying and the active slot.
+3. **The driver's health, as a fallback** — a driver without that hook still
+   reports `health()`, and `connected` plus the AMS `ams_units` it carries are
+   enough for the online badge and for per-unit temperature, humidity and
+   `model` (from an entry's `module_type` or `info`). So
+   every driver contributes something; without the hook, `job`, `temperatures`
+   and `state` stay `null` and the board is still complete.
 
 Driver authors: return either the normalised shape documented in
 `app/services/display_service.py::normalize_driver_state`, or a Bambu-style
 status dict — both are accepted. Keep it cached; it is called on every poll.
+For `model`, pass an AMS unit's `info` hex string on as the printer sent it, or
+Bambuddy's `module_type` (`ams`, `n3f`, `n3s`); either one is enough.
+
+### Freshness across workers
+
+FilaMan runs several Gunicorn workers, but a printer driver lives in the primary
+one only. The primary publishes what it sees into shared memory and every other
+worker serves that snapshot, so any worker can answer a poll. The price is that a
+value can be a few seconds behind: harmless for temperature and humidity, briefly
+visible on the active bay right after a filament change. A driver that is stopped
+drops out of the snapshot at once rather than lingering.
