@@ -1,9 +1,15 @@
 """Display API: merge of FilaMan slot assignments and optional driver live state."""
 
+import os
+
+import pytest
+
 from app.api.v1 import display as display_api
+from app.core.shared_health import SharedStateStore
 from app.models import Filament, FilamentPrinterParam, PrinterSlotAssignment, SpoolPrinterParam
 from app.services.display_service import (
     SCHEMA_VERSION,
+    ams_model,
     build_printer_display,
     compute_etag,
     normalize_driver_state,
@@ -29,6 +35,7 @@ async def _printer_with_spool(db_session, *, slot_index="0-1", present=True):
     )
     manufacturer = await _create_manufacturer(db_session, name="SUNLU")
     filament = await _create_filament(db_session, manufacturer.id)
+    filament.manufacturer_color_name = "Oak"
     status = await _get_status(db_session, "opened")
     spool = await _create_spool(
         db_session,
@@ -81,11 +88,295 @@ BAMBUDDY_STATUS = {
 # ---------------------------------------------------------------------------
 
 
+def test_spool_swatch_uses_manufacturer_color_name():
+    """The board must show Filament.manufacturer_color_name, not Color.name."""
+    from types import SimpleNamespace
+
+    from app.services.display_service import _spool_swatch
+
+    filament = SimpleNamespace(
+        designation="PETG",
+        material_type="PETG",
+        manufacturer_color_name="Galaxy Blue",
+        manufacturer=SimpleNamespace(name="SUNLU"),
+        filament_colors=[SimpleNamespace(position=0, color=SimpleNamespace(hex_code="#456DF1", name="#456DF1"))],
+        printer_params=[],
+        raw_material_weight_g=1000,
+    )
+    spool = SimpleNamespace(
+        id=91,
+        filament=filament,
+        remaining_weight_g=70,
+        initial_total_weight_g=1250,
+        empty_spool_weight_g=250,
+        rfid_uid="AA",
+        rfid_uid_2=None,
+        last_used_at=None,
+        printer_params=[],
+    )
+    out = _spool_swatch(spool, printer_id=1)
+    assert out["color_name"] == "Galaxy Blue"
+    assert out["color"] == "#456DF1"
+    assert out["colors"] == ["#456DF1"]
+    assert out["color_style"] == ""
+    assert out["finish"] == ""
+
+    filament.manufacturer_color_name = "  "
+    assert _spool_swatch(spool, printer_id=1)["color_name"] == ""
+
+
+def test_spool_swatch_multi_color_and_finish():
+    """Multi mode paints every color; finish is the filament finish type."""
+    from types import SimpleNamespace
+
+    from app.services.display_service import _spool_swatch
+
+    filament = SimpleNamespace(
+        designation="Silk Quad",
+        material_type="PLA",
+        manufacturer_color_name="Black Grey Red Yellow",
+        manufacturer=None,
+        color_mode="multi",
+        multi_color_style="gradient",
+        finish_type="Glow",
+        filament_colors=[
+            SimpleNamespace(position=1, color=SimpleNamespace(hex_code="#0A0A0A")),
+            SimpleNamespace(position=0, color=SimpleNamespace(hex_code="#909292ff")),
+            SimpleNamespace(position=2, color=SimpleNamespace(hex_code="not-a-color")),
+        ],
+        printer_params=[],
+        raw_material_weight_g=None,
+    )
+    spool = SimpleNamespace(
+        id=47,
+        filament=filament,
+        remaining_weight_g=None,
+        initial_total_weight_g=None,
+        empty_spool_weight_g=None,
+        rfid_uid=None,
+        rfid_uid_2=None,
+        last_used_at=None,
+        printer_params=[],
+    )
+    out = _spool_swatch(spool, printer_id=12)
+    assert out["colors"] == ["#909292", "#0A0A0A"]
+    assert out["color"] == "#909292"
+    assert out["color_style"] == "gradient"
+    assert out["finish"] == "glow"
+
+    filament.color_mode = "single"
+    single = _spool_swatch(spool, printer_id=12)
+    assert single["colors"] == ["#909292"]
+    assert single["color_style"] == ""
+
+
 def test_normalize_hex_color():
     assert normalize_hex_color("f8a813ff") == "#F8A813"
     assert normalize_hex_color("#F8A813") == "#F8A813"
     assert normalize_hex_color("") == "#202020"
     assert normalize_hex_color("nope") == "#202020"
+
+
+def test_canonicalize_external_vt_ids():
+    from app.services.display_service import canonicalize_slot_key
+
+    assert canonicalize_slot_key(255, 0) == (255, 0)
+    assert canonicalize_slot_key(255, 1) == (255, 1)
+    assert canonicalize_slot_key(255, 254) == (255, 0)
+    assert canonicalize_slot_key(255, 255) == (255, 1)
+    assert canonicalize_slot_key(254, 0) == (255, 0)
+    assert canonicalize_slot_key(0, 2) == (0, 2)
+
+
+def test_x1c_string_temp_and_humidity_are_parsed():
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": {
+                "ams": [
+                    {
+                        "id": "0",
+                        "humidity": "4",
+                        "temp": "26.5",
+                        "tray": [{"id": "0", "tray_type": "PLA"}],
+                    }
+                ]
+            },
+        }
+    )
+    unit = live["ams"][0]
+    assert unit["temperature"] == 26.5
+    assert unit["humidity"] == 4
+
+
+def test_x1c_prefers_humidity_raw_percent():
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [
+                {"id": 0, "humidity": 4, "humidity_raw": 23, "temp": 25.0, "tray": []},
+            ],
+        }
+    )
+    unit = live["ams"][0]
+    assert unit["humidity"] == 23
+    assert unit["temperature"] == 25.0
+
+
+def test_x1c_wrapper_climate_fills_tray_only_units():
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": {
+                "ams": [{"id": 0, "tray": [{"id": 0, "tray_type": "PLA"}]}],
+                "humidity": "16",
+                "temp": "24.2",
+                "tray_now": "255",
+            },
+        }
+    )
+    unit = live["ams"][0]
+    assert unit["temperature"] == 24.2
+    assert unit["humidity"] == 16
+
+
+def test_driver_ams_units_climate_matches_printers_page():
+    """Printers page reads health.ams_units; AMS View must show those numbers."""
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [{"id": 0, "tray": [{"id": 0, "tray_type": "PLA"}]}],
+            "ams_units": [{"ams_id": 0, "humidity": 26, "temp": 23.8}],
+        }
+    )
+    assert live["ams"][0]["humidity"] == 26
+    assert live["ams"][0]["temperature"] == 23.8
+
+
+def test_zero_ams_temp_is_not_a_reading():
+    live = normalize_driver_state(
+        {"connected": True, "ams": [{"id": 0, "temp": "0.0", "humidity": "16", "tray": []}]}
+    )
+    assert live["ams"][0]["temperature"] is None
+    assert live["ams"][0]["humidity"] == 16
+
+
+def test_h2c_humidity_percent_is_kept():
+    live = normalize_driver_state(
+        {"connected": True, "ams": [{"id": 0, "temp": 19.5, "humidity": 16, "tray": []}]}
+    )
+    assert live["ams"][0]["temperature"] == 19.5
+    assert live["ams"][0]["humidity"] == 16
+
+
+def test_extract_trays_accepts_dict_and_single_object():
+    from app.services.display_service import extract_trays
+
+    assert extract_trays({"tray": {"0": {"tray_type": "PLA", "tray_color": "FF0000FF"}}})[0]["tray_type"] == "PLA"
+    assert extract_trays({"tray": {"id": 0, "tray_type": "PETG"}})[0]["tray_type"] == "PETG"
+
+
+def test_exists_without_tray_type_is_loaded():
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [{"id": 128, "is_ams_ht": True, "tray": [{"id": 0, "state": 9, "exists": True}]}],
+        }
+    )
+    ht = live["ams"][0]["slots"][0]
+    assert ht["has_filament"] is True
+
+
+def test_legacy_external_keys_collapse_to_two_bays():
+    """H2C once stored both 255-0/1 and mistaken 255-254/255 — board must show Ext1/Ext2 only."""
+    fm = {
+        (255, 0): {"present": True, "spool_id": 10, "material": "PLA", "color": "#FF0000",
+                   "color_name": "Red", "manufacturer": "X", "filament": "PLA", "remaining_percent": 40,
+                   "remaining_grams": 400, "nozzle_min": None, "nozzle_max": None, "rfid": False, "last_used": None},
+        (255, 1): {"present": False},
+        (255, 254): {"present": False},
+        (255, 255): {"present": False},
+    }
+    out = build_printer_display(_P(name="H2C"), fm, None)
+    ext = [u for u in out["ams"] if u["kind"] == "external"]
+    assert len(ext) == 1
+    assert [s["label"] for s in ext[0]["slots"]] == ["Ext1", "Ext2"]
+    assert ext[0]["slots"][0]["spool_id"] == 10
+    assert ext[0]["slots"][1]["empty"] is True
+
+
+def test_normalize_preserves_trayless_units():
+    """A thin status update must not make an already-known AMS disappear."""
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [
+                {"id": 0, "temp": 25.0, "humidity": 3, "tray": []},
+                {"id": 128, "is_ams_ht": True, "tray": []},
+            ],
+        }
+    )
+
+    assert [(u["ams_id"], u["kind"]) for u in live["ams"]] == [
+        (0, "ams"),
+        (128, "ams_ht"),
+    ]
+    assert live["ams"][0]["temperature"] == 25.0
+    assert live["ams"][0]["slots"] == []
+    assert live["ams"][1]["slots"] == []
+
+
+def test_top_level_external_data_replaces_embedded_placeholder():
+    """H2 status can contain an empty AMS entry and richer vt_tray for the same bay."""
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [{"id": 255, "tray": [{"id": 0}]}],
+            "vt_tray": [
+                {
+                    "id": 254,
+                    "tray_type": "PETG",
+                    "tray_color": "FF0000FF",
+                    "remain": 65,
+                }
+            ],
+        }
+    )
+
+    [external] = [u for u in live["ams"] if u["kind"] == "external"]
+    assert [s["slot"] for s in external["slots"]] == [0]
+    assert external["slots"][0]["has_filament"] is True
+    assert external["slots"][0]["material"] == "PETG"
+    assert external["slots"][0]["color"] == "#FF0000"
+    assert external["slots"][0]["remaining_percent"] == 65
+
+
+def test_empty_duplicate_does_not_replace_loaded_external_data():
+    """Duplicate-source ordering must not let a placeholder erase a loaded bay."""
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [
+                {
+                    "id": 255,
+                    "tray": [
+                        {
+                            "id": 0,
+                            "tray_type": "PLA",
+                            "tray_color": "0000FFFF",
+                            "remain": 80,
+                        }
+                    ],
+                }
+            ],
+            "vt_tray": [{"id": 254}],
+        }
+    )
+
+    [external] = [u for u in live["ams"] if u["kind"] == "external"]
+    assert external["slots"][0]["has_filament"] is True
+    assert external["slots"][0]["material"] == "PLA"
+    assert external["slots"][0]["remaining_percent"] == 80
 
 
 def test_normalize_bambuddy_status():
@@ -119,9 +410,204 @@ def test_normalize_documented_shape():
     assert live["ams"][0]["slots"][0]["color"] == "#ABCDEF"
 
 
+def test_idle_dry_status_is_not_drying():
+    """AMS 2 Pro / HT always send dry_status=0; that is idle, not a cycle."""
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [
+                {
+                    "id": 0,
+                    "dry_status": 0,
+                    "dry_time": 0,
+                    "dry_target_temp": None,
+                    "tray": [{"id": 0, "tray_type": "PLA"}],
+                },
+                {
+                    "id": 128,
+                    "is_ams_ht": True,
+                    "dry_status": 0,
+                    "dry_time": 0,
+                    "tray": [{"id": 0, "tray_type": "PLA"}],
+                },
+            ],
+        }
+    )
+    assert all(u["drying"] is None for u in live["ams"])
+
+
+def test_active_dry_status_is_drying():
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [
+                {
+                    "id": 0,
+                    "dry_status": 2,
+                    "dry_time": 90,
+                    "dry_target_temp": 55,
+                    "tray": [{"id": 0, "tray_type": "PLA"}],
+                }
+            ],
+        }
+    )
+    assert live["ams"][0]["drying"] == {"status": 2, "target_temp": 55.0, "time": 90}
+
+
+@pytest.mark.parametrize(
+    ("unit", "model"),
+    [
+        ({"info": "1001"}, "ams"),
+        ({"info": "2002"}, "ams_lite"),
+        ({"info": "10001003"}, "ams_2_pro"),
+        ({"info": "2104"}, "ams_ht"),
+        ({"info": "0005"}, "ams_lite"),  # AMS Lite on an N9, shown as a Lite
+        ({"info": 3}, "ams_2_pro"),
+        ({"module_type": "n3f"}, "ams_2_pro"),
+        ({"module_type": "ams"}, "ams"),
+        ({"module_type": "n3s"}, "ams_ht"),
+        ({"model": "ams_ht"}, "ams_ht"),
+        ({"module_type": "", "info": "1003"}, "ams_2_pro"),
+        ({"info": "0000"}, None),
+        ({"info": "not-hex"}, None),
+        ({"module_type": "something_new"}, None),
+        ({}, None),
+        (None, None),
+    ],
+)
+def test_ams_model(unit, model):
+    assert ams_model(unit) == model
+
+
+def test_normalize_reports_the_model_of_each_unit():
+    """Bits 0-3 of ``info`` name the hardware; the external holder has none."""
+    live = normalize_driver_state(
+        {
+            "connected": True,
+            "ams": [
+                {"id": 0, "info": "1003", "tray": [{"id": 0, "tray_type": "PLA"}]},
+                {"id": 1, "info": "1001", "tray": [{"id": 0, "tray_type": "PETG"}]},
+                {"id": 128, "info": "1004", "tray": [{"id": 0, "tray_type": "PA"}]},
+                {"id": 2, "tray": [{"id": 0}]},
+            ],
+            "vt_tray": [{"id": 254, "tray_type": "TPU"}],
+        }
+    )
+    models = {u["ams_id"]: u["model"] for u in live["ams"]}
+    assert models == {0: "ams_2_pro", 1: "ams", 2: None, 128: "ams_ht", 255: None}
+
+
+def test_ams_units_model_reaches_a_board_without_live_trays():
+    """A driver without the display hook reports the model in health().ams_units."""
+    fm = {
+        (0, 0): {"present": True, "material": "PLA", "color": "#111111"},
+        (1, 0): {"present": True, "material": "PETG", "color": "#222222"},
+    }
+    out = build_printer_display(
+        _P(name="X1C"),
+        fm,
+        {
+            "connected": True,
+            "ams": [],
+            "ams_units": [
+                {"ams_id": 0, "humidity": 16, "temp": 26.8, "module_type": "n3f"},
+                {"ams_id": 1, "humidity": 20, "temp": 25.0},
+            ],
+        },
+    )
+    assert [(u["ams_id"], u["model"]) for u in out["ams"]] == [(0, "ams_2_pro"), (1, None)]
+    assert slots_only(out)["ams"][0]["model"] == "ams_2_pro"
+
+
+def test_normalize_ht_tray_now_is_unit_id():
+    """H2D reports AMS-HT as tray_now=128, not ams*4+slot."""
+    live = normalize_driver_state({"connected": True, "tray_now": 128, "ams": []})
+    assert live["active_tray"] == 128
+
+
 class _P:
     def __init__(self, id=11, name="P2S", driver_key="bambuddy"):
         self.id, self.name, self.driver_key = id, name, driver_key
+
+
+def test_ams_units_climate_fills_filaman_only_board():
+    fm = {(0, 0): {"present": True, "material": "PLA", "color": "#111111"}}
+    out = build_printer_display(
+        _P(name="X1C"),
+        fm,
+        {"connected": True, "ams": [], "ams_units": [{"ams_id": 0, "humidity": 16, "temp": 26.8}]},
+    )
+    assert out["ams"][0]["humidity"] == 16
+    assert out["ams"][0]["temperature"] == 26.8
+
+
+def test_unlinked_ht_meta_fills_empty_live_unit():
+    """H2C HT often has driver tray_type in assignment.meta but no FilaMan spool.
+
+    A thin status still lists the HT unit (climate / empty tray[]), which used
+    to paint an empty HT1/HT2 while the printer page showed PLA.
+    """
+    fm = {
+        (128, 0): {"present": True, "material": "PLA", "color": "#00FF00"},
+        (129, 1): {"present": True, "material": "PETG", "color": "#0000FF"},
+    }
+    status = {
+        "connected": True,
+        "ams": [
+            {"id": 128, "is_ams_ht": True, "temp": 45.0, "humidity": 2, "tray": []},
+            {"id": 129, "is_ams_ht": True, "temp": 40.0, "humidity": 1, "tray": []},
+        ],
+    }
+    out = build_printer_display(_P(name="H2C"), fm, status)
+    hts = [u for u in out["ams"] if u["kind"] == "ams_ht"]
+    assert [(u["label"], u["slots"][0]["material"], u["slots"][0]["empty"]) for u in hts] == [
+        ("HT1", "PLA", False),
+        ("HT2", "PETG", False),
+    ]
+    assert all(len(u["slots"]) == 1 and u["slots"][0]["slot"] == 0 for u in hts)
+
+
+def test_ht_tray_now_marks_ht_bay():
+    status = {
+        "connected": True,
+        "gcode_state": "RUNNING",
+        "tray_now": 128,
+        "ams": {
+            "ams": [
+                {"id": 0, "tray": [{"id": 0, "tray_type": "PLA", "tray_color": "FF0000FF"}]},
+                {"id": 128, "tray": [{"id": 0, "tray_type": "PLA", "tray_color": "FFFFFFFF"}]},
+            ]
+        },
+    }
+    out = build_printer_display(_P(), {}, status)
+    assert out["active"] == {"ams_id": 128, "slot": 0}
+    ht = next(u for u in out["ams"] if u["ams_id"] == 128)
+    assert ht["slots"][0]["active"] is True
+    assert out["ams"][0]["slots"][0]["active"] is False
+
+
+def test_extruder_slots_select_active_nozzle_over_slot_only_tray_now():
+    """Dual-nozzle H2D tray_now is often just 0–3; Bambuddy already decoded the bay."""
+    status = {
+        "connected": True,
+        "gcode_state": "RUNNING",
+        "tray_now": 3,
+        "active_extruder": 1,
+        "extruder_slots": {
+            "0": {"ams_id": 0, "slot_id": 3, "has_filament": True},
+            "1": {"ams_id": 128, "slot_id": 0, "has_filament": True},
+        },
+        "ams": {
+            "ams": [
+                {"id": 0, "tray": [{"id": 3, "tray_type": "PLA", "tray_color": "111111FF"}]},
+                {"id": 128, "tray": [{"id": 0, "tray_type": "PLA", "tray_color": "FFFFFFFF"}]},
+            ]
+        },
+    }
+    out = build_printer_display(_P(), {}, status)
+    assert out["active"] == {"ams_id": 128, "slot": 0}
+    assert next(u for u in out["ams"] if u["ams_id"] == 128)["slots"][0]["active"] is True
+    assert out["ams"][0]["slots"][3]["active"] is False
 
 
 def test_build_without_driver_state_uses_assignments_only():
@@ -187,6 +673,34 @@ class TestDisplayEndpoint:
         response = await client.get("/api/v1/display")
         assert response.status_code == 401
 
+    async def test_unlinked_ht_assignment_meta_populates_board(self, auth_client, db_session):
+        client, _ = auth_client
+        printer = await _create_printer(db_session, name="H2C", driver_key="bambuddy")
+        slot = await _create_slot(
+            db_session,
+            printer.id,
+            slot_no=512,
+            name="AMS HT 1 Slot 1",
+            custom_fields={"slot_index": "128-0"},
+        )
+        slot.assignment = PrinterSlotAssignment(
+            present=True,
+            meta={"tray_type": "PLA", "tray_color": "00FF00FF", "nozzle_temp_min": 190, "nozzle_temp_max": 220},
+        )
+        db_session.add(slot.assignment)
+        await db_session.commit()
+
+        response = await client.get("/api/v1/display")
+        assert response.status_code == 200, response.text
+        [p] = response.json()["printers"]
+        ht = next(u for u in p["ams"] if u["kind"] == "ams_ht")
+        bay = ht["slots"][0]
+        assert bay["empty"] is False
+        assert bay["material"] == "PLA"
+        assert bay["color"] == "#00FF00"
+        assert bay["spool_id"] is None
+        assert bay["nozzle_min"] == 190 and bay["nozzle_max"] == 220
+
     async def test_user_gets_board_from_assignments(self, auth_client, db_session):
         client, _ = auth_client
         printer, spool = await _printer_with_spool(db_session)
@@ -199,7 +713,8 @@ class TestDisplayEndpoint:
         assert p["id"] == printer.id and p["name"] == "P2S" and p["connected"] is None
         slot = p["ams"][0]["slots"][1]
         assert slot["spool_id"] == spool.id
-        assert slot["manufacturer"] == "SUNLU" and slot["remaining_grams"] == 500
+        assert slot["manufacturer"] == "SUNLU" and slot["color_name"] == "Oak"
+        assert slot["remaining_grams"] == 500
         assert slot["remaining_percent"] == 50 and slot["rfid"] is True
         assert slot["label"] == "A2"
         assert slot["nozzle_min"] is None and slot["nozzle_max"] is None
@@ -303,3 +818,164 @@ class TestDisplayEndpoint:
 
         response = await client.get("/api/v1/display", headers=_device_headers(token))
         assert response.status_code == 403, response.text
+
+
+# ---------------------------------------------------------------------------
+# drivers across workers
+# ---------------------------------------------------------------------------
+
+
+class _HealthOnlyDriver:
+    """A driver like the Bambu Lab one: no display hook, but a health() dict."""
+
+    driver_key = "bambulab"
+
+    def __init__(self, connected=True):
+        self._connected = connected
+
+    def health(self):
+        return {
+            "driver_key": self.driver_key,
+            "running": True,
+            "connected": self._connected,
+            "ams_units": [{"ams_id": 0, "humidity": 6, "temp": 24.4, "tray_count": 4}],
+        }
+
+
+@pytest.fixture
+def display_store(monkeypatch):
+    """A private shared-memory block, so tests never touch a running instance."""
+    store = SharedStateStore(name=f"filaman_display_test_{os.getpid()}", size=65536)
+    monkeypatch.setattr(display_api, "shared_display_store", store)
+    yield store
+    store.cleanup()
+
+
+@pytest.fixture
+def drivers(monkeypatch):
+    """Own the driver registry for the test, and hand back a plain dict."""
+    from app.plugins.manager import plugin_manager
+
+    registry: dict[int, object] = {}
+    monkeypatch.setattr(plugin_manager, "drivers", registry)
+    return registry
+
+
+class TestDriverStateAcrossWorkers:
+    async def test_driver_without_the_hook_still_gives_connected_and_climate(
+        self, auth_client, db_session, display_store, drivers
+    ):
+        """health() carries both, and the display service already reads that shape."""
+        client, _ = auth_client
+        printer, _ = await _printer_with_spool(db_session)
+        drivers[printer.id] = _HealthOnlyDriver()
+
+        response = await client.get(f"/api/v1/display/printers/{printer.id}")
+        assert response.status_code == 200, response.text
+        [p] = response.json()["printers"]
+        assert p["connected"] is True
+        assert p["ams"][0]["temperature"] == 24.4
+        assert p["ams"][0]["humidity"] == 6
+
+    async def test_worker_without_drivers_serves_the_snapshot(
+        self, auth_client, db_session, display_store, drivers
+    ):
+        """The primary publishes; a worker with an empty registry still answers."""
+        client, _ = auth_client
+        printer, _ = await _printer_with_spool(db_session)
+
+        drivers[printer.id] = _HealthOnlyDriver()
+        primary = await client.get(f"/api/v1/display/printers/{printer.id}")
+        assert primary.json()["printers"][0]["connected"] is True
+
+        drivers.clear()  # this worker never loaded a driver
+        secondary = await client.get(f"/api/v1/display/printers/{printer.id}")
+        assert secondary.status_code == 200, secondary.text
+        [p] = secondary.json()["printers"]
+        assert p["connected"] is True
+        assert p["ams"][0]["temperature"] == 24.4
+        assert p["ams"][0]["humidity"] == 6
+
+    async def test_stopped_driver_stops_looking_live(
+        self, auth_client, db_session, display_store, drivers
+    ):
+        """Clearing the snapshot is what a driver stop does, on every worker."""
+        client, _ = auth_client
+        printer, _ = await _printer_with_spool(db_session)
+        drivers[printer.id] = _HealthOnlyDriver()
+        await client.get(f"/api/v1/display/printers/{printer.id}")
+
+        drivers.clear()
+        display_store.clear(printer.id)
+
+        response = await client.get(f"/api/v1/display/printers/{printer.id}")
+        [p] = response.json()["printers"]
+        assert p["connected"] is None
+        assert p["ams"][0]["temperature"] is None
+        assert p["ams"][0]["slots"][1]["spool_id"] is not None  # the board still stands
+
+    async def test_health_only_driver_leaves_job_and_temperatures_null(
+        self, auth_client, db_session, display_store, drivers
+    ):
+        """health() knows nothing about the job, so those stay null, not empty shells."""
+        client, _ = auth_client
+        printer, _ = await _printer_with_spool(db_session)
+        drivers[printer.id] = _HealthOnlyDriver()
+
+        response = await client.get(f"/api/v1/display/printers/{printer.id}")
+        [p] = response.json()["printers"]
+        assert p["temperatures"] is None
+        assert p["job"] is None
+
+    async def test_disconnected_driver_is_reported_offline_not_unknown(
+        self, auth_client, db_session, display_store, drivers
+    ):
+        client, _ = auth_client
+        printer, _ = await _printer_with_spool(db_session)
+        drivers[printer.id] = _HealthOnlyDriver(connected=False)
+
+        response = await client.get(f"/api/v1/display/printers/{printer.id}")
+        assert response.json()["printers"][0]["connected"] is False
+
+    async def test_a_throwing_driver_costs_freshness_not_contents(
+        self, auth_client, db_session, display_store, drivers
+    ):
+        client, _ = auth_client
+        printer, _ = await _printer_with_spool(db_session)
+        driver = _HealthOnlyDriver()
+        drivers[printer.id] = driver
+        await client.get(f"/api/v1/display/printers/{printer.id}")
+
+        def boom():
+            raise RuntimeError("driver fell over")
+
+        driver.health = boom
+        response = await client.get(f"/api/v1/display/printers/{printer.id}")
+        [p] = response.json()["printers"]
+        assert p["connected"] is True
+        assert p["ams"][0]["temperature"] == 24.4
+
+    async def test_a_real_board_fits_into_the_block(self, display_store):
+        """Four AMS with sixteen trays must not trip the payload-size guard."""
+        unit = lambda i: {  # noqa: E731
+            "id": i,
+            "temp": 24.4,
+            "humidity": 6,
+            "tray": [
+                {
+                    "id": t,
+                    "tray_type": "PLA",
+                    "tray_color": "F8A813FF",
+                    "tray_sub_brands": "Matte - Charcoal (11101)",
+                    "remain": 80,
+                    "tag_uid": "0000000000000000",
+                    "tray_uuid": "00000000000000000000000000000000",
+                    "nozzle_temp_min": 190,
+                    "nozzle_temp_max": 300,
+                }
+                for t in range(4)
+            ],
+        }
+        state = {"connected": True, "ams": {"ams": [unit(i) for i in range(4)]}}
+        display_store.publish({n: state for n in range(1, 5)})
+        assert display_store.read(3) == state
