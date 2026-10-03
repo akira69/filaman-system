@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 
-from app.api.v1.system import _export_inventory_data, _import_inventory_data
+from app.api.v1.system import _import_inventory_data, _write_backup_file
 from app.models import Filament, Manufacturer, Spool, SpoolStatus, SystemExtraField
 from app.services.spoolman_import_service import ImportResult, SpoolmanImportService
 
@@ -178,6 +179,7 @@ async def test_spoolman_import_preserves_structured_extra_without_formula_defini
         location_name_map={},
         status_map={"new": status.id, "active": status.id},
         result=result,
+        field_mappings={},
     )
     await db_session.commit()
 
@@ -201,7 +203,7 @@ async def test_spoolman_import_preserves_structured_extra_without_formula_defini
 
 
 @pytest.mark.asyncio
-async def test_inventory_backup_round_trips_formula_definition(db_session):
+async def test_inventory_backup_round_trips_formula_definition(db_session, tmp_path):
     field = SystemExtraField(
         target_type="filament",
         key="backup_formula",
@@ -215,7 +217,15 @@ async def test_inventory_backup_round_trips_formula_definition(db_session):
     db_session.add(field)
     await db_session.commit()
 
-    exported = await _export_inventory_data(db_session)
+    backup_path = await _write_backup_file(
+        db_session,
+        tmp_path / "formula-inventory",
+        kind="inventory",
+        metadata={},
+        tables=(("system_extra_fields", SystemExtraField),),
+        format="json",
+    )
+    exported = json.loads(backup_path.read_text(encoding="utf-8"))["data"]
     row = next(
         item
         for item in exported["system_extra_fields"]

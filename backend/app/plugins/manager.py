@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+import inspect
 import json
 import logging
 import shutil
@@ -107,8 +108,29 @@ class PluginManager:
             )
 
     @staticmethod
+    def _canonicalize_slot_index(slot_index: str) -> str:
+        """Collapse legacy external VT keys (``255-254`` / ``255-255``) to ``255-0`` / ``255-1``."""
+        if not slot_index or "-" not in slot_index:
+            return slot_index
+        a, _, t = slot_index.partition("-")
+        try:
+            ams_id, tray = int(a), int(t)
+        except ValueError:
+            return slot_index
+        if ams_id == 254:
+            tray = 1 if tray in (1, 255) else 0
+            ams_id = 255
+        elif ams_id == 255:
+            if tray == 254:
+                tray = 0
+            elif tray == 255:
+                tray = 1
+        return f"{ams_id}-{tray}"
+
+    @staticmethod
     def _slot_index_to_no(slot_index: str) -> int:
-        """Convert driver slot_index string (e.g. '0-1', '255-254') to integer slot_no."""
+        """Convert driver slot_index string (e.g. '0-1', '255-0') to integer slot_no."""
+        slot_index = PluginManager._canonicalize_slot_index(slot_index)
         parts = slot_index.split("-", 1)
         if len(parts) == 2:
             try:
@@ -207,7 +229,9 @@ class PluginManager:
                 # Upsert slots if any
                 if slots_data:
                     for slot_data in slots_data:
-                        slot_index = slot_data.get("slot_index", "")
+                        slot_index = self._canonicalize_slot_index(
+                            slot_data.get("slot_index", "") or ""
+                        )
                         slot_no = self._slot_index_to_no(slot_index)
                         slot_name = slot_data.get("slot_name", f"Slot {slot_no}")
                         present = slot_data.get("present", False)
@@ -282,6 +306,37 @@ class PluginManager:
                                 self._parse_spool_id(slot_data["spool_id"]),
                                 meta,
                             )
+
+                    # Retire legacy external keys (255-254 / 255-255) once the
+                    # canonical 255-0 / 255-1 rows exist, so AMS View and the
+                    # printer page stop listing four External bays on H2C/H2D.
+                    all_slots = (
+                        await db.execute(
+                            select(PrinterSlot).where(
+                                PrinterSlot.printer_id == printer_id
+                            )
+                        )
+                    ).scalars().all()
+                    active_indexes = {
+                        (s.custom_fields or {}).get("slot_index")
+                        for s in all_slots
+                        if s.is_active and (s.custom_fields or {}).get("slot_index")
+                    }
+                    for slot in all_slots:
+                        raw = (slot.custom_fields or {}).get("slot_index") or ""
+                        canon = self._canonicalize_slot_index(raw)
+                        if (
+                            slot.is_active
+                            and raw
+                            and canon != raw
+                            and canon in active_indexes
+                        ):
+                            slot.is_active = False
+                            logger.info(
+                                f"Deactivated legacy external slot {raw!r} "
+                                f"on printer {printer_id} (canonical {canon})"
+                            )
+
                     await db.commit()
                     logger.info(
                         f"Updated {len(slots_data)} slots for printer {printer_id}"
@@ -595,6 +650,42 @@ class PluginManager:
             for printer_id, driver in self.drivers.items()
         }
         return dict(self.health_status)
+
+    async def get_display_states(self) -> dict[int, dict[str, Any]]:
+        """Live state of every local driver, for the Display API.
+
+        A driver without ``get_display_state()`` falls back to ``health()``:
+        that already carries ``connected`` and the AMS ``ams_units``, which is
+        what the display service needs for the online badge and the climate.
+        """
+        states: dict[int, dict[str, Any]] = {}
+        for printer_id, driver in self.drivers.items():
+            try:
+                state = await self.get_display_state(printer_id)
+            except Exception:
+                logger.debug(
+                    "get_display_state failed for printer %s", printer_id, exc_info=True
+                )
+                continue
+            if state is not None:
+                states[printer_id] = state
+        return states
+
+    async def get_display_state(self, printer_id: int) -> dict[str, Any] | None:
+        """Live state of one local driver, or None when there is no driver here."""
+        driver = self.drivers.get(printer_id)
+        if driver is None:
+            return None
+        state: Any = None
+        getter = getattr(driver, "get_display_state", None)
+        if getter is not None:
+            state = getter()
+            if inspect.isawaitable(state):
+                state = await state
+        if not isinstance(state, dict):
+            health = getattr(driver, "health", None)
+            state = health() if callable(health) else None
+        return state if isinstance(state, dict) else None
 
     # -- Plugin Extra-Field Management ----------------------------------------
 
