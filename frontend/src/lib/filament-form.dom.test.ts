@@ -90,7 +90,7 @@ function renderForm(): HTMLFormElement {
           <input id="custom_type" name="custom_type">
         </div>
       </div>
-      <div data-dirty-key="designation"><input id="designation" name="designation" required></div>
+      <div data-dirty-key="designation"><label class="fm-label" for="designation">Name</label><input id="designation" name="designation" required></div>
       <div data-dirty-key="diameter_mm"><input id="diameter_mm" name="diameter_mm" type="number" value="1.75"></div>
       <input id="material_subgroup" name="material_subgroup">
       <select id="finish_type" name="finish_type">
@@ -116,7 +116,7 @@ function renderForm(): HTMLFormElement {
       <input id="density_g_cm3" name="density_g_cm3" type="number">
       <div data-dirty-key="extruder_temp_range_c"><input id="extruder_temp_value" type="number"><input id="extruder_temp_to" type="number"></div>
       <div data-dirty-key="bed_temp_range_c"><input id="bed_temp_value" type="number"><input id="bed_temp_to" type="number"></div>
-      <div data-dirty-key="manufacturer_sku price_currency datasheet_url image_url drying_temp_c drying_time_hours softening_temp_c chamber_temp_c cooling_fan_range_percent max_volumetric_speed_mm3_s flow_ratio pressure_advance_k ams_compatibility build_plate_compatibility is_discontinued">
+      <div data-dirty-key="manufacturer_sku price_currency datasheet_url image_url drying_temp_c drying_time_hours softening_temp_c chamber_temp_c cooling_fan_range_percent max_volumetric_speed_mm3_s flow_ratio pressure_advance_k ams_compatibility build_plate_compatibility">
         <input id="manufacturer_sku" name="manufacturer_sku">
         <input id="price_currency" name="price_currency">
         <input id="datasheet_url" name="datasheet_url">
@@ -131,8 +131,8 @@ function renderForm(): HTMLFormElement {
         <input id="pressure_advance_k" name="pressure_advance_k" type="number">
         <input id="ams_compatibility" name="ams_compatibility">
         <input id="build_plate_compatibility" name="build_plate_compatibility">
-        <input id="is_discontinued" name="is_discontinued" type="checkbox">
       </div>
+      <label class="filament-form-check" data-dirty-key="is_discontinued"><input id="is_discontinued" name="is_discontinued" type="checkbox"><span>Discontinued</span></label>
       <input id="default_spool_weight_g" name="default_spool_weight_g" type="number">
       <select id="spool_material" name="spool_material">
         <option value=""></option><option value="Cardboard">Cardboard</option>
@@ -141,9 +141,9 @@ function renderForm(): HTMLFormElement {
       <input id="spool_width_mm" name="spool_width_mm" type="number">
       <input id="price" name="price" type="number">
       <input id="shop_url" name="shop_url">
-      <div id="system-fields-container"><div id="system-fields-grid"></div></div>
+      <div id="system-fields-container" data-dirty-key="system_fields"><label class="fm-label">System Fields</label><div id="system-fields-grid"></div></div>
       <button id="btn-add-field" type="button">Add field</button>
-      <div id="custom-fields-container"></div>
+      <div id="filament-custom-fields-card" data-dirty-key="entity_fields"><label class="fm-label">Filament-specific fields</label><div id="custom-fields-container"></div></div>
       <details id="new-color-disclosure">
         <summary>Add color to library</summary>
         <div id="new-color-form">
@@ -581,6 +581,33 @@ describe('shared filament form controller', () => {
     controller.destroy()
   })
 
+  it('preserves one-sided ranges when Edit saves an unrelated change', async () => {
+    const { controller } = await createLoadedController('edit')
+    controller.applyInitialData({
+      manufacturer_id: 7,
+      designation: 'Technical PLA',
+      material_type: 'PLA',
+      diameter_mm: 1.75,
+      color_mode: 'single',
+      colors: [{ color_id: 11, position: 1 }],
+      extruder_temp_range_c: { min: 190, max: null },
+      bed_temp_range_c: { min: null, max: 70 },
+      cooling_fan_range_percent: { min: 20, max: null },
+    })
+    controller.captureBaseline()
+    document.querySelector<HTMLInputElement>('#designation')!.value = 'Technical PLA V2'
+    document.querySelector<HTMLInputElement>('#designation')!.dispatchEvent(new Event('input', { bubbles: true }))
+
+    expect(document.querySelector<HTMLInputElement>('#bed_temp_value')!.value).toBe('')
+    expect(document.querySelector<HTMLInputElement>('#bed_temp_to')!.value).toBe('70')
+    expect(controller.collectPayload().scalar).toEqual(expect.objectContaining({
+      extruder_temp_range_c: { min: 190, max: null },
+      bed_temp_range_c: { min: null, max: 70 },
+      cooling_fan_range_percent: { min: 20, max: null },
+    }))
+    controller.destroy()
+  })
+
   it('applies duplicate data after references are loaded', async () => {
     const { controller } = await createLoadedController()
 
@@ -621,13 +648,66 @@ describe('shared filament form controller', () => {
     designation.value = 'Hyper'
     designation.dispatchEvent(new Event('input', { bubbles: true }))
     expect(wrapper.classList.contains('is-dirty')).toBe(true)
-    expect(wrapper.querySelector('.filament-dirty-indicator')).toBeNull()
+    expect(wrapper.querySelector('.filament-dirty-indicator')?.textContent).toBe('Changed')
+    expect((wrapper.querySelector('.filament-dirty-indicator') as HTMLElement).hidden).toBe(false)
     expect(document.querySelector('#unsaved-changes-status')?.classList.contains('hidden')).toBe(false)
 
     designation.value = 'Basic'
     designation.dispatchEvent(new Event('input', { bubbles: true }))
     expect(wrapper.classList.contains('is-dirty')).toBe(false)
+    expect((wrapper.querySelector('.filament-dirty-indicator') as HTMLElement).hidden).toBe(true)
     expect(document.querySelector('#unsaved-changes-status')?.classList.contains('hidden')).toBe(true)
+    controller.destroy()
+  })
+
+  it('marks system and filament-specific extra fields independently', async () => {
+    const fallbackFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input, init) =>
+      String(input).includes('/api/v1/system-extra-fields?')
+        ? jsonResponse([{ id: 1, key: 'storage_note', label: 'Storage note', field_type: 'text' }])
+        : fallbackFetch(input, init))
+    const { controller } = await createLoadedController('edit')
+    controller.applyInitialData({
+      manufacturer_id: 7,
+      designation: 'Basic',
+      material_type: 'PLA',
+      diameter_mm: 1.75,
+      color_mode: 'single',
+      colors: [{ color_id: 11, position: 1 }],
+      custom_fields: { storage_note: 'Keep dry', batch_note: 'First batch' },
+      custom_field_definitions: { batch_note: { label: 'Batch note', field_type: 'text' } },
+    })
+    controller.captureBaseline()
+    const systemCard = document.querySelector<HTMLElement>('#system-fields-container')!
+    const specificCard = document.querySelector<HTMLElement>('#filament-custom-fields-card')!
+    const storageNote = document.querySelector<HTMLInputElement>('.system-field-input')!
+
+    storageNote.value = 'Keep very dry'
+    storageNote.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(systemCard.classList.contains('is-dirty')).toBe(true)
+    expect(specificCard.classList.contains('is-dirty')).toBe(false)
+
+    storageNote.value = 'Keep dry'
+    storageNote.dispatchEvent(new Event('input', { bubbles: true }))
+    document.querySelector<HTMLButtonElement>('.entity-extra-remove')!.click()
+    await vi.waitFor(() => expect(specificCard.classList.contains('is-dirty')).toBe(true))
+    expect(systemCard.classList.contains('is-dirty')).toBe(false)
+    controller.destroy()
+  })
+
+  it('keeps the Discontinued marker beside its label text', async () => {
+    const { controller } = await createLoadedController('edit')
+    controller.applyInitialData({ manufacturer_id: 7, designation: 'Basic', material_type: 'PLA', color_mode: 'single' })
+    controller.captureBaseline()
+    const checkbox = document.querySelector<HTMLInputElement>('#is_discontinued')!
+    checkbox.checked = true
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }))
+
+    const label = document.querySelector<HTMLElement>('.filament-form-check')!
+    const marker = label.querySelector<HTMLElement>('.filament-dirty-indicator')!
+    expect(marker.parentElement?.textContent).toContain('Discontinued')
+    expect(marker.parentElement).not.toBe(label)
+    expect(marker.hidden).toBe(false)
     controller.destroy()
   })
 
@@ -640,8 +720,28 @@ describe('shared filament form controller', () => {
     controller.destroy()
   })
 
+  it.each(['disabled', 'ofd'])('does not bind catalog search for inactive source %s', async (source) => {
+    const fallbackFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (input, init) =>
+      String(input).endsWith('/api/v1/app-settings/public-info')
+        ? jsonResponse({ filament_lookup_source: source })
+        : fallbackFetch(input, init))
+    const { controller } = await createLoadedController()
+
+    expect(document.querySelector('.fdb-lookup-input')).toBeNull()
+    expect(document.querySelector<HTMLElement>('#fil-fdb-section')!.style.display).toBe('none')
+    expect(document.querySelector('#fil-lookup-heading')?.textContent).toBe('')
+    controller.destroy()
+  })
+
   it('searches without a manufacturer and adopts the selected result manufacturer', async () => {
     const { controller } = await createLoadedController()
+    for (const [id, value] of [
+      ['default_spool_weight_g', '333'],
+      ['spool_outer_diameter_mm', '205'],
+      ['spool_width_mm', '72'],
+    ]) document.querySelector<HTMLInputElement>(`#${id}`)!.value = value
+    document.querySelector<HTMLSelectElement>('#spool_material')!.value = 'Cardboard'
     const fetchStub = vi.mocked(fetch)
     fetchStub.mockImplementation(async (input) => {
       const url = String(input)
@@ -691,6 +791,10 @@ describe('shared filament form controller', () => {
     document.querySelector<HTMLElement>('.fdb-lookup-item')!.click()
     await vi.waitFor(() => expect(document.querySelector<HTMLSelectElement>('#manufacturer_id')!.value).toBe('9'))
     expect(document.querySelector<HTMLSelectElement>('#manufacturer_id')!.selectedOptions[0].textContent).toBe('New Brand')
+    expect(document.querySelector<HTMLInputElement>('#default_spool_weight_g')!.value).toBe('333')
+    expect(document.querySelector<HTMLInputElement>('#spool_outer_diameter_mm')!.value).toBe('205')
+    expect(document.querySelector<HTMLInputElement>('#spool_width_mm')!.value).toBe('72')
+    expect(document.querySelector<HTMLSelectElement>('#spool_material')!.value).toBe('Cardboard')
     expect(searchAll.checked).toBe(false)
     expect(searchAll.disabled).toBe(true)
     controller.destroy()

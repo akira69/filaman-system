@@ -217,7 +217,7 @@ const { mode, cancelHref } = Astro.props
       </dialog>
 
       <!-- System Fields -->
-      <div id="system-fields-container" class="fm-card filament-extra-fields-card" data-dirty-key="custom_fields" style="display: none;">
+      <div id="system-fields-container" class="fm-card filament-extra-fields-card" data-dirty-key="system_fields" style="display: none;">
         <h3 class="fm-label" style="font-size: 1rem; margin-bottom: 12px;" data-i18n="common.systemFields">System Fields</h3>
         <div id="system-fields-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
           <!-- Dynamic system fields go here -->
@@ -225,7 +225,7 @@ const { mode, cancelHref } = Astro.props
       </div>
 
       <!-- Custom Fields -->
-      <div id="filament-custom-fields-card" class="fm-card filament-extra-fields-card" data-dirty-key="custom_fields">
+      <div id="filament-custom-fields-card" class="fm-card filament-extra-fields-card" data-dirty-key="entity_fields">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <label class="fm-label" style="margin: 0;" data-i18n="filaments.specificExtraFields">Filament-specific extra fields</label>
           <button type="button" id="btn-add-field" class="fm-btn fm-btn-outline" style="font-size: 0.8rem; padding: 4px 10px;">
@@ -627,5 +627,14 @@ const { mode, cancelHref } = Astro.props
     outline-offset: 3px;
     border-radius: var(--radius-sm);
   }
+  :global(#filament-form .filament-dirty-indicator) {
+    display: inline-flex;
+    margin-inline-start: .45rem;
+    color: var(--accent);
+    font-size: .7rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  :global(#filament-form .filament-dirty-indicator[hidden]) { display: none; }
   :global(#filament-color-dialog [data-dirty-key].is-dirty) { outline: none; }
 </style>
