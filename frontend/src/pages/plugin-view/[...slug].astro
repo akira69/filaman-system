@@ -1,0 +1,58 @@
+---
+import Layout from '../../layouts/Layout.astro'
+
+// Astro SSR: slug is everything after /plugin-view/
+// e.g. /plugin-view/filament-swatch  →  slug = "filament-swatch"
+const { slug } = Astro.params
+const pluginKey = (slug ?? '').split('/')[0]
+const pageTitle = pluginKey
+  .replace(/-/g, ' ')
+  .replace(/\b\w/g, (c) => c.toUpperCase())
+---
+
+<Layout title={`FilaMan - ${pageTitle}`} noPadding>
+  {/* iframe src is built client-side so we can read theme + locale from
+      localStorage / the live data-theme attribute set by Layout.astro */}
+  <iframe
+    id="plugin-iframe"
+    title={pageTitle}
+    style="flex: 1; width: 100%; border: none; display: block;"
+    allow="same-origin"
+  ></iframe>
+
+  <script define:vars={{ pluginKey }}>
+    function buildSrc() {
+      // Map FilaMan theme to the two values the SPA understands.
+      // "brand" (Default) is a dark green palette — treat as dark.
+      const rawTheme = document.documentElement.getAttribute('data-theme') || 'brand'
+      const swaTheme = rawTheme === 'light' ? 'light' : 'dark'
+      const lang = localStorage.getItem('lang') || 'en'
+
+      const base = `/plugins/${pluginKey}/`
+      const params = new URLSearchParams({
+        filaman_hosted: '1',
+        filaman_hosted_config: `/plugins/${pluginKey}/hosted-config`,
+        filaman_theme: swaTheme,
+        spoolman_locale: lang,
+      })
+      return `${base}?${params.toString()}`
+    }
+
+    const iframe = document.getElementById('plugin-iframe')
+    iframe.src = buildSrc()
+
+    // Re-build src when FilaMan theme changes (data-theme attribute on <html>)
+    // so toggling theme while on the page causes the SPA to reload with the
+    // correct theme rather than staying on the wrong one.
+    const observer = new MutationObserver(() => {
+      const newSrc = buildSrc()
+      if (iframe.src !== window.location.origin + newSrc) {
+        iframe.src = newSrc
+      }
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'lang'],
+    })
+  </script>
+</Layout>
