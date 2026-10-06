@@ -34,10 +34,22 @@ def label_qr_target(
     return fallback
 
 
-def render_qr_image(target: str, size: int, mode: str = "RGB") -> Image.Image:
+def render_qr_image(target: str, size: int, mode: str = "RGB", thermal: bool = False) -> Image.Image:
     if len(target) > _MAX_QR_CONTENT:
         raise HTTPException(422, "QR content is too long")
     try:
+        if thermal:
+            qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, border=4)
+            qr.add_data(target)
+            qr.make(fit=True)
+            qr.box_size = size // (qr.modules_count + 8)
+            if qr.box_size < 1:
+                raise HTTPException(422, "QR box is too small for whole modules and a quiet zone")
+            code = qr.make_image().convert(mode)
+            image = Image.new(mode, (size, size), "white")
+            padding = (size - code.width) // 2
+            image.paste(code, (padding, padding))
+            return image
         return qrcode.make(target).convert(mode).resize(
             (size, size), Image.Resampling.NEAREST
         )
@@ -73,6 +85,7 @@ def render_basic_label(
     values: dict[str, str] | None = None,
     logo_content: bytes | None = None,
     colored: bool = False,
+    thermal: bool = False,
 ) -> Image.Image:
     filament = spool.filament
     display_values = [
@@ -246,7 +259,7 @@ def render_basic_label(
                 qr_url,
                 str(spool.id),
             )
-            qr = render_qr_image(target, qr_size)
+            qr = render_qr_image(target, qr_size, thermal=thermal)
             image.paste(
                 qr,
                 (
@@ -303,6 +316,6 @@ def render_basic_label(
         fill="black",
         font=label_font(max(8, label_width // 35)),
     )
-    qr = render_qr_image(qr_url, qr_size)
+    qr = render_qr_image(qr_url, qr_size, thermal=thermal)
     image.paste(qr, (label_width - qr_size - margin, margin))
     return image

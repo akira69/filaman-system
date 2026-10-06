@@ -1,9 +1,10 @@
 from io import BytesIO
 
 import pytest
-from app.models import Filament, Manufacturer, Spool
 from fastapi import HTTPException
 from PIL import Image, ImageChops
+
+from app.models import Filament, Manufacturer, Spool
 
 
 def _spool(**filament_values):
@@ -67,8 +68,38 @@ def test_bundled_font_has_real_bold_weight():
     assert bytes(regular.getmask("Müller")) != bytes(bold.getmask("Müller"))
 
 
+def test_v2_numeric_font_weight_changes_rendered_text():
+    from app.services.label_v2_renderer import render_v2_label
+
+    element = {"type": "text", "x": 0, "y": 0, "w": 40, "h": 20, "template": "Müller", "fontWeight": 400}
+    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [element]}
+    regular = render_v2_label(design, 400, {}, [], "http://test", None, {}, False)
+    element["fontWeight"] = 700
+    bold = render_v2_label(design, 400, {}, [], "http://test", None, {}, False)
+    assert regular.tobytes() != bold.tobytes()
+
+
+def test_thermal_qr_has_integer_modules_and_quiet_zone():
+    from app.services.label_basic_renderer import render_qr_image
+
+    # 19-byte URL uses EC-M version 2: 25 modules plus 8 quiet modules.
+    image = render_qr_image("http://test/spools/7", 119, thermal=True).convert("L")
+    # 3 dots/module; 99-dot QR centered with 10 dots of extra padding.
+    assert image.size == (119, 119)
+    assert image.crop((0, 0, 119, 22)).getextrema() == (255, 255)
+    assert image.crop((0, 97, 119, 119)).getextrema() == (255, 255)
+    assert image.crop((22, 22, 43, 25)).getextrema() == (0, 0)
+    for y in range(25):
+        for x in range(25):
+            assert image.crop((22+x*3, 22+y*3, 25+x*3, 25+y*3)).getextrema() in ((0, 0), (255, 255))
+    with pytest.raises(HTTPException) as rejected:
+        render_qr_image("http://test/spools/7", 32, thermal=True)
+    assert rejected.value.status_code == 422
+
+
 def test_basic_label_has_fixed_fields_color_and_exact_qr():
     import qrcode
+
     from app.services.label_basic_renderer import render_basic_label
 
     width, height = 480, 320
@@ -151,8 +182,9 @@ def test_basic_short_label_omits_border_that_does_not_fit():
     ("extra.spool.batch__id", "LOT-7"),
 ])
 def test_basic_v1_preserves_literal_field_markup(key, identifier):
-    from app.services.label_basic_renderer import render_basic_label
     from PIL import ImageDraw
+
+    from app.services.label_basic_renderer import render_basic_label
     from app.services.label_font import label_font
 
     settings = {

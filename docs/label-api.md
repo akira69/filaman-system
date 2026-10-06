@@ -26,8 +26,12 @@ GET /api/v1/labels/presets
 Example response:
 
 ```json
-[{"id": 7, "name": "40 mm spool", "selected": true}]
+[{"id": 7, "name": "40 mm spool", "selected": true, "width_mm": 40, "height_mm": 30}]
 ```
+
+Dimensions use the same rules as rendering, so clients can filter presets for
+the loaded label roll. Both dimensions are `null` if the saved dimension data
+is invalid; this does not hide the preset from the list.
 
 Select a preset for the user:
 
@@ -69,6 +73,7 @@ Supported query parameters:
 | `preset_id` | Omitted, `0`, or a saved preset ID |
 | `color` | `mono` (default) or `color`; color requires PNG |
 | `renderer` | `basic` or `chromium` |
+| `threshold` | Integer 0–255, default `200`; mono1 only, ignored for PNG |
 
 With `dpi`, FilaMan renders the preset at its physical size and pads it to the
 requested width. Without `dpi`, the label fills the requested width and its
@@ -85,12 +90,24 @@ swatches, logos, and uploaded images.
 are top-to-bottom, start on byte boundaries, and use most-significant-bit first;
 `1` means black. Unused low bits at the end of a row are zero.
 
+Monochrome conversion uses a plain threshold, not dithering: grayscale values
+strictly below `threshold` become black. The default `200` darkens small text;
+lower it for a lighter print (for example, `threshold=128`). Tune it for your
+printer and stock. The byte layout is unchanged.
+
+For mono1, both renderers use undecorated QR codes with error correction M,
+a four-module white quiet zone, and whole printer dots per module. Saved logo
+or center-text QR modes are overridden for this response only. Codes retain
+their URL and layout slot; insufficient space or clipping at the label edge
+returns `422`. PNG and normal browser printing keep the saved QR styling.
+
 Read these response headers before passing the raster to device-specific code:
 
 - `X-Image-Width`, `X-Image-Height`, and `X-Row-Bytes`
 - `X-Bit-Order: msb-black-1`
 - `X-Content-Width` and `X-Rotated`
 - `X-Preset-Id` (`0` means Default)
+- `X-Renderer: basic|chromium` (also returned for PNG)
 
 Validate that the body length equals `X-Row-Bytes * X-Image-Height`. The body is
 a raster, not printer commands.
@@ -105,9 +122,11 @@ when no preset is selected. Saved v1 and v2 presets are rendered with their
 dimensions and a best-effort Pillow implementation of text, tokens, QR codes,
 logos, images, swatches, and shapes. Basic does not reproduce custom fonts,
 rich text, wrapping, or browser text fitting exactly.
+It bundles Space Grotesk regular and bold fonts, including Latin-1 accents.
 
 The `-chromium` image defaults to `chromium` and reproduces the editor's saved
-presets exactly, including fonts, rich fields, fitting, images, and QR codes.
+presets using the editor's fonts, rich fields, fitting, images, and QR styling
+(except for the mono1 thermal QR override described above).
 Start it with the supplied sandbox configuration:
 
 ```bash

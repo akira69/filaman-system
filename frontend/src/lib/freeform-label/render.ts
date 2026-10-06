@@ -24,6 +24,7 @@ export interface RenderFreeformLabelOptions {
   interactive?: boolean
   isStale?: () => boolean
   entityPath?: 'spools' | 'filaments'
+  thermalQr?: boolean
 }
 
 function applyGeometry(node: HTMLElement, element: LabelDesignElement) {
@@ -163,13 +164,19 @@ async function renderQr(
   element: Extract<LabelDesignElement, { type: 'qr' }>,
   data: SpoolData,
   entityPath: 'spools' | 'filaments',
+  thermal = false,
 ) {
   const QRCode = getQrCodeConstructor()
   if (!QRCode) throw new Error('QRCode is not available')
   const entityId = entityPath === 'filaments' ? data['filament.id'] : data.id
+  const url = buildQrUrl(element.linkMode, element.urlTemplate, entityId, entityPath)
+  if (thermal) {
+    node.dataset.thermalQrUrl = url
+    return
+  }
   const qrPx = Math.min(1024, Math.max(256, Math.round(element.w * (600 / 25.4))))
   const qrCode = new QRCode(node, {
-    text: buildQrUrl(element.linkMode, element.urlTemplate, entityId, entityPath),
+    text: url,
     width: qrPx,
     height: qrPx,
     colorDark: '#000000',
@@ -266,7 +273,7 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
         })
         break
       case 'qr':
-        await renderQr(node, element, options.data, options.entityPath ?? 'spools')
+        await renderQr(node, element, options.data, options.entityPath ?? 'spools', options.thermalQr)
         break
       case 'manufacturerLogo':
         if (options.logoUrl) {

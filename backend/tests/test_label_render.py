@@ -4,6 +4,9 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
+from PIL import Image, ImageStat
+from sqlalchemy import event, select
+
 from app.api.v1.labels import _mono1
 from app.core.security import generate_token_secret, hash_token
 from app.main import app
@@ -21,14 +24,29 @@ from app.models import (
     UserApiKey,
 )
 from app.models.label_preset import label_preset_name_key
-from PIL import Image, ImageStat
-from sqlalchemy import event, select
 
 
 def test_mono1_pads_partial_row_with_white():
     image = Image.new("RGB", (9, 1), "white")
     image.putpixel((0, 0), (0, 0, 0))
     assert _mono1(image) == b"\x80\x00"
+
+
+def test_mono1_threshold_is_clean_and_adjustable():
+    image = Image.new("L", (9, 2), 199)
+    assert _mono1(image) == b"\xff\x80" * 2
+    assert _mono1(image, 199) == bytes(4)
+    row = Image.new("L", (3, 1))
+    row.putdata([199, 200, 201])
+    assert _mono1(row) == b"\x80"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("threshold", [-1, 256])
+async def test_threshold_validation(auth_client, threshold):
+    client, _ = auth_client
+    response = await client.get(f"/api/v1/labels/spool/999999/render?threshold={threshold}")
+    assert response.status_code == 422
 
 
 def test_render_openapi_describes_binary_responses():
@@ -61,6 +79,11 @@ async def test_spool_label_render_formats(auth_client, db_session):
     mono = await client.get(path + "&format=mono1")
 
     assert png.status_code == mono.status_code == 200
+    assert png.headers["x-renderer"] == mono.headers["x-renderer"] == "chromium"
+    for format in ("png", "mono1"):
+        basic = await client.get(path + f"&format={format}&renderer=basic")
+        assert basic.status_code == 200
+        assert basic.headers["x-renderer"] == "basic"
     assert png.headers["content-type"] == "image/png"
     assert png.content[:8] == b"\x89PNG\r\n\x1a\n"
     assert struct.unpack(">II", png.content[16:24]) == (480, 320)
@@ -298,7 +321,7 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
 
     presets = await client.get("/api/v1/labels/presets")
     assert presets.status_code == 200
-    assert presets.json() == [{"id": preset.id, "name": "Small", "selected": False}]
+    assert presets.json() == [{"id": preset.id, "name": "Small", "selected": False, "width_mm": 50, "height_mm": 25}]
     secret = generate_token_secret()
     api_key = UserApiKey(user_id=admin_user.id, name="Scale", key_hash=hash_token(secret), scopes=["spools:read"])
     db_session.add(api_key)
@@ -408,9 +431,29 @@ async def test_scale_preset_list_exposes_selected_preset(
     await db_session.commit()
 
     assert (await client.get("/api/v1/labels/presets")).json() == [
-        {"id": unselected.id, "name": "Other", "selected": False},
-        {"id": selected.id, "name": "Selected", "selected": True},
+        {"id": unselected.id, "name": "Other", "selected": False, "width_mm": None, "height_mm": None},
+        {"id": selected.id, "name": "Selected", "selected": True, "width_mm": None, "height_mm": None},
     ]
+
+
+@pytest.mark.asyncio
+async def test_preset_dimensions_match_render_policy_and_isolate_bad_records(auth_client, db_session, admin_user):
+    client, _ = auth_client
+    cases = [
+        ({"settings": {"label": {"width": 40, "height": 30}}}, (40, 30)),
+        ({"version": 2, "design": {"label": {"widthMm": 40, "heightMm": 30}}}, (40, 30)),
+        ({"settings": {"label": {"width": None, "height": ""}}}, (20, 10)),
+        ({"settings": {}}, (60, 40)),
+        ({"version": 2, "design": {"label": {"widthMm": "40", "heightMm": 30}}}, (None, None)),
+        ({"version": 2, "design": []}, (None, None)),
+        ({"settings": {"label": []}}, (None, None)),
+    ]
+    for index, (data, _) in enumerate(cases):
+        db_session.add(LabelPreset(user_id=admin_user.id, preset_type="spool", name=str(index), name_key=label_preset_name_key(str(index)), data=data))
+    await db_session.commit()
+    response = await client.get("/api/v1/labels/presets")
+    assert response.status_code == 200
+    assert [(row["width_mm"], row["height_mm"]) for row in response.json()] == [size for _, size in cases]
 
 
 @pytest.mark.usefixtures("label_render_runtime")

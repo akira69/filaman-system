@@ -4,6 +4,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
+from PIL import Image, ImageChops
+from sqlalchemy import select
+
 from app.api.v1 import labels
 from app.models import (
     Filament,
@@ -15,8 +18,6 @@ from app.models import (
     SystemExtraField,
 )
 from app.models.label_preset import label_preset_name_key
-from PIL import Image
-from sqlalchemy import select
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +40,153 @@ async def preview_spool(db_session, admin_user):
     db_session.add(preset)
     await db_session.commit()
     return spool, preset
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("label_render_runtime")
+@pytest.mark.parametrize("renderer", ["basic", "chromium"])
+@pytest.mark.parametrize("orientation,base", [("original", "http://test"), ("portrait", "https://labels.example/" + "long/" * 16)])
+async def test_thermal_qr_final_raster_has_whole_modules(auth_client, preview_spool, db_session, renderer, orientation, base):
+    import qrcode
+
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.data = {"version": 2, "design": {
+        "version": 2, "label": {"widthMm": 40, "heightMm": 30},
+        "elements": [{"id": "qr", "type": "qr", "x": 2.13, "y": 3.17, "w": 14.83, "h": 14.83,
+                      "mode": "logo", "linkMode": "url", "urlTemplate": base}],
+    }}
+    await db_session.commit()
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer={renderer}&format=mono1&dpi=203&width=385&align=right&orientation={orientation}")
+    assert response.status_code == 200, response.text
+    lighter = await client.get(str(response.request.url) + "&threshold=128")
+    assert lighter.status_code == 200
+    assert lighter.content == response.content  # QR dots are binary, not antialiased gray.
+    height = int(response.headers["x-image-height"])
+    # Invert wire bits: Pillow's one-bit representation uses white=1.
+    image = Image.frombytes("1", (385, height), response.content.translate(bytes(range(255, -1, -1)))).convert("L")
+    content_width = int(response.headers["x-content-width"])
+    image = image.crop((385-content_width, 0, 385, height))
+    if orientation == "portrait":
+        image = image.transpose(Image.Transpose.ROTATE_270)
+    assert image.size == (320, 240)
+    black = image.point(lambda p: 255-p)
+    left, top, right, bottom = black.getbbox()
+    reference = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M)
+    reference.add_data(base.rstrip("/") + f"/spools/{spool.id}")
+    reference.make(fit=True)
+    modules = reference.modules_count
+    pitch = (right-left) // modules
+    assert pitch >= 1
+    assert right-left == bottom-top == modules*pitch
+    # Every module is a solid pitch-by-pitch square, never a fractional rescale.
+    for y in range(modules):
+        for x in range(modules):
+            assert image.crop((left+x*pitch, top+y*pitch, left+(x+1)*pitch, top+(y+1)*pitch)).getextrema() in ((0, 0), (255, 255))
+    for box in ((left-4*pitch, top-4*pitch, right+4*pitch, top),
+                (left-4*pitch, bottom, right+4*pitch, bottom+4*pitch),
+                (left-4*pitch, top, left, bottom), (right, top, right+4*pitch, bottom)):
+        assert image.crop(box).getextrema() == (255, 255)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("label_render_runtime")
+@pytest.mark.parametrize("renderer", ["basic", "chromium"])
+async def test_thermal_qr_rejects_too_small_box_but_png_keeps_original(auth_client, preview_spool, db_session, renderer):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.data = {"version": 2, "design": {
+        "version": 2, "label": {"widthMm": 40, "heightMm": 30},
+        "elements": [{"id": "qr", "type": "qr", "x": 2, "y": 3, "w": 3, "h": 3, "mode": "logo"}],
+    }}
+    await db_session.commit()
+    path = f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer={renderer}&dpi=203"
+    assert (await client.get(path + "&format=mono1")).status_code == 422
+    first = await client.get(path + "&threshold=1")
+    second = await client.get(path + "&threshold=255")
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("label_render_runtime")
+@pytest.mark.parametrize("renderer", ["basic", "chromium"])
+async def test_thermal_qr_does_not_paint_over_higher_layers(auth_client, preview_spool, db_session, renderer):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.data = {"version": 2, "design": {
+        "version": 2, "label": {"widthMm": 40, "heightMm": 30},
+        "elements": [
+            {"id": "qr", "type": "qr", "x": 2, "y": 3, "w": 15, "h": 15, "z": 0},
+            {"id": "over", "type": "shape", "shape": "rectangle", "x": 2.2, "y": 3.2,
+             "w": 1, "h": 1, "z": 10, "fill": "#000000", "stroke": "", "strokeWidthMm": 0},
+        ],
+    }}
+    await db_session.commit()
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer={renderer}&dpi=203&format=mono1")
+    assert response.status_code == 200
+    image = Image.frombytes("1", (576, 240), response.content.translate(bytes(range(255, -1, -1))))
+    assert image.getpixel((20, 28)) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("label_render_runtime")
+@pytest.mark.parametrize("renderer", ["basic", "chromium"])
+@pytest.mark.parametrize("kind", ["default", "v1-left", "v1-right", "v2"])
+async def test_thermal_label_sample_matrix(auth_client, preview_spool, db_session, monkeypatch, tmp_path, renderer, kind):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    manufacturer_id = spool.filament.manufacturer_id
+    spool.filament.designation = "Grün üöäßéè"
+    logo = Image.new("RGBA", (160, 40), (0, 0, 0, 0))
+    logo.paste((0, 0, 0, 255), (40, 8, 120, 32))
+    logo.save(tmp_path / f"{manufacturer_id}_label.png")
+    monkeypatch.setattr(labels, "MANUFACTURER_LOGO_DIR", tmp_path)
+    if kind.startswith("v1"):
+        preset.data = {"settings": {
+            "label": {"width": 40, "height": 30, "marginMm": 1},
+            "logo": {"show": True, "spaceMm": 5},
+            "title": {"template": "{filament.name}", "sizeMm": 3},
+            "info": {"template": "Hinzugefügt éè", "sizeMm": 2},
+            "qr": {"sizeMm": 14, "position": kind.split("-")[1], "mode": "logo"},
+        }}
+    else:
+        preset.data = {"version": 2, "design": {
+            "version": 2, "label": {"widthMm": 40, "heightMm": 30},
+            "elements": [
+                {"id": "logo", "type": "manufacturerLogo", "x": 2, "y": 0, "w": 30, "h": 5},
+                {"id": "text", "type": "text", "x": 2, "y": 5, "w": 36, "h": 5,
+                 "template": "{filament.name}", "fontSizeMm": 3, "fontWeight": 700},
+                *[{"id": f"qr{i}", "type": "qr", "x": x, "y": 12, "w": 13.8, "h": 13.8,
+                   "mode": "logo"} for i, x in enumerate((2, 22))],
+            ],
+        }}
+    await db_session.commit()
+    path = f"/api/v1/labels/spool/{spool.id}/render?preset_id={0 if kind == 'default' else preset.id}&renderer={renderer}&dpi=203&width=576"
+    png = await client.get(path)
+    mono = await client.get(path + "&format=mono1")
+    light = await client.get(path + "&format=mono1&threshold=128")
+    assert png.status_code == mono.status_code == light.status_code == 200
+    assert png.headers["x-renderer"] == mono.headers["x-renderer"] == renderer
+    assert mono.headers["x-content-width"] == ("480" if kind == "default" else "320")
+    height = 320 if kind == "default" else 240
+    assert mono.headers["x-image-height"] == str(height)
+    assert len(mono.content) == 72 * height
+    assert all(low & ~high == 0 for low, high in zip(light.content, mono.content))
+    Image.open(BytesIO(png.content)).save(tmp_path / f"{kind}-{renderer}-png.png")
+    image = Image.frombytes("1", (576, height), mono.content.translate(bytes(range(255, -1, -1))))
+    image.save(tmp_path / f"{kind}-{renderer}-mono1.png")
+    if kind == "v2":
+        # Fractional DOM slots may center a dot differently; the modules and
+        # minimum quiet zone must remain identical, not the extra whitespace.
+        codes = []
+        for box in ((16, 96, 126, 206), (176, 96, 286, 206)):
+            slot = image.crop(box).convert("L")
+            left, top, right, bottom = ImageChops.invert(slot).getbbox()
+            assert right-left == bottom-top == 75  # EC-M v2, 25 modules * 3 dots
+            assert min(left, top, 110-right, 110-bottom) >= 12
+            codes.append(slot.crop((left, top, right, bottom)).tobytes())
+        assert codes[0] == codes[1]
 
 
 @pytest.mark.asyncio

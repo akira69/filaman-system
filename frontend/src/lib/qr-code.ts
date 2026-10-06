@@ -70,6 +70,53 @@ export function canvasToQrImage(canvas: HTMLCanvasElement, preferCrisp = false) 
   return img
 }
 
+/** API-only: fit undecorated EC-M codes to the final printer pixel grid. */
+export function renderThermalQrs(root: HTMLElement, scaleX: number, scaleY: number) {
+  const QRCode = getQrCodeConstructor()
+  const bounds = root.getBoundingClientRect()
+  for (const node of root.querySelectorAll<HTMLElement>('[data-thermal-qr-url]')) {
+    const url = node.dataset.thermalQrUrl!
+    if (url.length > 2048) throw new Error('QR content is too long')
+    const qr = new QRCode(document.createElement('div'), {
+      text: url, width: 1, height: 1, correctLevel: QRCode.CorrectLevel.M,
+    })._oQRCode
+    const modules = qr.getModuleCount()
+    const rect = node.getBoundingClientRect()
+    const size = Math.floor(Math.min(rect.width, rect.height))
+    const pitch = Math.floor(size / (modules + 8))
+    if (pitch < 1) throw new Error('QR box is too small for whole modules and a quiet zone')
+    const codeSize = (modules + 8) * pitch
+    const x = Math.round(rect.left - bounds.left + (rect.width - codeSize) / 2)
+    const y = Math.round(rect.top - bounds.top + (rect.height - codeSize) / 2)
+    if (x < 0 || y < 0 || x + codeSize > bounds.width || y + codeSize > bounds.height) {
+      throw new Error('Thermal QR box must fit inside the label')
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = codeSize
+    const context = canvas.getContext('2d')!
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, codeSize, codeSize)
+    context.fillStyle = '#000'
+    for (let row = 0; row < modules; row++) {
+      for (let column = 0; column < modules; column++) {
+        if (qr.isDark(row, column)) context.fillRect((column + 4) * pitch, (row + 4) * pitch, pitch, pitch)
+      }
+    }
+    const image = canvasToQrImage(canvas, true)
+    // Keep the original DOM slot/z-order; only its image snaps to printer dots.
+    if (getComputedStyle(node).position === 'static') node.style.position = 'relative'
+    node.style.background = '#fff'
+    Object.assign(image.style, {
+      position: 'absolute', maxWidth: 'none', maxHeight: 'none',
+      background: '#fff', display: 'block',
+      width: `${codeSize}px`, height: `${codeSize}px`,
+      left: '0', top: '0', transformOrigin: '0 0',
+      transform: `translate(${(bounds.left + x - rect.left) / scaleX}px, ${(bounds.top + y - rect.top) / scaleY}px) scale(${1 / scaleX}, ${1 / scaleY})`,
+    })
+    node.replaceChildren(image)
+  }
+}
+
 async function loadQrBrandLogo(): Promise<HTMLImageElement | null> {
   if (qrBrandLogo) return qrBrandLogo
   if (qrBrandLogoPromise) return qrBrandLogoPromise

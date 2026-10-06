@@ -52,6 +52,8 @@ class ScaleLabelPresetResponse(BaseModel):
     id: int
     name: str
     selected: bool
+    width_mm: float | None
+    height_mm: float | None
 
 
 async def _selected_preset_id(db: DBSession, user_id: int) -> int | None:
@@ -154,14 +156,42 @@ async def list_scale_presets(
     if principal.user_id is None:
         raise HTTPException(status_code=403, detail="Use a user API key to select label presets")
     rows = await db.execute(
-        select(LabelPreset.id, LabelPreset.name, LabelPreset.selected)
+        select(LabelPreset.id, LabelPreset.name, LabelPreset.selected, LabelPreset.data)
         .where(LabelPreset.user_id == principal.user_id, LabelPreset.preset_type == "spool")
         .order_by(LabelPreset.name)
     )
-    return [
-        {"id": row.id, "name": row.name, "selected": row.selected}
-        for row in rows
-    ]
+    result = []
+    for row in rows:
+        try:
+            width_mm, height_mm = _preset_size(row.data)
+        except HTTPException:
+            width_mm = height_mm = None
+        result.append({"id": row.id, "name": row.name, "selected": row.selected,
+                       "width_mm": width_mm, "height_mm": height_mm})
+    return result
+
+
+def _preset_size(data: dict | None) -> tuple[float, float]:
+    if data is None:
+        return _label_size(None)
+    if not isinstance(data, dict):
+        raise HTTPException(422, "Preset is invalid")
+    if data.get("version") == 2:
+        design = data.get("design")
+        if not isinstance(design, dict) or not isinstance(design.get("label"), dict):
+            raise HTTPException(422, "Preset design is invalid")
+        width, height = (design["label"].get(key) for key in ("widthMm", "heightMm"))
+        if any(not isinstance(value, (int, float)) or not isfinite(value) or not low <= value <= high
+               for value, low, high in ((width, 20, 300), (height, 10, 200))):
+            raise HTTPException(422, "Preset design has invalid dimensions")
+        return width, height
+    settings = data.get("settings")
+    if not isinstance(settings, dict) or any(
+        key in settings and not isinstance(settings[key], dict)
+        for key in ("label", "logo", "title", "title2", "info", "info2", "qr")
+    ):
+        raise HTTPException(422, "Preset settings are invalid")
+    return _label_size(settings)
 
 
 def _label_size(settings: dict | None) -> tuple[float, float]:
@@ -293,11 +323,12 @@ def _label_values(spool: Spool, colors: list[str], definitions: dict | None = No
     return values
 
 
-def _mono1(image: Image.Image) -> bytes:
+def _mono1(image: Image.Image, threshold: int = 200) -> bytes:
     width, height = image.size
     row_bytes = (width + 7) // 8
     # PIL stores white as 1; the wire format uses black as 1.
-    packed = bytearray(image.convert("1", dither=Image.Dither.FLOYDSTEINBERG).tobytes().translate(bytes(range(255, -1, -1))))
+    binary = image.convert("L").point(lambda value: 255 if value >= threshold else 0, mode="1")
+    packed = bytearray(binary.tobytes().translate(bytes(range(255, -1, -1))))
     if width % 8:
         mask = (0xFF << (8 - width % 8)) & 0xFF
         for row in range(height):
@@ -335,7 +366,7 @@ def _preview_images(assets: dict[str, bytes], logo_path, image_uses: Counter, qr
     return assets, logo_url
 
 
-def _finish_raster(image, label_width, label_height, width, rotated, align, format, color, preset_id):
+def _finish_raster(image, label_width, label_height, width, rotated, align, format, color, preset_id, renderer="basic", threshold=200):
     # CSS millimetres round to fractional pixels; make the wire dimensions exact.
     if image.size != (label_width, label_height):
         image = image.resize((label_width, label_height), Image.Resampling.LANCZOS)
@@ -352,6 +383,7 @@ def _finish_raster(image, label_width, label_height, width, rotated, align, form
         image = canvas
     headers = {
         "Cache-Control": "no-store",
+        "X-Renderer": renderer,
         "X-Preset-Id": str(preset_id or 0),
         "X-Image-Width": str(image.width),
         "X-Image-Height": str(image.height),
@@ -360,19 +392,19 @@ def _finish_raster(image, label_width, label_height, width, rotated, align, form
     }
     if format == "mono1":
         headers.update({"X-Row-Bytes": str((image.width + 7) // 8), "X-Bit-Order": "msb-black-1"})
-        return Response(_mono1(image), media_type="application/octet-stream", headers=headers)
+        return Response(_mono1(image, threshold), media_type="application/octet-stream", headers=headers)
     output = BytesIO()
     image.save(output, format="PNG")
     return Response(output.getvalue(), media_type="image/png", headers=headers)
 
 
-def _raster_response(png, label_width, label_height, width, rotated, align, format, color, preset_id):
+def _raster_response(png, label_width, label_height, width, rotated, align, format, color, preset_id, renderer="chromium", threshold=200):
     with Image.open(BytesIO(png)) as source:
         if source.width > 2048 or source.height > 2048:
             raise HTTPException(status_code=422, detail="Rendered label exceeds the image limit")
         image = source.convert("RGB")
     return _finish_raster(
-        image, label_width, label_height, width, rotated, align, format, color, preset_id,
+        image, label_width, label_height, width, rotated, align, format, color, preset_id, renderer, threshold,
     )
 
 
@@ -391,6 +423,7 @@ async def render_spool_label(
     preset_id: int | None = Query(None, ge=0, description="Omit for the selected preset; 0 uses Default for this request"),
     color: Literal["mono", "color"] = "mono",
     renderer: Literal["chromium", "basic"] | None = None,
+    threshold: int = Query(200, ge=0, le=255, description="mono1 only: grayscale values below this are black"),
     principal=RequirePermission("spools:read"),
 ):
     if format == "mono1" and color == "color":
@@ -424,6 +457,7 @@ async def render_spool_label(
             if preset is None:
                 raise HTTPException(status_code=404, detail="Label preset not found")
             preset_data = preset.data
+            _preset_size(preset_data)
             if preset.data.get("version") == 2:
                 design = preset.data.get("design")
                 if not isinstance(design, dict) or not isinstance(design.get("label"), dict):
@@ -460,18 +494,7 @@ async def render_spool_label(
                         raise HTTPException(status_code=422, detail="Preset image is unavailable")
             else:
                 settings = preset.data.get("settings")
-                if not isinstance(settings, dict) or any(
-                    key in settings and not isinstance(settings[key], dict)
-                    for key in ("label", "logo", "title", "title2", "info", "info2", "qr")
-                ):
-                    raise HTTPException(status_code=422, detail="Preset settings are invalid")
-        if design is not None:
-            width_mm, height_mm = (design["label"].get(key) for key in ("widthMm", "heightMm"))
-            if any(not isinstance(value, (int, float)) or not isfinite(value) or not low <= value <= high
-                   for value, low, high in ((width_mm, 20, 300), (height_mm, 10, 200))):
-                raise HTTPException(status_code=422, detail="Preset design has invalid dimensions")
-        else:
-            width_mm, height_mm = _label_size(settings)
+        width_mm, height_mm = _preset_size(preset_data)
         label_width = round(width_mm * dpi / 25.4) if dpi else width
         label_height = (
             round(height_mm * dpi / 25.4)
@@ -533,7 +556,7 @@ async def render_spool_label(
                     design, label_width, values, colors,
                     str(request.base_url).rstrip("/") + f"/spools/{spool_id}",
                     logo_content,
-                    assets, color == "color",
+                    assets, color == "color", format == "mono1", label_height,
                 )
             else:
                 image = await to_thread.run_sync(
@@ -542,7 +565,7 @@ async def render_spool_label(
                     str(request.base_url).rstrip("/") + f"/spools/{spool_id}", colors,
                     settings, values,
                     logo_content,
-                    color == "color",
+                    color == "color", format == "mono1",
                 )
             return await to_thread.run_sync(
                 _finish_raster,
@@ -555,6 +578,8 @@ async def render_spool_label(
                 format,
                 color,
                 preset_id,
+                renderer,
+                threshold,
             )
         spool_data = SpoolResponse.model_validate(spool).model_dump(mode="json")
         spool_data["status"] = {"label": spool.status.label}
@@ -563,8 +588,9 @@ async def render_spool_label(
             "spool": spool_data, "preset": preset_data, "fieldDefinitions": definitions,
             "assets": asset_urls, "logoUrl": logo_url,
             "pixelWidth": label_width, "pixelHeight": label_height,
+            "thermal": format == "mono1",
         }
         png = await render_preview_png(payload, str(request.base_url).rstrip("/"), assets)
         return await to_thread.run_sync(
-            _raster_response, png, label_width, label_height, width, rotated, align, format, color, preset_id,
+            _raster_response, png, label_width, label_height, width, rotated, align, format, color, preset_id, renderer, threshold,
         )

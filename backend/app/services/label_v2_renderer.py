@@ -126,6 +126,8 @@ def render_v2_label(
     logo_content: bytes | None,
     assets: dict[str, bytes],
     colored: bool,
+    thermal: bool = False,
+    height: int | None = None,
 ) -> Image.Image:
     label = design.get("label")
     elements = design.get("elements")
@@ -143,7 +145,7 @@ def render_v2_label(
             status_code=422, detail="Preset design has invalid dimensions"
         )
     scale = width / width_mm
-    height = round(height_mm * scale)
+    height = height if height is not None else round(height_mm * scale)
     if height > 2048:
         raise HTTPException(
             status_code=422, detail="Preset is too tall for the requested width"
@@ -229,7 +231,7 @@ def render_v2_label(
         elif kind == "text":
             content = resolve_v2_text(str(element.get("template", ""))[:8000], values)
             font_size = max(1, round(_mm(element.get("fontSizeMm", 3.2), 20) * scale))
-            bold = element.get("fontWeight") == "bold"
+            bold = element.get("fontWeight") in (600, 700, "bold")
             font = label_font(font_size, bold)
             if element.get("fitToWidth"):
                 while font_size > 2 and any(
@@ -264,7 +266,9 @@ def render_v2_label(
                 qr_url,
                 values["id"],
             )
-            qr = render_qr_image(target, min(w, h), "RGBA")
+            qr = render_qr_image(target, min(w, h), "RGBA", thermal)
+            if thermal and (x < 0 or y < 0 or x + qr.width > width or y + qr.height > height):
+                raise HTTPException(422, "Thermal QR box must fit inside the label")
             layer.paste(qr, (0, 0))
         elif kind in {"manufacturerLogo", "image"}:
             source = (

@@ -279,7 +279,7 @@ async def render_preview_png(
                 args.extend(["--disable-gpu", "--in-process-gpu"])
             # uvloop does not accept Popen's privilege-drop arguments. Spawn
             # synchronously so cancellation cannot lose ownership of the child.
-            process = subprocess.Popen(
+            process = subprocess.Popen(  # noqa: ASYNC220 -- retain child ownership across cancellation
                 args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True,
                 **launch_options,
@@ -319,6 +319,14 @@ async def render_preview_png(
             if "exceptionDetails" in result:
                 raise HTTPException(422, "Label could not be rendered by the browser preview")
             data_url = result["result"].get("value")
+            if payload.get("thermal"):
+                # Capture at printer-dot resolution; html-to-image can resample
+                # transformed QR edges even with pixelated/crispEdges styling.
+                screenshot = await command("Page.captureScreenshot", {
+                    "format": "png", "captureBeyondViewport": True,
+                    "clip": {**data_url, "scale": 1},
+                })
+                data_url = "data:image/png;base64," + screenshot["data"]
     except TimeoutError as exc:
         raise HTTPException(503, "Label renderer timed out", headers={"Retry-After": "1"}) from exc
     except HTTPException:
