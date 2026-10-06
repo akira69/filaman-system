@@ -3,6 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { migrateV1PresetData, normalizeDesignerPresetData } from './migrate-v1'
 import { createDefaultLabelDesign } from './defaults'
 import { LEGACY_DESIGNER_DEFAULTS } from './legacy-v1'
+import migrationCases from '../../../../backend/tests/fixtures/label_preset_v1_v2.json'
+
+it.each(migrationCases)('matches the frozen cross-runtime contract: $name', testCase => {
+  let id = 0
+  expect(migrateV1PresetData(testCase.input, testCase.kind as 'spool' | 'filament', () => `v1-${++id}`))
+    .toEqual(testCase.expected)
+})
 
 function barePreset() {
   const settings = structuredClone(LEGACY_DESIGNER_DEFAULTS)
