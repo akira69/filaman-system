@@ -421,12 +421,14 @@ async def render_spool_label(
     preset_id: int | None = Query(None, ge=0, description="Omit for the selected preset; 0 uses Default for this request"),
     color: Literal["mono", "color"] = "mono",
     renderer: Literal["chromium", "basic"] | None = None,
-    threshold: int = Query(200, ge=0, le=255, description="mono1 only: grayscale values below this are black"),
+    threshold: int | None = Query(None, ge=0, le=255, description="mono1 only: values below this are black; defaults to 200 for Basic, 150 for Chromium"),
     principal=RequirePermission("spools:read"),
 ):
     if format == "mono1" and color == "color":
         raise HTTPException(status_code=422, detail="mono1 is always monochrome")
     renderer = renderer or app_settings.label_renderer
+    if threshold is None:
+        threshold = 150 if renderer == "chromium" else 200
     async with label_render_slot() if renderer == "chromium" else nullcontext():
         spool = await db.scalar(select(Spool).where(Spool.id == spool_id).options(
             selectinload(Spool.filament).selectinload(Filament.manufacturer),
@@ -545,7 +547,7 @@ async def render_spool_label(
                     design, label_width, values, colors,
                     str(request.base_url).rstrip("/") + f"/spools/{spool_id}",
                     logo_content,
-                    assets, color == "color", format == "mono1", label_height, raw_values,
+                    assets, format == "mono1", label_height, raw_values,
                 )
             else:
                 image = await to_thread.run_sync(

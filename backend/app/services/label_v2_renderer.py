@@ -14,6 +14,7 @@ from app.services.label_basic_renderer import (
 )
 from app.services.label_font import label_font
 from app.services.label_text import (
+    InverseText,
     clip_label_line,
     resolve_label_runs,
 )
@@ -54,10 +55,28 @@ def _run_width(run, font):
     return font.getlength("0") * (run + 0.4) if isinstance(run, int) else font.getlength(run)
 
 
+def _clip_runs(runs, font, width, overflow=False):
+    if not overflow and sum(_run_width(run, font) for run in runs) <= width:
+        return runs
+    available = max(0, width - font.getlength("..."))
+    visible = []
+    for run in runs:
+        advance = _run_width(run, font)
+        if advance <= available:
+            visible.append(run)
+            available -= advance
+            continue
+        if isinstance(run, str):
+            text = clip_label_line(run, font, available)
+            visible.append(type(run)(text))
+        break
+    return [*visible, "..."]
+
+
 def _text_lines(runs, font, width, wrap, break_words):
     lines, line, used = [], [], 0
     for run in runs:
-        parts = [run] if isinstance(run, int) else re.split(r"(\n|[^\S\n]+)", run)
+        parts = [run] if isinstance(run, int) else [type(run)(part) for part in re.split(r"(\n|[^\S\n]+)", run)]
         for part in parts:
             if part == "\n":
                 lines.append(line)
@@ -73,16 +92,20 @@ def _text_lines(runs, font, width, wrap, break_words):
                 continue
             if wrap and break_words and isinstance(part, str) and size > width:
                 while part and _run_width(part, font) > width:
-                    # clip_label_line retains one overflowing glyph for painting;
-                    # wrapping must instead carry that glyph to the next line.
-                    count = max(1, len(clip_label_line(part, font, width)) - 1)
-                    lines.append([part[:count]])
-                    part = part[count:]
+                    count = max(1, len(clip_label_line(part, font, width)))
+                    lines.append([type(part)(part[:count])])
+                    part = type(part)(part[count:])
                 size = _run_width(part, font)
             line.append(part)
             used += size
     if line:
         lines.append(line)
+    for line in lines:
+        while line and isinstance(line[-1], str):
+            line[-1] = type(line[-1])(line[-1].rstrip())
+            if line[-1]:
+                break
+            line.pop()
     return lines
 
 
@@ -156,7 +179,6 @@ def render_v2_label(
     qr_url: str,
     logo_content: bytes | None,
     assets: dict[str, bytes],
-    colored: bool,
     thermal: bool = False,
     height: int | None = None,
     raw_values: dict[str, object] | None = None,
@@ -274,20 +296,29 @@ def render_v2_label(
         elif kind == "text":
             font, lines, line_height = _text_layout(element, scale, values, raw_values)
             role = element.get("legacyTextRole")
+            # Keep complete lines and show that content remains, including at minimum font size.
+            capacity = max(1, h // line_height)
+            overflow = len(lines) > capacity
+            if overflow:
+                lines = lines[:capacity]
             align = element.get("align", "left")
             valign = element.get("verticalAlign", "top")
             start_y = (h - len(lines) * line_height) * (0.5 if valign == "middle" else 1 if valign == "bottom" else 0)
             ascent, descent = font.getmetrics()
             color = _color(element.get("color", "#000000"))
+            inverse_title = role == "title" and re.fullmatch(r"==[\s\S]*?==", str(element.get("template", "")).strip())
             for number, runs in enumerate(lines):
                 line_y = start_y + number * line_height
                 if line_y >= h:
                     break
                 if line_y + line_height <= 0:
                     continue
+                runs = _clip_runs(runs, font, w, overflow and number == len(lines) - 1)
                 line_width = sum(_run_width(run, font) for run in runs)
                 line_x = max(0, round((w - line_width) * (0.5 if align == "center" else 1 if align == "right" else 0)))
                 baseline = line_y + (line_height - ascent - descent) / 2 + ascent
+                if inverse_title:
+                    painter.rectangle((0, line_y, w - 1, line_y + line_height - 1), fill="black")
                 for run in runs:
                     if line_x >= w:
                         break
@@ -302,7 +333,11 @@ def render_v2_label(
                                               fill=swatch_color)
                         line_x += sw + gap * 2
                         continue
-                    run = clip_label_line(run, font, w - line_x, "..." if role == "title" and not element.get("fitToWidth") else "")
+                    inverse = inverse_title or isinstance(run, InverseText)
+                    if inverse:
+                        painter.rectangle((line_x, line_y, min(w - 1, line_x + font.getlength(run)),
+                                           line_y + line_height - 1), fill="black")
+                    ink = "white" if inverse else color
                     # Space Grotesk has no check/cross glyphs; draw their meaning.
                     for part in re.split(r"([✓✗])", run):
                         advance = font.getlength(part)
@@ -311,12 +346,12 @@ def render_v2_label(
                             right, bottom = left + advance * 0.85, baseline
                             stroke = max(1, round(font.size / 12))
                             if part == "✓":
-                                painter.line((left, top + font.size * 0.4, left + advance * 0.3, bottom, right, top), fill=color, width=stroke)
+                                painter.line((left, top + font.size * 0.4, left + advance * 0.3, bottom, right, top), fill=ink, width=stroke)
                             else:
-                                painter.line((left, top, right, bottom), fill=color, width=stroke)
-                                painter.line((left, bottom, right, top), fill=color, width=stroke)
+                                painter.line((left, top, right, bottom), fill=ink, width=stroke)
+                                painter.line((left, bottom, right, top), fill=ink, width=stroke)
                         else:
-                            painter.text((line_x, baseline), part, font=font, fill=color, anchor="ls")
+                            painter.text((line_x, baseline), part, font=font, fill=ink, anchor="ls")
                         line_x += advance
         elif kind == "qr":
             target = label_qr_target(
@@ -375,4 +410,4 @@ def render_v2_label(
                         status_code=422, detail="Preset image is unavailable"
                     ) from None
         image.paste(layer, (x, y), layer)
-    return image if colored else image.convert("L").convert("RGB")
+    return image

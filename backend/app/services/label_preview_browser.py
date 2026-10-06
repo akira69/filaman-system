@@ -7,6 +7,7 @@ import json
 import mimetypes
 import os
 import platform
+import re
 import shutil
 import signal
 import subprocess
@@ -317,6 +318,10 @@ async def render_preview_png(
                 "awaitPromise": True, "returnByValue": True,
             })
             if "exceptionDetails" in result:
+                description = result["exceptionDetails"].get("exception", {}).get("description", "").split("\n", 1)[0]
+                # Expose only this bounded sizing error, never arbitrary browser exceptions/data.
+                if re.fullmatch(r"Error: Thermal QR requires at least 3 dots per module \(minimum \d{1,4} px including quiet zone\)", description):
+                    raise HTTPException(422, description.removeprefix("Error: "))
                 raise HTTPException(422, "Label could not be rendered by the browser preview")
             data_url = result["result"].get("value")
             if payload.get("thermal"):

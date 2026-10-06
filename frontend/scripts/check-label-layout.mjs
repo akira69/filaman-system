@@ -57,7 +57,7 @@ try {
       { template: '[size=300]A[/size][size=50]b[/size]', expectSize: 4 },
       { template: '[size=50]b[/size][font=Fraunces][size=300]A[/size][/font]', expectSize: 4 },
       { template: '[size=200]One[/size]\n[font=Space Mono]two[/font]', wrap: true, expectSize: 4 },
-      { template: 'One\nTwo', error: true },
+      { template: 'One\nTwo', expectSize: 4 },
       { template: 'One\n\nThree', wrap: true },
       { template: 'One\nTwo\nThree', wrap: true },
       { template: '==One\nTwo\nThree==', wrap: true },
@@ -65,7 +65,8 @@ try {
       { template: '[size=200]Text[/size]', h: 2, error: true },
       { template: '[size=200]Text[/size]', h: 6, shrink: true },
       { template: 'A long title to shrink', w: 26, shrink: true },
-      { template: 'One two three four five six seven eight', wrap: true, w: 26, shrink: true },
+      { template: 'One two three four five six seven eight', wrap: true, w: 26, expectSize: 4 },
+      { template: 'One two three four five six seven eight', wrap: true, w: 26, h: 10, shrink: true },
     )
     for (const [index, spec] of nativeCases.entries()) {
       const root = document.createElement('div')

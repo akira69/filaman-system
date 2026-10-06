@@ -1488,7 +1488,7 @@
     "textDoesNotFit": "Der Text passt nicht in der Mindestgröße. Vergrößere das Feld oder kürze den Text.",
     "scaleToFit": "Passend skalieren",
     "wordWrap": "Zeilenumbruch",
-    "wordWrapHint": "Text innerhalb dieses Elements umbrechen; Zeilenumbruch allein verkleinert die Schrift nicht. Mit „Schriftgröße anpassen“ auf höchstens zwei Zeilen begrenzen.",
+    "wordWrapHint": "Text innerhalb dieses Felds umbrechen. Zeilenumbruch allein verkleinert die Schrift nicht; „Schriftgröße anpassen“ passt sie an Breite und Höhe an, bis zur Mindestgröße.",
     "alignLeft": "Links",
     "alignCenter": "Zentriert",
     "alignRight": "Rechts",

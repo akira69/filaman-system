@@ -32,7 +32,7 @@ def test_accented_glyphs_are_distinct_in_every_basic_path(preset):
             design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
                 {"type": "text", "x": 0, "y": 0, "w": 30, "h": 20, "template": letter, "fontSizeMm": 3},
             ]}
-            image = render_v2_label(design, 400, {}, [], "http://test", None, {}, False)
+            image = render_v2_label(design, 400, {}, [], "http://test", None, {})
         else:
             image = render_basic_label(_spool(designation=letter), 400, 300, "http://test", [])
         images.append(image.tobytes())
@@ -53,9 +53,9 @@ def test_v2_numeric_font_weight_changes_rendered_text():
 
     element = {"type": "text", "x": 0, "y": 0, "w": 40, "h": 20, "template": "Müller", "fontWeight": 400}
     design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [element]}
-    regular = render_v2_label(design, 400, {}, [], "http://test", None, {}, False)
+    regular = render_v2_label(design, 400, {}, [], "http://test", None, {})
     element["fontWeight"] = 700
-    bold = render_v2_label(design, 400, {}, [], "http://test", None, {}, False)
+    bold = render_v2_label(design, 400, {}, [], "http://test", None, {})
     assert regular.tobytes() != bold.tobytes()
 
 
@@ -75,6 +75,17 @@ def test_thermal_qr_has_integer_modules_and_quiet_zone():
     with pytest.raises(HTTPException) as rejected:
         render_qr_image("http://test/spools/7", 32, thermal=True)
     assert rejected.value.status_code == 422
+
+
+@pytest.mark.parametrize("size", [33, 98])
+def test_thermal_qr_rejects_one_or_two_dot_modules(size):
+    from app.services.label_basic_renderer import render_qr_image
+    with pytest.raises(HTTPException) as rejected:
+        render_qr_image("http://test/spools/7", size, thermal=True)
+    assert rejected.value.status_code == 422
+    assert "99" in rejected.value.detail
+    assert render_qr_image("http://test/spools/7", 99, thermal=True).size == (99, 99)
+    assert render_qr_image("http://test/spools/7", size).size == (size, size)
 
 
 def test_basic_label_has_fixed_fields_color_and_exact_qr():

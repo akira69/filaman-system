@@ -1487,7 +1487,7 @@
     "textDoesNotFit": "Text cannot fit at the minimum size. Enlarge the box or shorten the text.",
     "scaleToFit": "Scale to fit",
     "wordWrap": "Word wrap",
-    "wordWrapHint": "Wrap this text element within its width; Wrap alone doesn't shrink the font. With Scale font to fit, use at most two lines.",
+    "wordWrapHint": "Wrap text within this box. Wrap alone doesn't shrink the font; Scale font to fit adjusts it to the box width and height, down to the minimum size.",
     "alignLeft": "Left",
     "alignCenter": "Center",
     "alignRight": "Right",

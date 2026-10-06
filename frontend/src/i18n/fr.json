@@ -1487,7 +1487,7 @@
     "textDoesNotFit": "Le texte ne tient pas à la taille minimale. Agrandissez le cadre ou raccourcissez le texte.",
     "scaleToFit": "Ajuster au cadre",
     "wordWrap": "Retour à la ligne",
-    "wordWrapHint": "Renvoyer ce texte à la ligne selon sa largeur ; cette option seule ne réduit pas la police. Avec l’ajustement au cadre, utiliser au maximum deux lignes.",
+    "wordWrapHint": "Renvoyer le texte à la ligne dans ce cadre. Cette option seule ne réduit pas la police ; l’ajustement au cadre adapte sa taille à la largeur et à la hauteur, jusqu’à la taille minimale.",
     "alignLeft": "Gauche",
     "alignCenter": "Centre",
     "alignRight": "Droite",
