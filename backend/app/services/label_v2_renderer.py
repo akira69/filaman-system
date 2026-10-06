@@ -5,7 +5,7 @@ from io import BytesIO
 from math import ceil, floor
 
 from fastapi import HTTPException
-from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, UnidentifiedImageError
 
 from app.services.label_basic_renderer import (
     label_qr_target,
@@ -226,7 +226,7 @@ def render_v2_label(
             )
         w_mm, h_mm = element["w"], element["h"]
         x, y = round(element["x"] * scale), round(element["y"] * scale)
-        if y >= height or y + h_mm * scale <= 0:
+        if element["type"] != "qr" and (y >= height or y + h_mm * scale <= 0):
             continue
         w = max(1, round(w_mm * scale))
         h = max(1, round(h_mm * scale))
@@ -363,11 +363,9 @@ def render_v2_label(
                     logo_height = h
                     if kind == "manufacturerLogo" and element.get("manualSizeMm") is not None:
                         logo_height = min(h, max(1, round(_mm(element["manualSizeMm"], 20) * scale)))
-                    picture = ImageOps.contain(
-                        picture,
-                        (w, logo_height),
-                        Image.Resampling.LANCZOS,
-                    )
+                    ratio = min(w / picture.width, logo_height / picture.height)
+                    picture = picture.resize((max(1, round(picture.width * ratio)),
+                                              max(1, round(picture.height * ratio))), Image.Resampling.LANCZOS)
                     align = element.get("align", "center") if kind == "manufacturerLogo" else "center"
                     offset = round((w - picture.width) * (0 if align == "left" else 1 if align == "right" else 0.5))
                     layer.paste(picture, (offset, (h - picture.height) // 2))

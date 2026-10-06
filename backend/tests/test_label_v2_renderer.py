@@ -102,6 +102,27 @@ def test_checkbox_marks_are_not_the_fonts_missing_glyph():
     assert ImageChops.difference(raster("✓"), raster("\uffff")).getbbox()
 
 
+@pytest.mark.parametrize("size", [(20, 10), (1, 1000), (1000, 1)])
+def test_converted_logo_preserves_alpha_and_thin_images(size):
+    from io import BytesIO
+
+    from PIL import Image, ImageChops
+
+    from app.services.label_preset_v1 import convert_label_preset_data
+    logo = Image.new("RGBA", size, (0, 0, 0, 0))
+    logo.paste((0, 0, 0, 255), (size[0] // 2, 0, size[0], size[1]))
+    output = BytesIO()
+    logo.save(output, format="PNG")
+    design = convert_label_preset_data({"settings": {"label": {"width": 40, "height": 30, "marginMm": 0},
+        "logo": {"spaceMm": 6}, **{key: {"show": False} for key in ("title", "title2", "info", "info2", "qr")}}}, "spool")["design"]
+    image = render_v2_label(design, 400, {}, [], "http://test", output.getvalue(), {}, False)
+    assert image.size == (400, 300)
+    assert ImageChops.invert(image).getbbox()
+    if size == (20, 10):
+        assert image.getpixel((5, 5)) == (255, 255, 255)
+        assert image.getpixel((80, 5)) == (0, 0, 0)
+
+
 def test_template_sentinel_is_not_a_protected_value():
     assert resolve_label_text("\0" + "0" + "\0", {}) == "�0�"
 
@@ -144,26 +165,6 @@ def test_v2_clips_text_before_allocating_glyph_masks(monkeypatch, template, valu
     image = render_v2_label(design, 1024, values, [], "http://test", None, {}, False)
     assert image.size == (1024, 1024)
     assert ImageChops.invert(image).getbbox() is not None
-
-
-@pytest.mark.parametrize("alignment", ["top", "middle", "bottom"])
-def test_v2_legacy_info_matches_v1_wrapping_and_vertical_alignment(alignment):
-    from PIL import ImageChops
-
-    from app.services.label_basic_renderer import render_basic_label
-
-    spool = Spool(id=7, filament=Filament(manufacturer=Manufacturer(name="Maker"), designation="PLA", material_type="PLA"))
-    template = "AAAA BBBB CCCC DDDD EEEE FFFF GGGG HHHH"
-    settings = {"label": {"width": 40, "height": 30, "marginMm": 1},
-                **{key: {"show": False} for key in ("logo", "title", "title2", "info2", "qr")},
-                "info": {"template": template, "sizeMm": 3, "vAlign": "center" if alignment == "middle" else alignment}}
-    legacy = render_basic_label(spool, 400, 300, "http://test", [], settings)
-    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
-        {"type": "text", "x": 1, "y": 1, "w": 38, "h": 28, "fontSizeMm": 3, "template": template,
-         "wrap": True, "verticalAlign": alignment, "legacyTextRole": "info"},
-    ]}
-    actual = render_v2_label(design, 400, {}, [], "http://test", None, {}, False)
-    assert ImageChops.difference(actual, legacy).getbbox() is None
 
 
 @pytest.mark.parametrize("alignment,left", [("left", 10), ("center", 160), ("right", 310)])

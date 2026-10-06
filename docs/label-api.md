@@ -118,19 +118,23 @@ All render responses, including errors, include `Cache-Control: no-store`.
 
 The standard Docker image defaults to `basic`. When `preset_id` is omitted, the
 user's selected preset determines the label dimensions; Default is used only
-when no preset is selected. Saved v1 and v2 presets are rendered with their
+when no preset is selected. Designer presets (including automatically migrated V1) use V2
 dimensions and a best-effort Pillow implementation of text, tokens, QR codes,
 logos, images, swatches, and shapes. Basic does not reproduce custom fonts,
 rich text, wrapping, or browser text fitting exactly.
 It bundles Space Grotesk regular and bold fonts, including Latin-1 accents.
-For legacy v1 presets, Basic follows the full-width logo/title header and lower
+For migrated presets, Basic follows the full-width logo/title header and lower
 information/QR columns, including word wrapping, vertical alignment, separators,
 and manual logo sizing. Small typography and pixel-placement differences remain.
-V1 and V2 share plain-text token resolution, including optional fragments,
-conditions, uppercase and date modifiers. V2 Basic also honors word wrapping,
+Basic resolves optional fragments, conditions, uppercase and date modifiers,
+inline color swatches, and typed extra fields. It also honors word wrapping,
 vertical alignment, and manufacturer-logo alignment/manual sizing. Expanded text
 is capped at 12,000 characters, and long lines are clipped before rasterization
-to bound memory use. Rich-text styling and browser line balancing remain approximate.
+to bound memory use. Native wrapped text breaks long identifiers; migrated information
+keeps legacy word wrapping. Missing logos and empty/fitted legacy titles collapse
+their rows. Rich-text styling and browser line balancing remain approximate.
+Datetime display uses the server locale and stored offset; browser locale/timezone
+formatting may differ. Raw dates are retained for `|date` modifiers.
 
 For v2 designs, QR elements render above non-QR content with opaque white
 backgrounds in both renderers, regardless of their saved layer positions.
@@ -215,3 +219,16 @@ are device concerns and are intentionally outside this API.
 Projects such as [SpoolmanScale](https://github.com/Niko11111/SpoolmanScale)
 and [myphomemo](https://github.com/DeepCoreSystem/myphomemo) are examples of
 device-side integration; they do not define the API contract.
+# Designer preset compatibility
+
+Upgrades automatically convert supported legacy V1 designer presets to V2 in
+place. IDs, selection, ownership and timestamps remain unchanged. Saving old
+presets, importing browser presets, and restoring JSON/JSONL backups use the same
+conversion. Designer rendering now uses only V2; Standard labels and sheet presets
+remain separate, and both Basic and Chromium are supported.
+
+The original settings remain in `legacy_v1` for recovery, not rendering. Unknown,
+malformed or over-budget presets are preserved, with null dimensions in listings
+and an actionable 422 when rendered. Reopen and save those in the Label Designer.
+Downgrading does not overwrite subsequent V2 edits; restore a pre-upgrade backup
+for an exact rollback. The mono1 byte format and thermal QR rules are unchanged.

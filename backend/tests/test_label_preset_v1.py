@@ -20,7 +20,8 @@ def test_frozen_browser_conversion_contract(case):
 
 @pytest.mark.parametrize("data", [None, [], {}, {"unrelated": 1}, {"version": 3},
     {"version": 2, "design": {"elements": []}}, {"settings": None},
-    {"settings": {"logo": []}}, {"settings": {"title": {"template": "x" * 131072}}}])
+    {"settings": {"logo": []}}, {"settings": {"unknown": "preserve me"}},
+    {"settings": {"title": {"template": "x" * 131072}}}])
 def test_preserves_unrecognized_or_oversized_data(data):
     assert convert_label_preset_data(data, "spool") is data
 
