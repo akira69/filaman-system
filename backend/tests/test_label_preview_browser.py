@@ -1,5 +1,6 @@
 import asyncio
 import io
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,30 @@ def write_render_page(root: Path, script: str):
         '<!doctype html><script type="module" src="/_astro/render.js"></script>'
     )
     (root / "_astro/render.js").write_text(script)
+
+
+def test_configured_user_renders_under_uvloop(tmp_path, browser_executable, monkeypatch):
+    import os
+    import pwd
+
+    uvloop = pytest.importorskip("uvloop")
+    from app.services.label_preview_browser import render_preview_png
+
+    monkeypatch.setenv("LABEL_RENDER_CHROMIUM_USER", pwd.getpwuid(os.getuid()).pw_name)
+    write_render_page(tmp_path, """
+        window.renderApiLabel = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 3; canvas.height = 2;
+          return canvas.toDataURL('image/png');
+        };
+    """)
+    with asyncio.Runner(loop_factory=uvloop.new_event_loop) as runner:
+        png = runner.run(render_preview_png(
+            {}, "http://labels.invalid", {}, static_dir=tmp_path,
+            executable_path=browser_executable,
+        ))
+    with Image.open(io.BytesIO(png)) as image:
+        assert image.size == (3, 2)
 
 
 @pytest.mark.asyncio
@@ -101,14 +126,14 @@ async def test_render_closes_browser_after_failure_and_does_not_retain_cookies(
     from app.services.label_preview_browser import render_preview_png
 
     processes = []
-    launch = asyncio.create_subprocess_exec
+    launch = subprocess.Popen
 
-    async def capture_process(*args, **kwargs):
-        process = await launch(*args, **kwargs)
+    def capture_process(args, **kwargs):
+        process = launch(args, **kwargs)
         processes.append(process)
         return process
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
+    monkeypatch.setattr(subprocess, "Popen", capture_process)
     write_render_page(tmp_path, """
         window.renderApiLabel = async payload => {
           if (document.cookie) throw Error('Previous request cookie leaked');
@@ -146,11 +171,11 @@ async def test_render_keeps_chromium_sandboxed_under_the_configured_user(
     monkeypatch.setenv("SMTP_DSN", "must-not-reach-chromium-either")
     launches = []
 
-    async def capture_process(*args, **kwargs):
+    def capture_process(args, **kwargs):
         launches.append((args, kwargs))
         raise OSError("stop after launch options are captured")
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
+    monkeypatch.setattr(subprocess, "Popen", capture_process)
     write_render_page(
         tmp_path,
         "window.renderApiLabel = () => document.createElement('canvas').toDataURL('image/png')",
@@ -181,13 +206,13 @@ async def test_armv7_keeps_the_zygote_required_by_the_sandbox(
 
     launches = []
 
-    async def capture_process(*args, **kwargs):
+    def capture_process(args, **kwargs):
         launches.append(args)
         raise OSError("stop after argv is captured")
 
     monkeypatch.setattr(label_preview_browser.sys, "platform", "linux")
     monkeypatch.setattr(label_preview_browser.platform, "machine", lambda: "armv7l")
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
+    monkeypatch.setattr(subprocess, "Popen", capture_process)
     write_render_page(tmp_path, "window.renderApiLabel = () => ''")
 
     with pytest.raises(HTTPException):
@@ -245,11 +270,11 @@ async def test_root_renderer_drops_supplementary_groups(
     monkeypatch.setattr("os.geteuid", lambda: 0)
     launches = []
 
-    async def capture_process(*args, **kwargs):
+    def capture_process(args, **kwargs):
         launches.append((args, kwargs))
         raise OSError("stop after launch options are captured")
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
+    monkeypatch.setattr(subprocess, "Popen", capture_process)
     write_render_page(tmp_path, "window.renderApiLabel = () => ''")
 
     with pytest.raises(HTTPException):
@@ -335,16 +360,16 @@ async def test_browser_failure_reaps_process_and_profile(tmp_path, browser_execu
 
     launched = asyncio.Event()
     processes, profiles = [], []
-    original = asyncio.create_subprocess_exec
+    original = subprocess.Popen
 
-    async def capture(*args, **kwargs):
-        process = await original(*args, **kwargs)
+    def capture(args, **kwargs):
+        process = original(args, **kwargs)
         processes.append(process)
         profiles.extend(Path(arg.split("=", 1)[1]) for arg in args if arg.startswith("--user-data-dir="))
         launched.set()
         return process
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture)
+    monkeypatch.setattr(subprocess, "Popen", capture)
     write_render_page(tmp_path, "window.renderApiLabel = async () => new Promise(() => {})")
     if failure == "timeout":
         monkeypatch.setattr(service, "_RENDER_TIMEOUT_SECONDS", 0.5)
@@ -377,7 +402,7 @@ async def test_browser_failure_reaps_process_and_profile(tmp_path, browser_execu
         assert bool(caught.value.headers and "Retry-After" in caught.value.headers) == (failure == "timeout")
     assert all(process.returncode is not None for process in processes)
     assert all(not profile.exists() for profile in profiles)
-    member_process = await original(
+    member_process = await asyncio.create_subprocess_exec(
         "ps", "-axo", "pgid=,stat=", stdout=asyncio.subprocess.PIPE,
     )
     members, _ = await member_process.communicate()
