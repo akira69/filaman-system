@@ -7,12 +7,22 @@ from datetime import date, datetime
 _MAX_TEXT_LENGTH = 12000
 
 
-def resolve_label_text(template: str, values: dict[str, object], *, preserve_swatches: bool = False) -> str:
-    protected: list[str] = []
+def resolve_label_text(template: str, values: dict[str, object], *, preserve_swatches: bool = False,
+                       raw_values: dict[str, object] | None = None) -> str:
+    return "".join(run if isinstance(run, str) else f"{{color_swatch[{run}]}}" if preserve_swatches else ""
+                   for run in resolve_label_runs(template, values, raw_values=raw_values))
+
+
+def resolve_label_runs(template: str, values: dict[str, object], *,
+                       raw_values: dict[str, object] | None = None) -> list[str | int]:
+    protected: list[str | int] = []
     remaining = _MAX_TEXT_LENGTH
 
     def protect(raw: object) -> str:
         nonlocal remaining
+        if isinstance(raw, int):
+            protected.append(raw)
+            return f"\0{len(protected) - 1}\0"
         text = str(raw)[:remaining]
         remaining -= len(text)
 
@@ -27,15 +37,16 @@ def resolve_label_text(template: str, values: dict[str, object], *, preserve_swa
             flags=re.IGNORECASE,
         )
 
-    def value(token: str) -> str:
+    def value(token: str) -> str | int:
         key = token.strip()
-        if preserve_swatches and re.fullmatch(r"color_swatch(?:\[\d+\])?", key):
-            return "{" + key + "}"
+        if swatch := re.fullmatch(r"color[-_]swatch(?:\[(\d{1,3})\])?", key, re.IGNORECASE):
+            return max(1, min(40, int(swatch.group(1) or 1)))
         missing = object()
         raw = values.get(key, missing)
         date_only = False
         if raw is missing and (match := re.fullmatch(r"(.*)\|date", key, re.IGNORECASE)):
-            raw = values.get(match.group(1).strip(), missing)
+            base = match.group(1).strip()
+            raw = (raw_values or {}).get(base, values.get(base, missing))
             date_only = True
         if raw is missing:
             return ""
@@ -77,7 +88,20 @@ def resolve_label_text(template: str, values: dict[str, object], *, preserve_swa
         flags=re.IGNORECASE,
     )
     expanded = re.sub(r"\*{1,3}|==|__|@@", "", expanded)
-    return re.sub(r"\0(\d+)\0", lambda match: protected[int(match.group(1))], expanded)[:_MAX_TEXT_LENGTH]
+    runs: list[str | int] = []
+    budget = _MAX_TEXT_LENGTH
+    for part in re.split(r"(\0\d+\0)", expanded):
+        run = protected[int(part[1:-1])] if re.fullmatch(r"\0\d+\0", part) else part
+        if isinstance(run, str):
+            run = run[:budget]
+            budget -= len(run)
+            if not run:
+                continue
+            if runs and isinstance(runs[-1], str):
+                runs[-1] += run
+                continue
+        runs.append(run)
+    return runs
 
 
 def clip_label_line(text, font, width, suffix=""):

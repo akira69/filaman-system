@@ -73,14 +73,14 @@ def _convert(source):
     border = raw.get("border") is True
     margin = margin_mm + (0.6 if border else 0)
     content_w = max(3, width - margin * 2)
-    logo = _section(source, "logo", dict(show=True, spaceMm=6, scaleToFit=True, manualSizeMm=6, align="left"))
-    titles = [_section(source, name, dict(show=first, sizeMm=4 if first else 3.5,
-        marginMm=0, fitToWidth=True, align="left", template="{filament.name}" if first else "",
-        dividerAbove=False, dividerBelow=first)) for name, first in (("title", True), ("title2", False))]
-    info = _section(source, "info", dict(show=True, sizeMm=2.5, marginMm=0, hAlign="left",
-        vAlign="bottom", template="{filament.type}\n{filament.color}\nDiameter: {filament.diameter} mm"))
-    info2 = _section(source, "info2", dict(show=False, sizeMm=2.5, vsep=False,
-        hAlign="left", vAlign="bottom", template=""))
+    logo = _section(source, "logo", {"show": True, "spaceMm": 6, "scaleToFit": True, "manualSizeMm": 6, "align": "left"})
+    titles = [_section(source, name, {"show": first, "sizeMm": 4 if first else 3.5,
+        "marginMm": 0, "fitToWidth": True, "align": "left", "template": "{filament.name}" if first else "",
+        "dividerAbove": False, "dividerBelow": first}) for name, first in (("title", True), ("title2", False))]
+    info = _section(source, "info", {"show": True, "sizeMm": 2.5, "marginMm": 0, "hAlign": "left",
+        "vAlign": "bottom", "template": "{filament.type}\n{filament.color}\nDiameter: {filament.diameter} mm"})
+    info2 = _section(source, "info2", {"show": False, "sizeMm": 2.5, "vsep": False,
+        "hAlign": "left", "vAlign": "bottom", "template": ""})
     qr = source.get("qr", {})
     show_qr = qr.get("show") if isinstance(qr.get("show"), bool) else qr.get("mode") != "none"
     mode = qr.get("mode", "logo")
@@ -174,5 +174,5 @@ def _convert(source):
     elements.sort(key=lambda element: element["type"] == "qr")
     for z, element in enumerate(elements):
         element["z"] = z
-    return dict(version=2, design=dict(version=2, label=dict(widthMm=width, heightMm=height,
-                marginMm=margin_mm, border=border), elements=elements), legacy_v1=copy.deepcopy(source))
+    return {"version": 2, "design": {"version": 2, "label": {"widthMm": width, "heightMm": height,
+                "marginMm": margin_mm, "border": border}, "elements": elements}, "legacy_v1": copy.deepcopy(source)}
