@@ -171,9 +171,7 @@ async def list_scale_presets(
     return result
 
 
-def _preset_size(data: dict | None) -> tuple[float, float]:
-    if data is None:
-        return _label_size(None)
+def _preset_size(data: dict) -> tuple[float, float]:
     if not isinstance(data, dict):
         raise HTTPException(422, "Preset is invalid")
     if data.get("version") == 2:
@@ -181,7 +179,7 @@ def _preset_size(data: dict | None) -> tuple[float, float]:
         if not isinstance(design, dict) or not isinstance(design.get("label"), dict):
             raise HTTPException(422, "Preset design is invalid")
         width, height = (design["label"].get(key) for key in ("widthMm", "heightMm"))
-        if any(not isinstance(value, (int, float)) or not isfinite(value) or not low <= value <= high
+        if any(not isinstance(value, (int, float)) or not low <= value <= high
                for value, low, high in ((width, 20, 300), (height, 10, 200))):
             raise HTTPException(422, "Preset design has invalid dimensions")
         return width, height
@@ -203,7 +201,7 @@ def _number(value, default: float, low: float, high: float) -> float:
     try:
         # Match the legacy preview: explicit null/empty values become zero.
         number = 0 if value is None or isinstance(value, str) and not value.strip() else float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     return min(high, max(low, number)) if isfinite(number) else default
 
@@ -494,7 +492,7 @@ async def render_spool_label(
                         raise HTTPException(status_code=422, detail="Preset image is unavailable")
             else:
                 settings = preset.data.get("settings")
-        width_mm, height_mm = _preset_size(preset_data)
+        width_mm, height_mm = _preset_size(preset_data) if preset_id is not None else _label_size(None)
         label_width = round(width_mm * dpi / 25.4) if dpi else width
         label_height = (
             round(height_mm * dpi / 25.4)

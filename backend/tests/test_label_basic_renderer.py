@@ -97,6 +97,34 @@ def test_thermal_qr_has_integer_modules_and_quiet_zone():
     assert rejected.value.status_code == 422
 
 
+@pytest.mark.parametrize("width,height,settings", [
+    (320, 80, {"label": {"width": 40, "height": 10, "marginMm": 6}, "qr": {"sizeMm": 18}}),
+    (160, 320, {"label": {"width": 20, "height": 40, "marginMm": 0}, "qr": {"sizeMm": 30}}),
+])
+def test_v1_thermal_qr_rejects_missing_or_clipped_box(width, height, settings):
+    from app.services.label_basic_renderer import render_basic_label
+
+    settings.update({key: {"show": False} for key in ("logo", "title", "title2", "info", "info2")})
+    # PNG retains the best-effort legacy layout; thermal output must not silently omit/clip its QR.
+    assert render_basic_label(_spool(), width, height, "http://test/spools/7", [], settings).size == (width, height)
+    with pytest.raises(HTTPException) as rejected:
+        render_basic_label(_spool(), width, height, "http://test/spools/7", [], settings, thermal=True)
+    assert rejected.value.status_code == 422
+
+
+def test_extreme_geometry_is_handled_without_float_overflow():
+    from app.services.label_basic_renderer import render_basic_label
+    from app.services.label_v2_renderer import render_v2_label
+
+    settings = {"label": {"width": 10**400}, "qr": {"show": False}}
+    assert render_basic_label(_spool(), 480, 320, "http://test", [], settings).size == (480, 320)
+    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30},
+              "elements": [{"type": "qr", "x": 1, "y": 1, "w": 10**400, "h": 10}]}
+    with pytest.raises(HTTPException) as rejected:
+        render_v2_label(design, 320, {"id": "7"}, [], "http://test", None, {}, False, thermal=True)
+    assert rejected.value.status_code == 422
+
+
 def test_basic_label_has_fixed_fields_color_and_exact_qr():
     import qrcode
 

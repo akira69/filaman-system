@@ -447,6 +447,9 @@ async def test_preset_dimensions_match_render_policy_and_isolate_bad_records(aut
         ({"version": 2, "design": {"label": {"widthMm": "40", "heightMm": 30}}}, (None, None)),
         ({"version": 2, "design": []}, (None, None)),
         ({"settings": {"label": []}}, (None, None)),
+        ({"settings": {"label": {"width": 10**400, "height": 30}}}, (60, 30)),
+        ({"version": 2, "design": {"label": {"widthMm": 10**400, "heightMm": 30}}}, (None, None)),
+        (None, (None, None)),
     ]
     for index, (data, _) in enumerate(cases):
         db_session.add(LabelPreset(user_id=admin_user.id, preset_type="spool", name=str(index), name_key=label_preset_name_key(str(index)), data=data))

@@ -3,7 +3,7 @@
 import re
 from datetime import date, datetime
 from io import BytesIO
-from math import ceil, floor, isfinite
+from math import ceil, floor
 
 from fastapi import HTTPException
 from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
@@ -19,7 +19,6 @@ from app.services.label_font import label_font
 def _range(value: object, minimum: float, maximum: float) -> float:
     if (
         not isinstance(value, (int, float))
-        or not isfinite(value)
         or not minimum <= value <= maximum
     ):
         raise HTTPException(
