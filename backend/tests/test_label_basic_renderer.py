@@ -21,6 +21,88 @@ def _spool(**filament_values):
     return Spool(id=7, filament=filament, filament_id=1, status_id=1, remaining_weight_g=850)
 
 
+def test_v1_header_uses_full_width_regardless_of_qr_side():
+    from app.services.label_basic_renderer import render_basic_label
+
+    settings = {
+        "label": {"width": 40, "height": 30, "marginMm": 1},
+        "logo": {"show": False},
+        "title": {"template": "A FULL WIDTH HEADER", "sizeMm": 3, "dividerBelow": False},
+        "info": {"show": False},
+        "qr": {"sizeMm": 14, "position": "right"},
+    }
+    right = render_basic_label(_spool(), 320, 240, "http://test/spools/7", [], settings, thermal=True)
+    settings["qr"]["position"] = "left"
+    left = render_basic_label(_spool(), 320, 240, "http://test/spools/7", [], settings, thermal=True)
+    assert right.crop((0, 0, 320, 40)).tobytes() == left.crop((0, 0, 320, 40)).tobytes()
+    assert ImageChops.invert(right.crop((0, 0, 320, 40))).getbbox()[2] > 220
+
+
+@pytest.mark.parametrize("position", ["left", "right"])
+@pytest.mark.parametrize("vertical", ["top", "center", "bottom"])
+def test_v1_qr_matches_saved_alignment(position, vertical):
+    from app.services.label_basic_renderer import render_basic_label, render_qr_image
+
+    settings = {
+        "label": {"width": 40, "height": 30, "marginMm": 1},
+        **{key: {"show": False} for key in ("logo", "title", "title2", "info", "info2")},
+        "qr": {"sizeMm": 14, "position": position, "vAlign": vertical},
+    }
+    target = "http://test/spools/7"
+    actual = render_basic_label(_spool(), 320, 240, target, [], settings, thermal=True)
+    expected = Image.new("RGB", (320, 240), "white")
+    # With no information columns the editor anchors the QR at the opposite
+    # end of its slot sequence: right mode starts at the left margin.
+    x = 8 if position == "right" else 200
+    y = {"top": 8, "center": 64, "bottom": 120}[vertical]
+    expected.paste(render_qr_image(target, 112, thermal=True), (x, y))
+    assert ImageChops.difference(actual, expected).getbbox() is None
+
+
+def test_v1_information_columns_wrap_and_align_independently():
+    from app.services.label_basic_renderer import render_basic_label
+
+    settings = {
+        "label": {"width": 40, "height": 30, "marginMm": 1},
+        **{key: {"show": False} for key in ("logo", "title", "title2", "qr")},
+        "info": {"template": "AAAA BBBB CCCC DDDD", "sizeMm": 3, "vAlign": "top"},
+        "info2": {"show": True, "template": "BOTTOM", "sizeMm": 3, "vAlign": "bottom", "vsep": True},
+    }
+    image = ImageChops.invert(render_basic_label(_spool(), 320, 240, "http://test", [], settings))
+    left = image.crop((8, 8, 145, 232)).getbbox()
+    right = image.crop((175, 8, 312, 232)).getbbox()
+    assert left and left[3] > 40  # Multiple lines, not a single shrunken line.
+    assert right and right[1] > 180
+    assert image.getpixel((159, 100)) == (255, 255, 255)  # Vertical separator.
+
+
+def test_v1_tall_title_keeps_first_line_and_clips_to_label():
+    from app.services.label_basic_renderer import render_basic_label
+
+    settings = {
+        "label": {"width": 40, "marginMm": 0},
+        **{key: {"show": False} for key in ("logo", "title2", "info", "info2", "qr")},
+        "title": {"template": "HEADER", "sizeMm": 3, "dividerBelow": False},
+    }
+    first_line = render_basic_label(_spool(), 320, 80, "http://test", [], settings)
+    settings["title"]["template"] += "\nZ" * 3000
+    tall = render_basic_label(_spool(), 320, 80, "http://test", [], settings)
+    assert tall.crop((0, 0, 320, 24)).tobytes() == first_line.crop((0, 0, 320, 24)).tobytes()
+
+
+def test_v1_long_unbroken_info_is_clipped_before_glyph_allocation():
+    from app.services.label_basic_renderer import render_basic_label
+
+    settings = {
+        "label": {"width": 20, "height": 20, "marginMm": 0},
+        **{key: {"show": False} for key in ("logo", "title", "title2", "info2", "qr")},
+        "info": {"template": "W" * 8000, "sizeMm": 10},
+    }
+    image = render_basic_label(_spool(), 1024, 1024, "http://test", [], settings)
+    assert image.size == (1024, 1024)
+    assert ImageChops.invert(image).getbbox() is not None
+
+
 def test_v1_logo_preserves_alpha_on_white():
     from app.services.label_basic_renderer import render_basic_label
 
@@ -34,7 +116,23 @@ def test_v1_logo_preserves_alpha_on_white():
     }
     image = render_basic_label(_spool(), 400, 300, "http://test/spools/7", [], settings, logo_content=content.getvalue())
     assert image.getpixel((5, 5)) == (255, 255, 255)
-    assert image.getpixel((20, 5)) == (0, 0, 0)
+    assert image.getpixel((80, 5)) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("size", [(1, 1000), (1000, 1)])
+def test_v1_thin_logo_keeps_at_least_one_pixel(size):
+    from app.services.label_basic_renderer import render_basic_label
+
+    content = BytesIO()
+    Image.new("RGBA", size, "black").save(content, format="PNG")
+    settings = {
+        "label": {"width": 40, "marginMm": 1},
+        "logo": {"spaceMm": 5},
+        **{key: {"show": False} for key in ("title", "title2", "info", "info2", "qr")},
+    }
+    image = render_basic_label(_spool(), 320, 240, "http://test", [], settings, logo_content=content.getvalue())
+    assert image.size == (320, 240)
+    assert ImageChops.invert(image).getbbox() is not None
 
 
 @pytest.mark.parametrize("preset", ["default", "v1", "v2"])
@@ -228,4 +326,24 @@ def test_basic_v1_preserves_literal_field_markup(key, identifier):
     ImageDraw.Draw(expected).text(
         (4, 4), identifier, font=label_font(30), fill="black"
     )
-    assert ImageChops.difference(image, expected).getbbox() is None
+    actual_ink = ImageChops.invert(image)
+    expected_ink = ImageChops.invert(expected)
+    assert actual_ink.crop(actual_ink.getbbox()).tobytes() == expected_ink.crop(expected_ink.getbbox()).tobytes()
+
+
+@pytest.mark.parametrize("template,values,expected", [
+    ("{Lot: {external_id}}", {"external_id": ""}, ""),
+    ("[if={external_id}]Lot: {external_id}[/if]", {"external_id": ""}, ""),
+    ("^^{filament.name}^^", {"filament.name": "Grün"}, "GRÜN"),
+    ("[b]{created_at|date}[/b]", {"created_at": "2026-09-07T14:30:00Z"}, "09/07/26"),
+])
+def test_v1_resolves_template_semantics_like_v2(template, values, expected):
+    from app.services.label_basic_renderer import render_basic_label
+
+    settings = {"label": {"width": 40, "height": 30, "marginMm": 1},
+                **{key: {"show": False} for key in ("logo", "title", "title2", "info2", "qr")},
+                "info": {"template": template, "sizeMm": 3}}
+    actual = render_basic_label(_spool(), 400, 300, "http://test", [], settings, values)
+    settings["info"]["template"] = expected
+    reference = render_basic_label(_spool(), 400, 300, "http://test", [], settings)
+    assert ImageChops.difference(actual, reference).getbbox() is None

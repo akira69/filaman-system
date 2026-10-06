@@ -1,6 +1,7 @@
 import type { LabelDesignElement, LabelDesignV2 } from './types'
 import { clampElementPosition, clampFinite, getElementMinimumSize, isProportionalElement } from './geometry'
 import { snapElementGeometry, type SnapGuide, type SnapOperation } from './snapping'
+import { QR_QUIET_ZONE_MODULES } from './qr-readability'
 
 type InteractionEvent = {
   dx?: number
@@ -257,12 +258,21 @@ export async function bindLabelInteractions(
       maximumWidth: operation.maximumWidth + offset.w,
       maximumHeight: operation.maximumHeight + offset.h,
     }
+    const modules = Number(node.dataset.qrModuleCount)
+    const quietZoneRatio = element.type === 'qr' && Number.isInteger(modules) && modules > 0
+      ? QR_QUIET_ZONE_MODULES / modules : 0
     const snapped = bypassSnap
       ? { geometry: displayed, guides: [] }
-      : snapElementGeometry(displayed, label, SNAP_DISTANCE_PX / scale, displayedOperation)
+      : snapElementGeometry(displayed, label, SNAP_DISTANCE_PX / scale, displayedOperation, quietZoneRatio)
     const committedDisplayed = { ...snapped.geometry, ...clampElementPosition(snapped.geometry, label) }
     const committed = subtractGeometry(committedDisplayed, offset)
-    showSnapGuides(guidesMatching(committedDisplayed, snapped.guides), label, scale)
+    const padding = committedDisplayed.w * quietZoneRatio
+    const outline = {
+      x: committedDisplayed.x - padding, y: committedDisplayed.y - padding,
+      w: committedDisplayed.w + 2 * padding, h: committedDisplayed.h + 2 * padding,
+    }
+    showSnapGuides(guidesMatching(outline, snapped.guides), label, scale)
+    if (quietZoneRatio) node.style.boxShadow = `0 0 0 ${padding}mm white`
     geometry.set(id, committed)
     node.style.left = `${committedDisplayed.x}mm`
     node.style.top = `${committedDisplayed.y}mm`

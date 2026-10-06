@@ -451,6 +451,8 @@ export async function initFreeformLabelDesignerEditor(
       loadInteract: options.loadInteract,
       translate: options.translate,
       getPreviewData: options.getPreviewData,
+      getQrEntityIds: options.getQrEntityIds,
+      entityPath: entityType === 'filament' ? 'filaments' : 'spools',
     })
     await domBinding.ready
     if (entityType === 'spool') spoolTab?.click()

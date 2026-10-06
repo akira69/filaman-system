@@ -6,10 +6,11 @@ import { bindDesignerTooltips } from './designer-tooltips'
 import { bindImageCropEditor } from './image-crop-editor'
 import { bindLabelInteractions, type InteractFactory, type LabelInteractionController } from './interaction-adapter'
 import { formatDesignerNumber } from './number-format'
+import { buildQrUrl, getQrCodeConstructor } from '../qr-code'
 import {
+  getQrModuleCount,
   getQrRecommendedSideMm,
   QR_QUIET_ZONE_MODULES,
-  QR_RECOMMENDED_DPI,
 } from './qr-readability'
 import type { FreeformEditorController } from './editor-state'
 import { elementLabelKeys, elementLabelFallbacks, localizedErrorMessage } from './editor-types'
@@ -28,6 +29,8 @@ export interface BindFreeformEditorDomOptions {
   loadInteract?: () => Promise<InteractFactory>
   translate?: (key: string, fallback: string) => string
   getPreviewData?: () => SpoolData | null | undefined
+  getQrEntityIds?: () => Array<string | number>
+  entityPath?: 'spools' | 'filaments'
 }
 
 const elementProperties = [
@@ -92,6 +95,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     canvasHost.style.width = `${labelWidth}px`
     if (renderedLabelHeight > 0) canvasHost.style.height = `${renderedLabelHeight}px`
     const available = rowWidth - labelWidth - 8
+    canvasRow.style.setProperty('--freeform-inspector-width', `${Math.max(170, Math.min(360, available))}px`)
     const below = available < 104
     canvasRow.classList.toggle('is-geometry-below', below)
     canvasRow.classList.toggle('is-geometry-narrow', !below && available < 170)
@@ -107,10 +111,14 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     cleanups.push(() => observer.disconnect())
   } else listen(window, 'resize', syncGeometryLayout)
 
+  const qrCountCache = new Map<string, number>()
   const syncQrReadability = () => {
     const recommendation = query<HTMLElement>('#freeform-qr-readability-recommendation')
     const warning = query<HTMLElement>('#freeform-qr-readability-warning')
     const note = query<HTMLElement>('#freeform-qr-readability-note')
+    const logo = query<HTMLElement>('#freeform-qr-readability-logo')
+    const boundary = query<HTMLElement>('#freeform-qr-readability-boundary')
+    if (boundary) boundary.hidden = true
     const readability = query<HTMLElement>('.freeform-qr-readability')
     const selected = controller.getSelectedElement()
     if (!recommendation || !warning) return
@@ -122,18 +130,23 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       label?.classList.toggle('is-qr-undersized', undersized)
       if (icon) icon.hidden = !undersized
       if (undersized) {
-        input?.setAttribute('aria-invalid', 'true')
         input?.setAttribute('aria-describedby', 'freeform-qr-readability-recommendation freeform-qr-readability-warning')
       } else {
-        input?.removeAttribute('aria-invalid')
         input?.removeAttribute('aria-describedby')
       }
     }
     if (note) {
       note.textContent = translate(
         'labelDesigner.qrReadabilityNote',
-        'Keep {modules} modules of white clear space around the code and make a test print. This advisory does not guarantee scanning.',
+        'An automatic {modules}-module white outline surrounds the QR. Print at actual size and test scanning; size guidance is not a guarantee.',
       ).replace('{modules}', String(QR_QUIET_ZONE_MODULES))
+    }
+    if (logo) {
+      logo.hidden = selected?.type !== 'qr' || selected.mode === 'simple'
+      logo.textContent = translate(
+        'labelDesigner.qrReadabilityLogo',
+        'Center decoration can reduce readability even at the recommended size. Enlarge the code or disable the logo, especially for low-resolution printing.',
+      )
     }
     if (selected?.type !== 'qr') {
       markDimension('w', false)
@@ -142,37 +155,80 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       warning.textContent = ''
       return
     }
-    const moduleCounts = queryAll<HTMLElement>('[data-qr-module-count]')
+    const qrNodes = queryAll<HTMLElement>('[data-qr-module-count]')
       .filter(node => node.dataset.labelElementId === selected.id)
+    let moduleCounts = qrNodes
       .map(node => Number(node.dataset.qrModuleCount))
       .filter(value => Number.isInteger(value) && value > 0)
-    const recommendedMm = getQrRecommendedSideMm(moduleCounts.length ? Math.max(...moduleCounts) : undefined)
-    if (recommendedMm === undefined) {
+    if (options.getQrEntityIds) {
+      const urls = new Set(options.getQrEntityIds().map(id => buildQrUrl(
+        selected.linkMode, selected.urlTemplate, id, options.entityPath ?? 'spools',
+      )))
+      for (const url of qrCountCache.keys()) if (!urls.has(url)) qrCountCache.delete(url)
+      moduleCounts = []
+      const QRCode = getQrCodeConstructor()
+      try {
+        if (!QRCode) throw new Error('QR encoder is unavailable')
+        for (const url of urls) {
+          const count = qrCountCache.get(url) ?? getQrModuleCount(new QRCode(document.createElement('div'), {
+            text: url, width: 1, height: 1, correctLevel: QRCode.CorrectLevel.H,
+          }))
+          if (count === undefined) throw new Error('QR module count is unavailable')
+          qrCountCache.set(url, count)
+          moduleCounts.push(count)
+        }
+      } catch {
+        moduleCounts = []
+      }
+    }
+    const moduleCount = moduleCounts.length ? Math.max(...moduleCounts) : undefined
+    const recommended200 = getQrRecommendedSideMm(moduleCount, 200)
+    const recommended300 = getQrRecommendedSideMm(moduleCount, 300)
+    if (recommended200 === undefined || recommended300 === undefined) {
       markDimension('w', false)
       markDimension('h', false)
       recommendation.textContent = translate(
         'labelDesigner.qrReadabilityUnavailable',
-        '{dpi} DPI size guidance appears after the code is rendered.',
-      ).replace('{dpi}', String(QR_RECOMMENDED_DPI))
+        '200 / 300 DPI size guidance appears after the code is rendered.',
+      )
       warning.hidden = true
       warning.textContent = ''
       return
     }
-    const formatted = formatDesignerNumber(recommendedMm)
-    recommendation.textContent = translate(
+    recommendation.textContent = [[200, recommended200], [300, recommended300]].map(([dpi, size]) => translate(
       'labelDesigner.qrReadabilityRecommendation',
-      'At {dpi} DPI, use at least {size} mm for this encoded QR.',
-    ).replace('{dpi}', String(QR_RECOMMENDED_DPI)).replace('{size}', formatted)
-    const undersized = selected.w < recommendedMm || selected.h < recommendedMm
-    markDimension('w', selected.w < recommendedMm)
-    markDimension('h', selected.h < recommendedMm)
-    warning.textContent = undersized
-      ? translate(
-          'labelDesigner.qrReadabilityWarning',
-          'This QR is below the recommended {size} mm at {dpi} DPI.',
-        ).replace('{dpi}', String(QR_RECOMMENDED_DPI)).replace('{size}', formatted)
-      : ''
-    warning.hidden = !undersized
+      '{dpi} DPI: {size} mm recommended (QR only).',
+    ).replace('{dpi}', String(dpi)).replace('{size}', formatDesignerNumber(size))).join('\n')
+    const side = Math.min(selected.w, selected.h)
+    markDimension('w', selected.w < recommended200)
+    markDimension('h', selected.h < recommended200)
+    warning.textContent = side < recommended300
+      ? translate('labelDesigner.qrReadabilityWarningBoth', 'Below the size recommendation at 200 and 300 DPI.')
+      : side < recommended200
+        ? translate('labelDesigner.qrReadabilityWarning200', 'Below the size recommendation at 200 DPI.')
+        : ''
+    warning.hidden = !warning.textContent
+    if (note) {
+      // The least dense code has the largest modules, so needs the widest batch margin.
+      const border = Math.ceil(side / Math.min(...moduleCounts) * QR_QUIET_ZONE_MODULES * 10) / 10
+      note.textContent = translate(
+        'labelDesigner.qrReadabilityBorder',
+        'An automatic white outline extends {size} mm beyond the QR on every side. Print at actual size and test scanning; size guidance is not a guarantee.',
+      ).replace('{size}', formatDesignerNumber(border))
+    }
+    if (boundary) {
+      const border = side / Math.min(...moduleCounts) * QR_QUIET_ZONE_MODULES
+      const label = controller.getLabel()
+      const positions = qrNodes.length ? qrNodes.map(node => ({
+        x: Number.parseFloat(node.style.left || String(selected.x)),
+        y: Number.parseFloat(node.style.top || String(selected.y)),
+      })) : [selected]
+      const epsilon = 1e-6
+      boundary.hidden = positions.every(({ x, y }) => x - border >= -epsilon && y - border >= -epsilon
+        && x + selected.w + border <= label.widthMm + epsilon
+        && y + selected.h + border <= label.heightMm + epsilon)
+      boundary.textContent = translate('labelDesigner.qrReadabilityBoundary', 'The white outline runs off the label edge. Move or shrink the QR to fit it; the outline may use the label margin.')
+    }
   }
 
   const syncDom = () => {
@@ -186,7 +242,9 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     const selected = controller.getSelectedElement()
     if (inspector) inspector.hidden = !selected
     if (layerPosition) {
-      const text = selected
+      const text = selected?.type === 'qr'
+        ? translate('labelDesigner.qrTopLayer', 'QR code: pinned above other content')
+        : selected
         ? translate('labelDesigner.layerPosition', 'Object at layer {current} of {total}')
             .replace('{current}', String(selected.z + 1))
             .replace('{total}', String(controller.getMaxZ() + 1))
@@ -284,6 +342,9 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       '#freeform-image-delete',
     ].join(',')).forEach(control => { control.disabled = !editable })
     queryAll<HTMLButtonElement>('[data-requires-selection]').forEach(button => { button.disabled = !editable || !selected })
+    queryAll<HTMLButtonElement>('[data-designer-action="forward"], [data-designer-action="back"]').forEach(button => {
+      button.disabled = !editable || !selected || selected.type === 'qr'
+    })
     const deletingSelectedImage = controller.isAssetDeleting(selectedImageAssetId)
     const imageDelete = query<HTMLButtonElement>('#freeform-image-delete')
     if (imageDelete) imageDelete.disabled = !editable || deletingSelectedImage || selected?.type !== 'image' || !selectedImageAssetId

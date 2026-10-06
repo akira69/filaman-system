@@ -1,10 +1,11 @@
+import json
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 from sqlalchemy import select
 
 from app.api.v1 import labels
@@ -125,8 +126,29 @@ async def test_thermal_qr_rejects_too_small_box_but_png_keeps_original(auth_clie
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("label_render_runtime")
+async def test_chromium_png_preserves_automatic_white_outline_outside_qr(auth_client, preview_spool, db_session):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.data = {"version": 2, "design": {
+        "version": 2, "label": {"widthMm": 40, "heightMm": 30},
+        "elements": [
+            {"id": "qr", "type": "qr", "x": 5, "y": 5, "w": 15, "h": 15, "z": 0, "mode": "simple"},
+            {"id": "background", "type": "shape", "shape": "rectangle", "x": 0, "y": 0,
+             "w": 40, "h": 30, "z": 10, "fill": "#000000", "stroke": "", "strokeWidthMm": 0},
+        ],
+    }}
+    await db_session.commit()
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer=chromium&dpi=203&format=png")
+    assert response.status_code == 200
+    image = Image.open(BytesIO(response.content)).convert("RGB")
+    assert image.getpixel((32, 80)) == (255, 255, 255)
+    assert image.getpixel((16, 80)) == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.parametrize("renderer", ["basic", "chromium"])
-async def test_thermal_qr_does_not_paint_over_higher_layers(auth_client, preview_spool, db_session, renderer):
+async def test_thermal_qr_white_space_covers_other_layers(auth_client, preview_spool, db_session, renderer):
     client, _ = auth_client
     spool, preset = preview_spool
     preset.data = {"version": 2, "design": {
@@ -141,20 +163,23 @@ async def test_thermal_qr_does_not_paint_over_higher_layers(auth_client, preview
     response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer={renderer}&dpi=203&format=mono1")
     assert response.status_code == 200
     image = Image.frombytes("1", (576, 240), response.content.translate(bytes(range(255, -1, -1))))
-    assert image.getpixel((20, 28)) == 0
+    assert image.getpixel((20, 28)) == 255
+    assert image.crop((16, 24, 136, 144)).getextrema() == (0, 255)
 
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.parametrize("renderer", ["basic", "chromium"])
-@pytest.mark.parametrize("kind", ["default", "v1-left", "v1-right", "v2"])
+@pytest.mark.parametrize("kind", ["default", "v1-left", "v1-right", "v1-columns", "v1-wrap", "v2"])
 async def test_thermal_label_sample_matrix(auth_client, preview_spool, db_session, monkeypatch, tmp_path, renderer, kind):
     client, _ = auth_client
     spool, preset = preview_spool
     manufacturer_id = spool.filament.manufacturer_id
     spool.filament.designation = "Grün üöäßéè"
-    logo = Image.new("RGBA", (160, 40), (0, 0, 0, 0))
-    logo.paste((0, 0, 0, 255), (40, 8, 120, 32))
+    from app.services.label_font import label_font
+
+    logo = Image.new("RGBA", (280, 40), (0, 0, 0, 0))
+    ImageDraw.Draw(logo).text((0, 0), "TEST FILAMENT", font=label_font(32, True), fill="black")
     logo.save(tmp_path / f"{manufacturer_id}_label.png")
     monkeypatch.setattr(labels, "MANUFACTURER_LOGO_DIR", tmp_path)
     if kind.startswith("v1"):
@@ -162,9 +187,16 @@ async def test_thermal_label_sample_matrix(auth_client, preview_spool, db_sessio
             "label": {"width": 40, "height": 30, "marginMm": 1},
             "logo": {"show": True, "spaceMm": 5},
             "title": {"template": "{filament.name}", "sizeMm": 3},
-            "info": {"template": "Hinzugefügt éè", "sizeMm": 2},
-            "qr": {"sizeMm": 14, "position": kind.split("-")[1], "mode": "logo"},
+            "info": {"template": "ID: {id}\nHinzugefügt éè\n850 g", "sizeMm": 2},
+            "qr": {"sizeMm": 14, "position": "left" if kind == "v1-left" else "right", "mode": "logo"},
         }}
+        if kind == "v1-columns":
+            preset.data["settings"]["info"] = {"template": "ID: {id}\nPLA", "sizeMm": 1.8, "vAlign": "top"}
+            preset.data["settings"]["info2"] = {"show": True, "template": "850 g\nGrün", "sizeMm": 1.8, "vAlign": "bottom", "vsep": True}
+            preset.data["settings"]["qr"].update(sizeMm=10, vAlign="center")
+        elif kind == "v1-wrap":
+            preset.data["settings"]["info"] = {"template": "Farbe: Grün matt\nHinzugefügt am 06.10.2026", "sizeMm": 2, "vAlign": "top"}
+            preset.data["settings"]["qr"]["vAlign"] = "top"
     else:
         preset.data = {"version": 2, "design": {
             "version": 2, "label": {"widthMm": 40, "heightMm": 30},
@@ -191,6 +223,21 @@ async def test_thermal_label_sample_matrix(auth_client, preview_spool, db_sessio
     Image.open(BytesIO(png.content)).save(tmp_path / f"{kind}-{renderer}-png.png")
     image = Image.frombytes("1", (576, height), mono.content.translate(bytes(range(255, -1, -1))))
     image.save(tmp_path / f"{kind}-{renderer}-mono1.png")
+    (tmp_path / f"{kind}-{renderer}-mono1.bin").write_bytes(mono.content)
+    (tmp_path / f"{kind}-{renderer}-headers.json").write_text(json.dumps(dict(mono.headers), indent=2))
+    if kind.startswith("v1"):
+        box = (8, 80, 120, 232) if kind == "v1-left" else (232, 80, 312, 232) if kind == "v1-columns" else (200, 80, 312, 232)
+        slot = image.crop(box).convert("L")
+        left, top, right, bottom = ImageChops.invert(slot).getbbox()
+        pitch = 2 if kind == "v1-columns" else 3
+        assert right - left == bottom - top == 25 * pitch
+        assert min(left, top, slot.width - right, slot.height - bottom) >= 4 * pitch
+        for row in range(25):
+            for column in range(25):
+                assert slot.crop((left + column * pitch, top + row * pitch,
+                                  left + (column + 1) * pitch, top + (row + 1) * pitch)).getextrema() in ((0, 0), (255, 255))
+        light_image = Image.frombytes("1", (576, height), light.content.translate(bytes(range(255, -1, -1))))
+        assert light_image.crop(box).tobytes() == image.crop(box).tobytes()
     if kind == "v2":
         # Fractional DOM slots may center a dot differently; the modules and
         # minimum quiet zone must remain identical, not the extra whitespace.

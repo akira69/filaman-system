@@ -316,7 +316,7 @@ describe('freeform editor element operations', () => {
       expect(controller.getSelectedElement()).toMatchObject({ h: 1.2, y: initial.y - 0.45 })
     }
     persistFreeformLabelDesign('stroke-working', controller.getState().design)
-    expect(loadFreeformLabelDesign({ settingsKey: 'stroke-working', presetsKey: 'stroke-presets', kind: 'spool' }).elements.at(-1)).toMatchObject({ strokeWidthMm: 1.2 })
+    expect(loadFreeformLabelDesign({ settingsKey: 'stroke-working', presetsKey: 'stroke-presets', kind: 'spool' }).elements.find(element => element.id === initial.id)).toMatchObject({ strokeWidthMm: 1.2 })
     controller.undo()
     binding.sync()
     expect(thickness!.value).toBe('0.3')
@@ -525,11 +525,11 @@ describe('freeform editor element operations', () => {
     expect(added).toMatchObject({ type: 'shape', shape, w, h })
     expect(controller.getState().selectedId).toBe(added.id)
     persistFreeformLabelDesign('shape-working', controller.getState().design)
-    expect(loadFreeformLabelDesign({ settingsKey: 'shape-working', presetsKey: 'shape-presets', kind: 'spool' }).elements.at(-1)).toEqual(added)
+    expect(loadFreeformLabelDesign({ settingsKey: 'shape-working', presetsKey: 'shape-presets', kind: 'spool' }).elements.find(element => element.id === added.id)).toEqual(added)
     controller.undo()
     expect(controller.getState().design).toEqual(initial)
     controller.redo()
-    expect(controller.getState().design.elements.at(-1)).toEqual(added)
+    expect(controller.getState().design.elements.find(element => element.id === added.id)).toEqual(added)
   })
 
   it('clears element and text selection on blank canvas or outside clicks, but preserves editing controls', async () => {
@@ -703,21 +703,44 @@ describe('freeform editor element operations', () => {
     binding.destroy()
   })
 
+  it('keeps QR layering locked through controls, JSON, insertion, and undo', async () => {
+    await renderRealDesignerEditor()
+    const controller = makeController()
+    const binding = bindFreeformEditorDom({ controller })
+    await binding.ready
+    const qr = controller.getDesign().elements.find(element => element.type === 'qr')!
+    controller.select(qr.id)
+    binding.sync()
+    for (const action of ['forward', 'back']) {
+      expect(document.querySelector<HTMLButtonElement>(`[data-designer-action="${action}"]`)?.disabled).toBe(true)
+    }
+    for (const direction of ['forward', 'back', 'front', 'backmost'] as const) {
+      expect(controller.moveSelected(direction)).toBe(false)
+    }
+    controller.applySelectedJson(JSON.stringify({ ...qr, z: 0 }))
+    controller.addElement('shape')
+    controller.moveSelected('front')
+    expect(controller.getDesign().elements.at(-1)?.id).toBe(qr.id)
+    controller.undo()
+    expect(controller.getDesign().elements.at(-1)?.id).toBe(qr.id)
+    binding.destroy()
+  })
+
   it('adds, selects, duplicates, reorders, and deletes elements', () => {
     const controller = makeController()
 
     const added = controller.addElement('shape')
     expect(controller.getState().selectedId).toBe(added.id)
-    expect(controller.getState().design.elements.at(-1)?.type).toBe('shape')
+    expect(controller.getState().design.elements.at(-2)?.type).toBe('shape')
 
     const copy = controller.duplicateSelected()
     expect(copy?.id).toBe('copy-1')
     expect(copy?.x).toBeGreaterThan(added.x)
 
     controller.moveSelected('back')
-    expect(controller.getState().design.elements.at(-2)?.id).toBe(copy?.id)
+    expect(controller.getState().design.elements.at(-3)?.id).toBe(copy?.id)
     controller.moveSelected('front')
-    expect(controller.getState().design.elements.at(-1)?.id).toBe(copy?.id)
+    expect(controller.getState().design.elements.at(-2)?.id).toBe(copy?.id)
 
     expect(controller.deleteSelected()).toBe(true)
     expect(controller.getState().design.elements.some(element => element.id === copy?.id)).toBe(false)
@@ -732,7 +755,7 @@ describe('freeform editor element operations', () => {
     controller.insertField('{filament.name}')
 
     expect(states).toHaveLength(1)
-    expect(states[0].design.elements.at(-1)).toMatchObject({
+    expect(states[0].design.elements.find(element => element.id === states[0].selectedId)).toMatchObject({
       type: 'text', template: '{filament.name}', id: states[0].selectedId,
     })
   })
@@ -745,7 +768,7 @@ describe('freeform editor element operations', () => {
 
     expect(states).toHaveLength(1)
     expect(states[0].selectedId).toBe(image.id)
-    expect(states[0].design.elements.at(-1)).toMatchObject({
+    expect(states[0].design.elements.find(element => element.id === image.id)).toMatchObject({
       id: image.id, type: 'image', assetId: 'asset-1',
     })
   })
@@ -759,7 +782,7 @@ describe('freeform editor element operations', () => {
 
     expect(states).toHaveLength(1)
     expect(states[0].selectedId).toBe(pasted.id)
-    expect(states[0].design.elements.at(-1)?.id).toBe(pasted.id)
+    expect(states[0].design.elements.at(-2)?.id).toBe(pasted.id)
   })
 
   it('ignores a missing element without publishing or adding undo history', () => {
@@ -1434,6 +1457,7 @@ describe('freeform editor DOM binding', () => {
     expect(row.style.getPropertyValue('--freeform-label-width')).toBe('280px')
     expect(host.style.width).toBe('280px')
     expect(host.style.height).toBe('180px')
+    expect(row.style.getPropertyValue('--freeform-inspector-width')).toBe('212px')
     expect(row.classList.contains('is-geometry-narrow')).toBe(false)
     expect(row.classList.contains('is-geometry-below')).toBe(false)
     labelWidth = 312

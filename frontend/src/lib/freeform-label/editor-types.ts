@@ -59,6 +59,7 @@ export interface FreeformLabelDesignerEditorOptions {
   crossPresetsLabel?: string
   loadInteract?: () => Promise<InteractFactory>
   getPreviewData?: () => SpoolData | null | undefined
+  getQrEntityIds?: () => Array<string | number>
 }
 
 export interface FreeformLabelDesignerEditorController {

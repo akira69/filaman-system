@@ -123,6 +123,23 @@ dimensions and a best-effort Pillow implementation of text, tokens, QR codes,
 logos, images, swatches, and shapes. Basic does not reproduce custom fonts,
 rich text, wrapping, or browser text fitting exactly.
 It bundles Space Grotesk regular and bold fonts, including Latin-1 accents.
+For legacy v1 presets, Basic follows the full-width logo/title header and lower
+information/QR columns, including word wrapping, vertical alignment, separators,
+and manual logo sizing. Small typography and pixel-placement differences remain.
+V1 and V2 share plain-text token resolution, including optional fragments,
+conditions, uppercase and date modifiers. V2 Basic also honors word wrapping,
+vertical alignment, and manufacturer-logo alignment/manual sizing. Expanded text
+is capped at 12,000 characters, and long lines are clipped before rasterization
+to bound memory use. Rich-text styling and browser line balancing remain approximate.
+
+For v2 designs, QR elements render above non-QR content with opaque white
+backgrounds in both renderers, regardless of their saved layer positions.
+The browser designer and Chromium PNG/normal print output add an automatic
+four-module white outline outside the QR's size handles. It can occupy the
+label margin; the editor warns only when it extends off the physical label.
+The existing Basic/`mono1` QR slot includes its quiet zone internally, preserving
+the printer-raster sizing contract. The editor provides separate 200/300 DPI
+size guidance and a caution for center decoration; neither guarantees scanning.
 
 The `-chromium` image defaults to `chromium` and reproduces the editor's saved
 presets using the editor's fonts, rich fields, fitting, images, and QR styling
