@@ -1,7 +1,7 @@
 import { buildSpoolDataFromApiSpool, renderDesignerLabel } from './label-designer'
 import { captureLabelElement } from './label-export'
 import { normalizeDesignerPresetData } from './freeform-label/migrate-v1'
-import { buildStandardLabelDataFromApiSpool, renderStandardLabel } from './label-standard'
+import { API_DEFAULT_LABEL_SETTINGS, apiDefaultExtraFields, buildStandardLabelDataFromApiSpool, renderStandardLabel } from './label-standard'
 import type { SpoolExtraFieldDefinitionMap } from './spool-label-data'
 import { waitForLabelOutputAssets } from './label-output-readiness'
 import { renderThermalQrs } from './qr-code'
@@ -40,14 +40,8 @@ export async function renderApiLabel(payload: ApiLabelRenderPayload): Promise<st
       await renderStandardLabel({
         thermalQr: payload.thermal,
         element,
-        data: buildStandardLabelDataFromApiSpool(payload.spool, data.remaining_weight_g
-          ? [{ label: 'Remaining', value: `${data.remaining_weight_g} g` }]
-          : []),
-        settings: {
-          widthMm: 60, heightMm: 40, fontScale: 1, qrSizeMm: 18,
-          showLogo: true, showQR: true, showID: true, showManufacturer: true,
-          showMaterial: true, showColor: true, showColorSwatch: true, showColorHex: false,
-        },
+        data: buildStandardLabelDataFromApiSpool(payload.spool, apiDefaultExtraFields(data.remaining_weight_g)),
+        settings: API_DEFAULT_LABEL_SETTINGS,
         logoUrl: payload.logoUrl,
       })
     }

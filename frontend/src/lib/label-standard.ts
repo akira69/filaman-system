@@ -58,6 +58,16 @@ export interface RenderStandardLabelOptions {
   isStale?: () => boolean
 }
 
+export const API_DEFAULT_LABEL_SETTINGS: Readonly<StandardLabelSettings> = {
+  widthMm: 60, heightMm: 40, fontScale: 1, qrSizeMm: 18,
+  showLogo: true, showQR: true, showID: true, showManufacturer: true,
+  showMaterial: true, showColor: true, showColorSwatch: true, showColorHex: false,
+}
+
+export function apiDefaultExtraFields(remainingWeight: string | undefined): StandardExtraField[] {
+  return remainingWeight ? [{ label: 'Remaining', value: `${remainingWeight} g` }] : []
+}
+
 function toStringValue(value: unknown) {
   return value === undefined || value === null ? '' : String(value)
 }

@@ -607,6 +607,13 @@ export function restoreLabelSettings(
   }
 }
 
+export function applyStandardLabelSettings(controls: LabelSettingsControls, settings: Readonly<StandardLabelSettings>) {
+  restoreLabelSettings(controls, Object.fromEntries([
+    ...LABEL_SETTING_INPUTS.map(([key, , output, , , , , scale]) => [key, settings[output] * scale]),
+    ...LABEL_SETTING_CHECKBOXES.map(([key, , output]) => [key, settings[output]]),
+  ]))
+}
+
 export function resetLabelSettings(
   controls: LabelSettingsControls,
   extraFields?: LabelExtraFieldControls,
