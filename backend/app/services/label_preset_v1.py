@@ -16,7 +16,7 @@ _MISSING = object()
 def _number(raw, default, low, high):
     # JavaScript Number(null/"") is zero; absent properties use the default.
     try:
-        value = 0 if raw is None or raw == "" else float(raw)
+        value = 0 if raw is None or isinstance(raw, str) and not raw.strip() else float(raw)
         if not math.isfinite(value):
             value = default
     except (TypeError, ValueError, OverflowError):
@@ -49,7 +49,7 @@ def convert_label_preset_data(data: object, preset_type: str) -> object:
         return data
     source = data.get("settings", data)
     if not isinstance(source, dict) or not (
-        "settings" in data or data.get("version") == 1 or _SECTIONS.intersection(source)
+        ("settings" in data and not source) or data.get("version") == 1 or _SECTIONS.intersection(source)
     ):
         return data
     if any(not isinstance(source[key], dict) for key in _SECTIONS.intersection(source)):

@@ -19,6 +19,7 @@ from app.models import (
     SystemExtraField,
 )
 from app.models.label_preset import label_preset_name_key
+from app.services.label_preset_v1 import convert_label_preset_data
 
 
 @pytest.fixture(autouse=True)
@@ -53,6 +54,26 @@ async def test_saved_null_preset_is_invalid_not_default(auth_client, preview_spo
     assert listing.status_code == 200
     assert listing.json()[0]["width_mm"] is None
     assert listing.json()[0]["height_mm"] is None
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer=basic")
+    assert response.status_code == 422
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_unconverted_legacy_record_is_preserved_and_not_rendered(auth_client, preview_spool, db_session):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    original = {"version": 9, "settings": {"label": {"width": 40, "height": 30}}}
+    preset.data = original
+    await db_session.commit()
+    listing = await client.get("/api/v1/labels/presets")
+    assert listing.json()[0]["width_mm"] is None
+    for renderer in ("basic", "chromium"):
+        response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer={renderer}")
+        assert response.status_code == 422
+        assert "Label Designer" in response.json()["detail"]
+    await db_session.refresh(preset)
+    assert preset.data == original
     response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer=basic")
     assert response.status_code == 422
     assert response.headers["cache-control"] == "no-store"
@@ -208,6 +229,7 @@ async def test_thermal_label_sample_matrix(auth_client, preview_spool, db_sessio
                    "mode": "logo"} for i, x in enumerate((2, 22))],
             ],
         }}
+    preset.data = convert_label_preset_data(preset.data, "spool")
     await db_session.commit()
     path = f"/api/v1/labels/spool/{spool.id}/render?preset_id={0 if kind == 'default' else preset.id}&renderer={renderer}&dpi=203&width=576"
     png = await client.get(path)
@@ -276,6 +298,7 @@ async def test_basic_range_tokens_use_system_definitions(auth_client, preview_sp
                 "label": {"width": 40, "height": 30}, "title": {"template": template},
                 **{key: {"show": False} for key in ("logo", "title2", "info", "info2", "qr")},
             }}
+        preset.data = convert_label_preset_data(preset.data, "spool")
         await db_session.commit()
         response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?renderer=basic&preset_id={preset.id}")
         assert response.status_code == 200
@@ -420,8 +443,8 @@ async def test_qr_canvases_share_the_render_pixel_budget(
 
 @pytest.mark.parametrize("width", [None, "", " "])
 def test_legacy_empty_dimensions_match_preview_normalization(width):
-    assert labels._label_size({"label": {"width": width, "height": 40}}) == (20, 40)
-    assert labels._label_size({"label": {}}) == (60, 40)
+    assert labels._preset_size(convert_label_preset_data({"settings": {"label": {"width": width, "height": 40}}}, "spool")) == (20, 40)
+    assert labels._preset_size(convert_label_preset_data({"settings": {"label": {}}}, "spool")) == (60, 40)
 
 
 @pytest.mark.asyncio
@@ -530,6 +553,7 @@ async def test_basic_renderer_approximately_renders_saved_legacy_presets(
         "info2": {"show": False},
         "qr": {"show": False},
     }}
+    preset.data = convert_label_preset_data(preset.data, "spool")
     await db_session.commit()
 
     response = await client.get(

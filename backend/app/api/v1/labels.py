@@ -183,27 +183,7 @@ def _preset_size(data: dict) -> tuple[float, float]:
                for value, low, high in ((width, 20, 300), (height, 10, 200))):
             raise HTTPException(422, "Preset design has invalid dimensions")
         return width, height
-    settings = data.get("settings")
-    if not isinstance(settings, dict) or any(
-        key in settings and not isinstance(settings[key], dict)
-        for key in ("label", "logo", "title", "title2", "info", "info2", "qr")
-    ):
-        raise HTTPException(422, "Preset settings are invalid")
-    return _label_size(settings)
-
-
-def _label_size(settings: dict | None) -> tuple[float, float]:
-    raw = (settings or {}).get("label") or {}
-    return _number(raw.get("width", 60), 60, 20, 300), _number(raw.get("height", 40), 40, 10, 200)
-
-
-def _number(value, default: float, low: float, high: float) -> float:
-    try:
-        # Match the legacy preview: explicit null/empty values become zero.
-        number = 0 if value is None or isinstance(value, str) and not value.strip() else float(value)
-    except (TypeError, ValueError, OverflowError):
-        return default
-    return min(high, max(low, number)) if isfinite(number) else default
+    raise HTTPException(422, "Legacy or unsupported preset could not be migrated; reopen and save it in the Label Designer")
 
 
 def _label_values(spool: Spool, colors: list[str], definitions: dict | None = None) -> tuple[dict[str, str], dict[str, object]]:
@@ -459,10 +439,9 @@ async def render_spool_label(
             preset_id = await _selected_preset_id(db, principal.user_id)
         preset_id = preset_id or None
         preset_data = None
-        settings = None
         design = None
         assets = {}
-        width_mm, height_mm = _label_size(None)
+        width_mm, height_mm = 60, 40
         if preset_id is not None:
             if principal.user_id is None:
                 raise HTTPException(status_code=403, detail="Use a user API key to select label presets")
@@ -477,40 +456,37 @@ async def render_spool_label(
                 raise HTTPException(status_code=404, detail="Label preset not found")
             preset_data = preset.data
             width_mm, height_mm = _preset_size(preset_data)
-            if preset.data.get("version") == 2:
-                design = preset.data.get("design")
-                elements = design.get("elements")
-                if (
-                    not isinstance(elements, list)
-                    or len(elements) > 100
-                    or any(
-                        not isinstance(element, dict)
-                        or not isinstance(element.get("type"), str)
-                        or element["type"] not in {
-                            "text", "qr", "manufacturerLogo", "image", "swatch", "shape",
-                        }
-                        for element in elements
-                    )
-                ):
-                    raise HTTPException(status_code=422, detail="Preset design is invalid")
-                asset_ids = set()
-                for element in elements:
-                    if isinstance(element, dict) and element.get("type") == "image":
-                        asset_id = element.get("assetId")
-                        if not isinstance(asset_id, str) or not asset_id or len(asset_id) > 120:
-                            raise HTTPException(status_code=422, detail="Preset image is unavailable")
-                        asset_ids.add(asset_id)
-                if asset_ids:
-                    rows = await db.scalars(
-                        select(LabelAsset).options(undefer(LabelAsset.content)).where(
-                            LabelAsset.id.in_(asset_ids), LabelAsset.user_id == principal.user_id,
-                        )
-                    )
-                    assets = {asset.id: asset.content for asset in rows}
-                    if set(assets) != asset_ids:
+            design = preset.data.get("design")
+            elements = design.get("elements")
+            if (
+                not isinstance(elements, list)
+                or len(elements) > 100
+                or any(
+                    not isinstance(element, dict)
+                    or not isinstance(element.get("type"), str)
+                    or element["type"] not in {
+                        "text", "qr", "manufacturerLogo", "image", "swatch", "shape",
+                    }
+                    for element in elements
+                )
+            ):
+                raise HTTPException(status_code=422, detail="Preset design is invalid")
+            asset_ids = set()
+            for element in elements:
+                if isinstance(element, dict) and element.get("type") == "image":
+                    asset_id = element.get("assetId")
+                    if not isinstance(asset_id, str) or not asset_id or len(asset_id) > 120:
                         raise HTTPException(status_code=422, detail="Preset image is unavailable")
-            else:
-                settings = preset.data.get("settings")
+                    asset_ids.add(asset_id)
+            if asset_ids:
+                rows = await db.scalars(
+                    select(LabelAsset).options(undefer(LabelAsset.content)).where(
+                        LabelAsset.id.in_(asset_ids), LabelAsset.user_id == principal.user_id,
+                    )
+                )
+                assets = {asset.id: asset.content for asset in rows}
+                if set(assets) != asset_ids:
+                    raise HTTPException(status_code=422, detail="Preset image is unavailable")
         label_width = round(width_mm * dpi / 25.4) if dpi else width
         label_height = (
             round(height_mm * dpi / 25.4)
@@ -534,11 +510,8 @@ async def render_spool_label(
             )
             qr_count = sum(element.get("type") == "qr" for element in design["elements"])
         else:
-            image_uses = Counter({
-                "/__label-assets/manufacturer.png":
-                int((settings or {}).get("logo", {}).get("show", True) is not False),
-            })
-            qr_count = int((settings or {}).get("qr", {}).get("show", True) is not False)
+            image_uses = Counter({"/__label-assets/manufacturer.png": 1})
+            qr_count = 1
         logo_path = (
             MANUFACTURER_LOGO_DIR / f"{spool.filament.manufacturer_id}_label.png"
             if image_uses["/__label-assets/manufacturer.png"] else None
@@ -579,9 +552,7 @@ async def render_spool_label(
                     render_basic_label,
                     spool, label_width, label_height,
                     str(request.base_url).rstrip("/") + f"/spools/{spool_id}", colors,
-                    settings, values,
-                    logo_content,
-                    color == "color", format == "mono1",
+                    format == "mono1",
                 )
         else:
             spool_data = SpoolResponse.model_validate(spool).model_dump(mode="json")

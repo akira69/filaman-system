@@ -22,6 +22,7 @@ from app.services.label_asset_service import (
     extract_label_asset_ids,
     set_label_preset_asset_references,
 )
+from app.services.label_preset_v1 import convert_label_preset_data
 
 router = APIRouter(prefix="/me/label-presets", tags=["me"])
 
@@ -257,6 +258,7 @@ async def upsert_label_preset(
     user_id = _require_user_id(principal)
     async with _preset_transaction(db):
         _validate_presets([body])
+        body.data = convert_label_preset_data(body.data, preset_type)
         asset_ids = extract_label_asset_ids(body.data)
         await _lock_user_presets(db, user_id)
 
@@ -392,6 +394,8 @@ async def migrate_label_presets(
             grouped.setdefault(preset.preset_type, []).append(preset)
         for presets in grouped.values():
             _validate_presets(presets, reject_duplicates=False)
+        for preset in body.presets:
+            preset.data = convert_label_preset_data(preset.data, preset.preset_type)
         preset_asset_ids = [extract_label_asset_ids(preset.data) for preset in body.presets]
 
         await _lock_user_presets(db, user_id)

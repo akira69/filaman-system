@@ -7,9 +7,9 @@ from datetime import date, datetime
 _MAX_TEXT_LENGTH = 12000
 
 
-def resolve_label_text(template: str, values: dict[str, object], *, preserve_swatches: bool = False,
+def resolve_label_text(template: str, values: dict[str, object], *,
                        raw_values: dict[str, object] | None = None) -> str:
-    return "".join(run if isinstance(run, str) else f"{{color_swatch[{run}]}}" if preserve_swatches else ""
+    return "".join(run if isinstance(run, str) else ""
                    for run in resolve_label_runs(template, values, raw_values=raw_values))
 
 
@@ -116,19 +116,3 @@ def clip_label_line(text, font, width, suffix=""):
         else:
             high = middle - 1
     return text[:low if suffix else low + 1] + suffix
-
-
-def wrap_label_lines(text, font, width):
-    """Match legacy word wrapping without breaking unspaced field values."""
-    lines = []
-    for raw_line in text.splitlines():
-        line = ""
-        for word in raw_line.split():
-            candidate = f"{line} {word}" if line else word
-            if line and font.getlength(candidate) > width:
-                lines.append(line)
-                line = word
-            else:
-                line = candidate
-        lines.append(line)
-    return lines

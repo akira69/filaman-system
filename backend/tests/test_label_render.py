@@ -24,6 +24,7 @@ from app.models import (
     UserApiKey,
 )
 from app.models.label_preset import label_preset_name_key
+from app.services.label_preset_v1 import convert_label_preset_data
 
 
 def test_mono1_pads_partial_row_with_white():
@@ -261,6 +262,7 @@ async def test_pc_print_request_uses_selected_preset_when_omitted(
         data={"version": 2, "design": {"version": 2}},
         selected=True,
     )
+    preset.data = convert_label_preset_data(preset.data, "spool")
     db_session.add_all([spool, preset])
     await db_session.commit()
 
@@ -316,6 +318,7 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
             "qr": {"linkMode": "url", "urlTemplate": "https://labels.example/base/"},
         }},
     )
+    preset.data = convert_label_preset_data(preset.data, "spool")
     db_session.add(preset)
     await db_session.commit()
 
@@ -369,6 +372,7 @@ async def test_scale_lists_users_designer_presets_and_selects_one(
         name_key=label_preset_name_key("Portrait"),
         data={"settings": {"label": {"width": 30, "height": 40}}},
     )
+    portrait.data = convert_label_preset_data(portrait.data, "spool")
     db_session.add(portrait)
     await db_session.commit()
     rotated = await client.get(
@@ -452,7 +456,7 @@ async def test_preset_dimensions_match_render_policy_and_isolate_bad_records(aut
         (None, (None, None)),
     ]
     for index, (data, _) in enumerate(cases):
-        db_session.add(LabelPreset(user_id=admin_user.id, preset_type="spool", name=str(index), name_key=label_preset_name_key(str(index)), data=data))
+        db_session.add(LabelPreset(user_id=admin_user.id, preset_type="spool", name=str(index), name_key=label_preset_name_key(str(index)), data=convert_label_preset_data(data, "spool")))
     await db_session.commit()
     response = await client.get("/api/v1/labels/presets")
     assert response.status_code == 200
@@ -486,6 +490,7 @@ async def test_scale_render_uses_active_preset_when_id_is_omitted(
         data={"settings": {"label": {"width": 40, "height": 30}}},
         selected=True,
     )
+    preset.data = convert_label_preset_data(preset.data, "spool")
     db_session.add_all([spool, preset])
     await db_session.commit()
 
@@ -545,6 +550,7 @@ async def test_scale_renders_version_two_designer_preset(auth_client, db_session
             ],
         }},
     )
+    preset.data = convert_label_preset_data(preset.data, "spool")
     db_session.add(preset)
     await db_session.commit()
 
@@ -597,6 +603,7 @@ async def test_scale_renders_version_two_uploaded_image(auth_client, db_session,
                           "z": 0, "assetId": asset_id, "objectFit": "contain"}],
         }},
     )
+    preset.data = convert_label_preset_data(preset.data, "spool")
     db_session.add(preset)
     await db_session.commit()
 

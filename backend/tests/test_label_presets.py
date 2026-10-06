@@ -10,6 +10,46 @@ from tests.support.backup import export_backup_data
 
 class TestLabelPresets:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("format", ["json", "jsonl"])
+    async def test_restore_converts_legacy_presets(self, auth_client, db_session, admin_user, tmp_path, monkeypatch, format):
+        from app.api.v1 import system
+        monkeypatch.setattr(system, "_get_backup_dir", lambda: tmp_path)
+        preset = LabelPreset(user_id=admin_user.id, preset_type="spool", name="Old", name_key=label_preset_name_key("Old"),
+            selected=True, data={"settings": {"label": {"width": 40, "height": 30}}})
+        db_session.add(preset)
+        await db_session.commit()
+        preset_id = preset.id
+        client, csrf = auth_client
+        exported = await client.get(f"/api/v1/admin/system/backup/export?format={format}")
+        assert exported.status_code == 200
+        response = await client.post("/api/v1/admin/system/backup/import", files={
+            "file": (f"backup.{format}", exported.content, exported.headers["content-type"])},
+            headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 200, response.text
+        db_session.expire_all()
+        restored = await db_session.get(LabelPreset, preset_id)
+        assert restored.selected is True
+        assert restored.data["version"] == 2
+        assert restored.data["design"]["label"]["widthMm"] == 40
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["put", "migrate"])
+    async def test_legacy_input_is_persisted_as_v2(self, auth_client, db_session, method):
+        client, csrf = auth_client
+        source = {"version": 1, "settings": {"label": {"width": 40, "height": 30}}}
+        body = {"name": "Legacy", "data": source}
+        response = await client.put("/api/v1/me/label-presets/spool/item", json=body,
+            headers={"X-CSRF-Token": csrf}) if method == "put" else await client.post(
+                "/api/v1/me/label-presets/migrate", json={"presets": [{**body, "preset_type": "spool"}]},
+                headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 200
+        item = response.json() if method == "put" else response.json()[0]
+        assert item["data"]["version"] == 2
+        assert item["data"]["legacy_v1"] == source["settings"]
+        stored = await db_session.get(LabelPreset, item["id"])
+        assert stored.data == item["data"]
+
+    @pytest.mark.asyncio
     async def test_spool_preset_selection_is_user_scoped(
         self, auth_client, db_session, admin_user, normal_user
     ):
@@ -170,7 +210,7 @@ class TestLabelPresets:
         )
         assert response.status_code == 204
         assert (await client.get("/api/v1/labels/presets")).json() == [
-            {"id": second_row.id, "name": second_row.name, "selected": False, "width_mm": 60, "height_mm": 40}
+            {"id": second_row.id, "name": second_row.name, "selected": False, "width_mm": None, "height_mm": None}
         ]
 
     @pytest.mark.asyncio
