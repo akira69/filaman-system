@@ -60,7 +60,7 @@ def render_qr_image(target: str, size: int, mode: str = "RGB", thermal: bool = F
 def _number(value, default: float, low: float, high: float) -> float:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     return min(high, max(low, number)) if isfinite(number) else default
 
@@ -131,6 +131,8 @@ def render_basic_label(
             else 0
         )
         qr_left = qr_config.get("position") == "left"
+        if thermal and qr_show and not (0 < qr_size <= label_width - 2 * inset):
+            raise HTTPException(422, "Thermal QR box must fit inside the label")
         text_x = inset + qr_size + inset if qr_left and qr_show else inset
         text_width = (
             max(1, label_width - qr_size - inset * 3)

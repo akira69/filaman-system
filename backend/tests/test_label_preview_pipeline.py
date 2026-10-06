@@ -43,6 +43,21 @@ async def preview_spool(db_session, admin_user):
 
 
 @pytest.mark.asyncio
+async def test_saved_null_preset_is_invalid_not_default(auth_client, preview_spool, db_session):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    preset.data = None
+    await db_session.commit()
+    listing = await client.get("/api/v1/labels/presets")
+    assert listing.status_code == 200
+    assert listing.json()[0]["width_mm"] is None
+    assert listing.json()[0]["height_mm"] is None
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer=basic")
+    assert response.status_code == 422
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
 @pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.parametrize("renderer", ["basic", "chromium"])
 @pytest.mark.parametrize("orientation,base", [("original", "http://test"), ("portrait", "https://labels.example/" + "long/" * 16)])
