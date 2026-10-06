@@ -113,15 +113,20 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
 
   const qrCountCache = new Map<string, number>()
   const syncQrReadability = () => {
-    const recommendation = query<HTMLElement>('#freeform-qr-readability-recommendation')
+    const recommendation = query<HTMLElement>('#freeform-qr-readability-200')
+    const recommendation300 = query<HTMLElement>('#freeform-qr-readability-300')
     const warning = query<HTMLElement>('#freeform-qr-readability-warning')
+    const warning300 = query<HTMLElement>('#freeform-qr-readability-warning-300')
     const note = query<HTMLElement>('#freeform-qr-readability-note')
     const logo = query<HTMLElement>('#freeform-qr-readability-logo')
     const boundary = query<HTMLElement>('#freeform-qr-readability-boundary')
     if (boundary) boundary.hidden = true
     const readability = query<HTMLElement>('.freeform-qr-readability')
     const selected = controller.getSelectedElement()
-    if (!recommendation || !warning) return
+    if (!recommendation || !recommendation300 || !warning || !warning300) return
+    recommendation300.hidden = true
+    warning300.hidden = true
+    warning300.textContent = ''
     if (readability) readability.hidden = selected?.type !== 'qr'
     const markDimension = (property: 'w' | 'h', undersized: boolean) => {
       const input = query<HTMLInputElement>(`#freeform-element-inspector [data-element-prop="${property}"]`)
@@ -195,19 +200,21 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       warning.textContent = ''
       return
     }
-    recommendation.textContent = [[200, recommended200], [300, recommended300]].map(([dpi, size]) => translate(
-      'labelDesigner.qrReadabilityRecommendation',
-      '{dpi} DPI: {size} mm recommended (QR only).',
-    ).replace('{dpi}', String(dpi)).replace('{size}', formatDesignerNumber(size))).join('\n')
     const side = Math.min(selected.w, selected.h)
+    for (const [dpi, size, heading, shortfall] of [
+      [200, recommended200, recommendation, warning],
+      [300, recommended300, recommendation300, warning300],
+    ] as const) {
+      heading.hidden = false
+      heading.textContent = translate('labelDesigner.qrReadabilityRecommendation', '{dpi} DPI: {size} mm recommended (QR only).')
+        .replace('{dpi}', String(dpi)).replace('{size}', formatDesignerNumber(size))
+      shortfall.hidden = side >= size
+      shortfall.textContent = shortfall.hidden ? '' : translate(
+        'labelDesigner.qrReadabilityShortfall', 'Below the size recommendation at {dpi} DPI by {gap} mm.',
+      ).replace('{dpi}', String(dpi)).replace('{gap}', formatDesignerNumber(size - side, 1))
+    }
     markDimension('w', selected.w < recommended200)
     markDimension('h', selected.h < recommended200)
-    warning.textContent = side < recommended300
-      ? translate('labelDesigner.qrReadabilityWarningBoth', 'Below the size recommendation at 200 and 300 DPI.')
-      : side < recommended200
-        ? translate('labelDesigner.qrReadabilityWarning200', 'Below the size recommendation at 200 DPI.')
-        : ''
-    warning.hidden = !warning.textContent
     if (note) {
       // The least dense code has the largest modules, so needs the widest batch margin.
       const border = Math.ceil(side / Math.min(...moduleCounts) * QR_QUIET_ZONE_MODULES * 10) / 10
@@ -241,6 +248,13 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     }
     const selected = controller.getSelectedElement()
     if (inspector) inspector.hidden = !selected
+    const widthInput = query<HTMLInputElement>('[data-element-prop="w"]')
+    const heightLabel = query<HTMLInputElement>('[data-element-prop="h"]')?.closest('label')
+    const widthLabel = query<HTMLElement>('[data-width-label]')
+    const isQr = selected?.type === 'qr'
+    if (heightLabel) heightLabel.hidden = isQr
+    if (widthLabel) widthLabel.textContent = isQr ? translate('labelDesigner.qrSize', 'Side length') : translate('labelPrint.labelWidthShort', 'Width')
+    widthInput?.setAttribute('aria-label', isQr ? translate('labelDesigner.qrSizeMm', 'Side length (mm)') : translate('labelDesigner.widthMm', 'Width (mm)'))
     if (layerPosition) {
       const text = selected?.type === 'qr'
         ? translate('labelDesigner.qrTopLayer', 'QR code: pinned above other content')
