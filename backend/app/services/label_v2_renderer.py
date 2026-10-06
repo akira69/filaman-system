@@ -1,7 +1,6 @@
 """Best-effort Pillow renderer for saved version 2 label designs."""
 
 import re
-from datetime import date, datetime
 from io import BytesIO
 from math import ceil, floor
 
@@ -14,6 +13,11 @@ from app.services.label_basic_renderer import (
     render_qr_image,
 )
 from app.services.label_font import label_font
+from app.services.label_text import (
+    clip_label_line,
+    resolve_label_text,
+    wrap_label_lines,
+)
 
 
 def _range(value: object, minimum: float, maximum: float) -> float:
@@ -45,75 +49,6 @@ def _color(value: object, *, allow_empty: bool = False) -> str | None:
             status_code=422, detail="Preset design has an invalid color"
         )
     return value
-
-
-def resolve_v2_text(template: str, values: dict[str, object]) -> str:
-    protected: list[str] = []
-
-    def protect(raw: object) -> str:
-        def keep(match: re.Match) -> str:
-            protected.append(match.group())
-            return f"\0{len(protected) - 1}\0"
-
-        return re.sub(
-            r"[\0{}]|\*{1,3}|==|__|@@|\^\^|\[/?(?:b|i|size(?:=\d{1,3}%?)?|font(?:=[^\]\n]+)?)\]",
-            keep,
-            str(raw),
-            flags=re.IGNORECASE,
-        )
-
-    def value(token: str) -> str:
-        key = token.strip()
-        missing = object()
-        raw = values.get(key, missing)
-        date_only = False
-        if raw is missing and (match := re.fullmatch(r"(.*)\|date", key, re.IGNORECASE)):
-            raw = values.get(match.group(1).strip(), missing)
-            date_only = True
-        if raw is missing:
-            return ""
-        if raw is None or raw == "":
-            return ""
-        if date_only:
-            try:
-                parsed = raw.date() if isinstance(raw, datetime) else raw
-                if not isinstance(parsed, date):
-                    parsed = date.fromisoformat(str(raw)[:10])
-                raw = parsed.strftime("%x")
-            except ValueError:
-                pass
-        return protect(raw)
-
-    expanded = template.replace("\\n", "\n")
-    conditional = re.compile(
-        r"\[if=\{([^{}\n]+)\}\]((?:(?!\[if=).)*?)\[/if\]",
-        re.IGNORECASE | re.DOTALL,
-    )
-    while conditional.search(expanded):
-        expanded = conditional.sub(
-            lambda match: match.group(2) if value(match.group(1)) else "", expanded
-        )
-    expanded = re.sub(
-        r"\{([^{}]*)\{([^{}]+)\}([^{}]*)\}",
-        lambda match: (
-            match.group(1) + value(match.group(2)) + match.group(3)
-            if value(match.group(2))
-            else ""
-        ),
-        expanded,
-    )
-    expanded = re.sub(r"\{([^{}]+)\}", lambda match: value(match.group(1)), expanded)
-    expanded = re.sub(
-        r"\^\^([\s\S]*?)\^\^", lambda match: match.group(1).upper(), expanded
-    )
-    expanded = re.sub(
-        r"\[/?(?:b|i|size(?:=\d{1,3}%?)?|font(?:=[^\]\n]+)?)\]",
-        "",
-        expanded,
-        flags=re.IGNORECASE,
-    )
-    expanded = re.sub(r"\*{1,3}|==|__|@@", "", expanded)
-    return re.sub(r"\0(\d+)\0", lambda match: protected[int(match.group(1))], expanded)
 
 
 def render_v2_label(
@@ -168,7 +103,7 @@ def render_v2_label(
         raise HTTPException(
             status_code=422, detail="Preset design has an invalid element"
         )
-    for element in sorted(elements, key=lambda item: item.get("z", 0)):
+    for element in sorted(elements, key=lambda item: (item.get("type") == "qr", item.get("z", 0))):
         if element.get("type") not in {
             "text",
             "qr",
@@ -228,22 +163,35 @@ def render_v2_label(
                         fill=color,
                     )
         elif kind == "text":
-            content = resolve_v2_text(str(element.get("template", ""))[:8000], values)
+            content = resolve_label_text(str(element.get("template", ""))[:8000], values)
             font_size = max(1, round(_mm(element.get("fontSizeMm", 3.2), 20) * scale))
             bold = element.get("fontWeight") in (600, 700, "bold")
             font = label_font(font_size, bold)
+            role = element.get("legacyTextRole")
+            spacing = 1.4 if role == "info" else 1 if role == "title" else 1.15
+
+            lines = wrap_label_lines(content, font, w) if element.get("wrap") else content.splitlines()
             if element.get("fitToWidth"):
-                while font_size > 2 and any(
-                    painter.textlength(line, font=font) > w
-                    for line in content.splitlines()
+                minimum = max(1, round(_mm(element.get("minFontSizeMm", 2 if element.get("wrap") else 0.265), 20) * scale))
+                while font_size > minimum and (
+                    any(font.getlength(line) > w for line in lines)
+                    or element.get("wrap") and len(lines) * max(1, round(font_size * spacing)) > h
                 ):
                     font_size -= 1
                     font = label_font(font_size, bold)
+                    lines = wrap_label_lines(content, font, w) if element.get("wrap") else content.splitlines()
             align = element.get("align", "left")
-            for line_number, line in enumerate(content.splitlines() or [""]):
-                line_y = line_number * round(font_size * 1.15)
+            line_height = max(1, round(font_size * spacing))
+            valign = element.get("verticalAlign", "top")
+            start_y = (h - len(lines) * line_height) * (0.5 if valign == "middle" else 1 if valign == "bottom" else 0)
+            ascent, descent = font.getmetrics()
+            for line_number, line in enumerate(lines):
+                line_y = start_y + line_number * line_height
                 if line_y >= h:
                     break
+                if line_y + line_height <= 0:
+                    continue
+                line = clip_label_line(line, font, w, "..." if role == "title" and not element.get("fitToWidth") else "")
                 line_width = painter.textlength(line, font=font)
                 line_x = max(
                     0,
@@ -253,10 +201,11 @@ def render_v2_label(
                     ),
                 )
                 painter.text(
-                    (line_x, line_y),
+                    (line_x, line_y + (line_height - ascent - descent) / 2 + ascent),
                     line,
                     font=font,
                     fill=_color(element.get("color", "#000000")),
+                    anchor="ls",
                 )
         elif kind == "qr":
             target = label_qr_target(
@@ -268,6 +217,7 @@ def render_v2_label(
             qr = render_qr_image(target, min(w, h), "RGBA", thermal)
             if thermal and (x < 0 or y < 0 or x + qr.width > width or y + qr.height > height):
                 raise HTTPException(422, "Thermal QR box must fit inside the label")
+            painter.rectangle((0, 0, w, h), fill="white")
             layer.paste(qr, (0, 0))
         elif kind in {"manufacturerLogo", "image"}:
             source = (
@@ -299,14 +249,17 @@ def render_v2_label(
                         right = max(left + 1, ceil((cx + cw) * picture.width))
                         bottom = max(top + 1, ceil((cy + ch) * picture.height))
                         picture = picture.crop((left, top, right, bottom))
+                    logo_height = h
+                    if kind == "manufacturerLogo" and element.get("manualSizeMm") is not None:
+                        logo_height = min(h, max(1, round(_mm(element["manualSizeMm"], 20) * scale)))
                     picture = ImageOps.contain(
                         picture,
-                        (w, h),
+                        (w, logo_height),
                         Image.Resampling.LANCZOS,
                     )
-                    layer.paste(
-                        picture, ((w - picture.width) // 2, (h - picture.height) // 2)
-                    )
+                    align = element.get("align", "center") if kind == "manufacturerLogo" else "center"
+                    offset = round((w - picture.width) * (0 if align == "left" else 1 if align == "right" else 0.5))
+                    layer.paste(picture, (offset, (h - picture.height) // 2))
             except (OSError, UnidentifiedImageError):
                 if kind == "image":
                     raise HTTPException(

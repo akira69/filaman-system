@@ -1,35 +1,116 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
+from fastapi import HTTPException
+
 from app.api.v1.labels import _label_values
 from app.models import Color, Filament, FilamentColor, Manufacturer, Spool
-from app.services.label_v2_renderer import render_v2_label, resolve_v2_text
-from fastapi import HTTPException
+from app.services.label_text import resolve_label_text
+from app.services.label_v2_renderer import render_v2_label
+
+
+def test_template_sentinel_is_not_a_protected_value():
+    assert resolve_label_text("\0" + "0" + "\0", {}) == "�0�"
+
+
+def test_template_budget_preserves_leading_fields():
+    assert resolve_label_text("{id} {Notes: {notes}}", {"id": "7", "notes": "x" * 12000}).startswith("7 Notes: x")
+
+
+def test_template_expansion_budget_is_applied_before_protection(monkeypatch):
+    from app.services import label_text
+
+    original_sub = label_text.re.sub
+    protected_chars = 0
+
+    def bounded_sub(pattern, replacement, text, *args, **kwargs):
+        nonlocal protected_chars
+        if callable(replacement) and replacement.__name__ == "keep":
+            protected_chars += len(text)
+            assert protected_chars <= 12000
+        return original_sub(pattern, replacement, text, *args, **kwargs)
+
+    monkeypatch.setattr(label_text.re, "sub", bounded_sub)
+    assert resolve_label_text("[if={a}]" + "{Lot: {a}}" * 30 + "[/if]", {"a": "{" * 1000}).startswith("Lot: {")
+
+
+@pytest.mark.parametrize("template,values", [("W" * 8000, {}), ("{external_id}", {"external_id": "W" * 20000})], ids=["literal", "expanded-field"])
+def test_v2_clips_text_before_allocating_glyph_masks(monkeypatch, template, values):
+    from PIL import Image, ImageChops
+
+    fill = Image.core.fill
+
+    def bounded_fill(mode, size, *args):
+        assert size[0] * size[1] < 4_000_000, "unbounded glyph allocation"
+        return fill(mode, size, *args)
+
+    monkeypatch.setattr(Image.core, "fill", bounded_fill)
+    design = {"version": 2, "label": {"widthMm": 20, "heightMm": 20}, "elements": [
+        {"type": "text", "x": 0, "y": 0, "w": 20, "h": 20, "fontSizeMm": 20, "template": template},
+    ]}
+    image = render_v2_label(design, 1024, values, [], "http://test", None, {}, False)
+    assert image.size == (1024, 1024)
+    assert ImageChops.invert(image).getbbox() is not None
+
+
+@pytest.mark.parametrize("alignment", ["top", "middle", "bottom"])
+def test_v2_legacy_info_matches_v1_wrapping_and_vertical_alignment(alignment):
+    from PIL import ImageChops
+
+    from app.services.label_basic_renderer import render_basic_label
+
+    spool = Spool(id=7, filament=Filament(manufacturer=Manufacturer(name="Maker"), designation="PLA", material_type="PLA"))
+    template = "AAAA BBBB CCCC DDDD EEEE FFFF GGGG HHHH"
+    settings = {"label": {"width": 40, "height": 30, "marginMm": 1},
+                **{key: {"show": False} for key in ("logo", "title", "title2", "info2", "qr")},
+                "info": {"template": template, "sizeMm": 3, "vAlign": "center" if alignment == "middle" else alignment}}
+    legacy = render_basic_label(spool, 400, 300, "http://test", [], settings)
+    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
+        {"type": "text", "x": 1, "y": 1, "w": 38, "h": 28, "fontSizeMm": 3, "template": template,
+         "wrap": True, "verticalAlign": alignment, "legacyTextRole": "info"},
+    ]}
+    actual = render_v2_label(design, 400, {}, [], "http://test", None, {}, False)
+    assert ImageChops.difference(actual, legacy).getbbox() is None
+
+
+@pytest.mark.parametrize("alignment,left", [("left", 10), ("center", 160), ("right", 310)])
+def test_v2_logo_honors_manual_size_and_alignment(alignment, left):
+    from io import BytesIO
+
+    from PIL import Image, ImageChops
+
+    logo = BytesIO()
+    Image.new("RGBA", (40, 10), "black").save(logo, format="PNG")
+    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
+        {"type": "manufacturerLogo", "x": 1, "y": 1, "w": 38, "h": 6, "manualSizeMm": 2, "align": alignment},
+    ]}
+    image = render_v2_label(design, 400, {}, [], "http://test", logo.getvalue(), {}, False)
+    assert ImageChops.invert(image).getbbox() == (left, 30, left + 80, 50)
 
 
 def test_v2_text_renders_explicit_conditions():
-    assert resolve_v2_text(
+    assert resolve_label_text(
         "[if={id}]ID: {id}[/if] [if={missing}]missing[/if]",
         {"id": "7", "missing": ""},
     ) == "ID: 7 "
 
 
 def test_v2_text_renders_date_modifier():
-    assert resolve_v2_text(
+    assert resolve_label_text(
         "{stocked_in_at|date}",
-        {"stocked_in_at": datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc)},
+        {"stocked_in_at": datetime(2026, 9, 7, 14, 30, tzinfo=UTC)},
     ) == "09/07/26"
 
 
 def test_v2_text_prefers_a_literal_key_that_ends_with_date_modifier_syntax():
-    assert resolve_v2_text(
+    assert resolve_label_text(
         "{extra.spool.inspection|date}",
         {"extra.spool.inspection|date": "Literal field value"},
     ) == "Literal field value"
 
 
 def test_v2_text_does_not_treat_field_data_as_template_markup():
-    assert resolve_v2_text(
+    assert resolve_label_text(
         "^^{external_id}^^",
         {"external_id": "batch__04"},
     ) == "BATCH__04"
@@ -37,7 +118,7 @@ def test_v2_text_does_not_treat_field_data_as_template_markup():
 
 @pytest.mark.parametrize("identifier", ["batch{A}", "batch{id}", "batch__{A}"])
 def test_v2_optional_field_preserves_literal_braces(identifier):
-    assert resolve_v2_text(
+    assert resolve_label_text(
         "{Lot: {external_id}}", {"external_id": identifier, "id": "7"}
     ) == f"Lot: {identifier}"
 
@@ -63,7 +144,7 @@ def test_v2_swatch_skips_legacy_colors_and_uses_visible_rgb():
 
 
 def test_v2_text_strips_unsupported_rich_text_markup():
-    assert resolve_v2_text(
+    assert resolve_label_text(
         "[b]**Bold**[/b] [i]*italic*[/i] [font=Fraunces]^^blue^^[/font] "
         "[size=120%]__under__[/size] ==inverse== @@color@@",
         {},
@@ -75,7 +156,7 @@ def test_v2_text_receives_fields_used_by_shipped_spool_presets():
         id=7,
         filament_id=3,
         status_id=1,
-        stocked_in_at=datetime(2026, 9, 7, 14, 30, tzinfo=timezone.utc),
+        stocked_in_at=datetime(2026, 9, 7, 14, 30, tzinfo=UTC),
         filament=Filament(
             id=3,
             manufacturer_id=2,
@@ -91,11 +172,11 @@ def test_v2_text_receives_fields_used_by_shipped_spool_presets():
         ),
     )
 
-    assert resolve_v2_text(
+    assert resolve_label_text(
         "[if={stocked_in_at}]Stocked in:[/if] {stocked_in_at|date}",
         _label_values(spool, []),
     ) == "Stocked in: 09/07/26"
-    assert resolve_v2_text(
+    assert resolve_label_text(
         "{filament.extruder_temp}/{filament.bed_temp} "
         "{extra.filament.storage.inspection|date}",
         _label_values(spool, []),
@@ -179,8 +260,9 @@ def test_label_values_preserve_defined_nested_ranges(raw, expected):
 
 
 def test_v2_migrated_qr_is_clipped_to_short_label():
-    from app.services.label_basic_renderer import render_qr_image
     from PIL import ImageChops
+
+    from app.services.label_basic_renderer import render_qr_image
 
     design = {"version": 2, "label": {"widthMm": 60, "heightMm": 10}, "elements": [
         {"type": "qr", "x": 1, "y": -4, "w": 18, "h": 18, "z": 0, "legacyVAlign": "center"},
@@ -193,6 +275,21 @@ def test_v2_migrated_qr_is_clipped_to_short_label():
     with pytest.raises(HTTPException) as rejected:
         render_v2_label(design, 600, {"id": "7"}, [], "http://test/spools/7", None, {}, False)
     assert rejected.value.status_code == 422
+
+
+@pytest.mark.parametrize("thermal", [False, True])
+def test_v2_qr_stays_opaque_above_overlapping_content(thermal):
+    from PIL import ImageChops
+
+    from app.services.label_basic_renderer import render_qr_image
+
+    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
+        {"type": "qr", "x": 1, "y": 1, "w": 20, "h": 20, "z": 0},
+        {"type": "shape", "shape": "rectangle", "fill": "#000000", "x": 0, "y": 0, "w": 40, "h": 30, "z": 99},
+    ]}
+    image = render_v2_label(design, 400, {"id": "7"}, [], "http://test/spools/7", None, {}, False, thermal=thermal)
+    expected = render_qr_image("http://test/spools/7", 200, thermal=thermal)
+    assert ImageChops.difference(image.crop((10, 10, 210, 210)), expected).getbbox() is None
 
 
 @pytest.mark.parametrize("box", [

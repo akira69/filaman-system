@@ -38,15 +38,15 @@ describe('v1 label designer migration', () => {
       'manufacturerLogo',
       'text',
       'shape',
-      'qr',
       'text',
+      'qr',
     ])
     expect(preset.design.elements.map(element => element.id)).toEqual([
       'logo',
       'title',
       'divider',
-      'qr',
       'info',
+      'qr',
     ])
     expect(preset.design.elements.filter(element => element.type === 'text').map(element => element.template)).toEqual([
       '{filament.name}',
@@ -151,7 +151,7 @@ describe('existing v1 preset options', () => {
     settings.qr = { show: true, mode: 'colorLogo', sizeMm: 18, position, vAlign, linkMode: 'url', urlTemplate: 'https://example.test/{id}' }
     settings.info.show = true
     settings.info.template = '{filament.type}'
-    const [qr, info] = migrateV1PresetData({ settings }, 'spool').design.elements
+    const [info, qr] = migrateV1PresetData({ settings }, 'spool').design.elements
     expect(qr).toMatchObject({ type: 'qr', x, y, w: 18, h: 18, mode: 'colorLogo', linkMode: 'url', urlTemplate: 'https://example.test/{id}' })
     expect(info).toMatchObject({ type: 'text', x: position === 'left' ? 20.5 : 1, w: 38.5 })
   })
@@ -212,7 +212,7 @@ describe('existing v1 preset options', () => {
     const first = elements.find(element => element.type === 'text' && element.template === 'First')!
     const second = elements.find(element => element.type === 'text' && element.template === 'Second')!
     const separator = elements.find(element => element.type === 'shape')!
-    expect(elements[0].x).toBeCloseTo(1.6)
+    expect(elements.find(element => element.type === 'qr')!.x).toBeCloseTo(1.6)
     expect(second.x).toBeLessThan(separator.x)
     expect(separator.x).toBeLessThan(first.x)
   })

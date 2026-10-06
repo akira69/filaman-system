@@ -10,6 +10,24 @@ export function getQrCodeConstructor() {
   return (window as any).QRCode
 }
 
+export function buildQrUrl(
+  linkMode: 'spool' | 'url',
+  templateBase: string,
+  entityId: string | number,
+  entityPath: 'spools' | 'filaments',
+) {
+  if (linkMode === 'url' && templateBase.trim()) {
+    try {
+      const url = new URL(templateBase.trim())
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('invalid protocol')
+      return `${url.origin}${url.pathname.replace(/\/+$/, '')}/${entityPath}/${encodeURIComponent(String(entityId))}`
+    } catch {
+      // Use the current FilaMan origin below.
+    }
+  }
+  return `${window.location.origin}/${entityPath}/${encodeURIComponent(String(entityId))}`
+}
+
 export async function ensureQrCodeLoaded() {
   if (getQrCodeConstructor()) return
   if (qrCodeLoadPromise) return qrCodeLoadPromise

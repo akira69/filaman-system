@@ -12,6 +12,11 @@ from qrcode.exceptions import DataOverflowError
 
 from app.models import Spool
 from app.services.label_font import label_font
+from app.services.label_text import (
+    clip_label_line,
+    resolve_label_text,
+    wrap_label_lines,
+)
 from app.utils.colors import visible_rgb_hex
 
 _MAX_QR_CONTENT = 2048
@@ -117,112 +122,108 @@ def render_basic_label(
                 outline="black",
                 width=2,
             )
-        inset = margin + max(4, label_width // 100)
+        scale = label_width / width_mm
+        inset = margin + (round(0.6 * scale) if label.get("border") else 0)
         qr_config = settings.get("qr") or {}
         qr_show = qr_config.get("show", True) is not False
         qr_size = (
             min(
-                label_height - inset * 2,
                 round(
-                    label_width * _number(qr_config.get("sizeMm"), 18, 3, 80) / width_mm
+                    scale * _number(qr_config.get("sizeMm"), 18, 8, 40)
                 ),
+                max(label_width, label_height),
             )
             if qr_show
             else 0
         )
         qr_left = qr_config.get("position") == "left"
-        if thermal and qr_show and not (0 < qr_size <= label_width - 2 * inset):
+        if thermal and qr_show and not (0 < qr_size <= min(label_width, label_height) - 2 * inset):
             raise HTTPException(422, "Thermal QR box must fit inside the label")
-        text_x = inset + qr_size + inset if qr_left and qr_show else inset
-        text_width = (
-            max(1, label_width - qr_size - inset * 3)
-            if qr_show
-            else label_width - inset * 2
-        )
+        text_x = inset
+        text_width = max(1, label_width - inset * 2)
         token_values = values or {}
 
         def resolved(template: str) -> str:
-            # Match whole tokens first; neither keys nor values are markup.
-            return re.sub(
-                r"\{([\w.]+)\}|\*{1,3}|==|__|@@",
-                lambda match: token_values.get(match[1], "") if match[1] is not None else "",
-                template.replace("\\n", "\n"),
-            )
+            return resolve_label_text(template, token_values, preserve_swatches=True)
 
         def section(
-            config: dict, default: str, fallback_mm: float, bold: bool = False
+            config: dict, default: str, fallback_mm: float, bold: bool = False,
+            box_height: int | None = None,
         ) -> None:
             nonlocal y
             if config.get("show", True) is False:
                 return
             template = str(config.get("template", default))[:8000]
             size = max(
-                10,
+                1,
                 round(
                     label_width
                     * _number(config.get("sizeMm"), fallback_mm, 1, 20)
                     / width_mm
                 ),
             )
-            if config.get("dividerAbove"):
-                draw.line((text_x, y, text_x + text_width, y), fill="black", width=2)
-                y += max(3, size // 4)
-            for raw_line in resolved(template).splitlines():
-                has_swatch = "{color_swatch" in raw_line
-                text_line = re.sub(r"\{color_swatch\[\d+\]\}", "", raw_line).strip()
-                font_size = size
-                font = label_font(font_size, bold)
-                if config.get("fitToWidth", True):
-                    while (
-                        font_size > 10
-                        and draw.textlength(text_line, font=font) > text_width
-                    ):
-                        font_size -= 1
-                        font = label_font(font_size, bold)
-                if draw.textlength(text_line, font=font) > text_width:
-                    while (
-                        text_line
-                        and draw.textlength(text_line + "...", font=font) > text_width
-                    ):
-                        text_line = text_line[:-1]
-                    text_line += "..."
-                if text_line:
-                    align = config.get("align", config.get("hAlign", "left"))
-                    factor = 0.5 if align == "center" else 1 if align == "right" else 0
-                    offset = max(
-                        0,
-                        round(
-                            (text_width - draw.textlength(text_line, font=font))
-                            * factor
-                        ),
-                    )
-                    draw.text(
-                        (text_x + offset, y),
-                        text_line,
-                        fill="black",
-                        font=font,
-                    )
-                if has_swatch and colors:
-                    swatch_y = y + (font_size if text_line else 0)
+            content = resolved(template)
+            if not content.strip() or text_width <= 0:
+                return
+            font = label_font(size, bold)
+            lines = []
+            for raw_line in content.splitlines():
+                swatch = "{color_swatch" in raw_line
+                text = re.sub(r"\{color_swatch(?:\[\d+\])?\}", "", raw_line).strip()
+                if box_height is not None:  # Legacy information wraps at words.
+                    wrapped = wrap_label_lines(text, font, text_width) or [""]
+                    lines.extend((line, False) for line in wrapped[:-1])
+                    lines.append((wrapped[-1], swatch))
+                else:
+                    lines.append((text, swatch))
+            if box_height is None and config.get("fitToWidth", True):
+                while size > 2 and any(draw.textlength(line, font=font) > text_width for line, _ in lines):
+                    size -= 1
+                    font = label_font(size, bold)
+            line_height = max(1, round(size * (1.4 if box_height is not None else 1)))
+            content_height = len(lines) * line_height
+            height = max(1, box_height if box_height is not None else min(label_height, content_height))
+            layer = Image.new("RGB", (text_width, height), "white")
+            painter = ImageDraw.Draw(layer)
+            align = config.get("align", config.get("hAlign", "left"))
+            factor = 0.5 if align == "center" else 1 if align == "right" else 0
+            valign = config.get("vAlign", "bottom")
+            line_y = (height - content_height) * (0.5 if valign == "center" else 1 if valign == "bottom" else 0) if box_height is not None else 0
+            ascent, descent = font.getmetrics()
+            for text, swatch in lines:
+                if line_y >= height:
+                    break
+                if line_y + line_height <= 0:
+                    line_y += line_height
+                    continue
+                text = clip_label_line(text, font, text_width, "..." if box_height is None else "")
+                offset = max(0, round((text_width - painter.textlength(text, font=font)) * factor))
+                painter.text((offset, line_y + (line_height - ascent - descent) / 2 + ascent),
+                             text, fill="black", font=font, anchor="ls")
+                if swatch and colors:
                     segment = max(1, min(text_width, label_width // 4) // len(colors))
                     for index, hex_code in enumerate(colors):
-                        draw.rectangle(
-                            (
-                                text_x + index * segment,
-                                swatch_y,
-                                text_x + (index + 1) * segment - 1,
-                                swatch_y + max(6, size // 2),
-                            ),
-                            fill=hex_code if colored else "black",
-                        )
-                    y = swatch_y + max(6, size // 2)
-                else:
-                    y += font_size + max(2, size // 6)
-                if y >= label_height - inset:
-                    break
-            if config.get("dividerBelow") and y < label_height - inset:
-                draw.line((text_x, y, text_x + text_width, y), fill="black", width=2)
-                y += max(3, size // 4)
+                        painter.rectangle((index * segment, line_y + line_height // 2,
+                                           (index + 1) * segment - 1, line_y + line_height - 1),
+                                          fill=hex_code if colored else "black")
+                line_y += line_height
+            if box_height is None:
+                row_margin = round(_number(config.get("marginMm"), 0, -1, 4) * scale)
+                if config.get("dividerAbove"):
+                    divider()
+                y += row_margin
+                image.paste(layer, (text_x, y))
+                y += content_height + row_margin
+                if config.get("dividerBelow"):
+                    divider()
+            else:
+                image.paste(layer, (text_x, y))
+
+        def divider():
+            nonlocal y
+            thickness = max(1, round(scale * 25.4 / 96))
+            draw.rectangle((inset, y, label_width - inset - 1, y + thickness - 1), fill="black")
+            y += thickness
 
         y = inset
         logo_config = settings.get("logo") or {}
@@ -230,30 +231,55 @@ def render_basic_label(
             try:
                 with Image.open(BytesIO(logo_content)) as source:
                     logo = source.convert("RGBA")
-                    logo.thumbnail(
-                        (
-                            text_width,
-                            round(
-                                label_width
-                                * _number(logo_config.get("spaceMm"), 6, 2, 20)
-                                / width_mm
-                            ),
-                        )
+                    slot_height = max(1, round(_number(logo_config.get("spaceMm"), 6, 2, 20) * scale))
+                    logo_height = slot_height if logo_config.get("scaleToFit", True) else min(
+                        slot_height, max(1, round(_number(logo_config.get("manualSizeMm"), 6, 2, 20) * scale))
                     )
+                    ratio = min(text_width / logo.width, logo_height / logo.height)
+                    logo = logo.resize((max(1, round(logo.width * ratio)), max(1, round(logo.height * ratio))),
+                                       Image.Resampling.LANCZOS)
                 align = logo_config.get("align", "left")
                 offset = (
                     (text_width - logo.width) // (2 if align == "center" else 1)
                     if align in {"center", "right"}
                     else 0
                 )
-                image.paste(logo, (text_x + offset, y), logo)
-                y += logo.height + max(3, label_width // 100)
+                image.paste(logo, (text_x + offset, y + (slot_height - logo.height) // 2), logo)
+                y += slot_height + round(0.5 * scale)
             except OSError:
                 section({"template": "{filament.manufacturer}", "sizeMm": 3}, "", 3)
-        section(settings.get("title") or {}, "{filament.name}", 4, True)
+        section({"dividerBelow": True, **(settings.get("title") or {})}, "{filament.name}", 4, True)
         section(settings.get("title2") or {"show": False}, "", 3.5, True)
-        section(settings.get("info") or {}, "{filament.type}\n{filament.color}", 2.5)
-        section(settings.get("info2") or {"show": False}, "", 2.5)
+        info = settings.get("info") or {}
+        info2 = settings.get("info2") or {"show": False}
+        info_template = "{filament.type}\n{filament.color}\nDiameter: {filament.diameter} mm"
+        has_info = info.get("show", True) is not False and bool(str(info.get("template", info_template)).strip())
+        has_info2 = info2.get("show", False) is not False
+        separator = has_info2 and info2.get("vsep", False)
+        y = min(label_height - inset - round(3 * scale),
+                y + round(_number(info.get("marginMm"), 0, -1, 4) * scale))
+        remaining_height = max(1, label_height - inset - y)
+        slots = (["info"] if has_info else []) + (["separator"] if separator else []) + (["info2"] if has_info2 else []) + (["qr"] if qr_show else [])
+        gap = round(1.5 * scale)
+        separator_width = max(1, round(scale * 25.4 / 96))
+        info_count = int(has_info) + int(has_info2)
+        info_width = max(0, (label_width - 2 * inset - qr_size - (separator_width if separator else 0)
+                             - max(0, len(slots) - 1) * gap) // max(1, info_count))
+        cursor = label_width - inset if qr_left else inset
+        qr_x = inset
+        for slot in slots:
+            slot_width = qr_size if slot == "qr" else separator_width if slot == "separator" else info_width
+            if qr_left:
+                cursor -= slot_width
+            text_x, text_width = cursor, slot_width
+            if slot == "qr":
+                qr_x = cursor
+            elif slot == "separator":
+                draw.rectangle((cursor, y, cursor + slot_width - 1, y + remaining_height - 1), fill="black")
+            else:
+                section(info if slot == "info" else info2, info_template if slot == "info" else "", 2.5,
+                        box_height=remaining_height)
+            cursor += -gap if qr_left else slot_width + gap
         if qr_show and qr_size > 0:
             target = label_qr_target(
                 qr_config.get("linkMode"),
@@ -262,13 +288,11 @@ def render_basic_label(
                 str(spool.id),
             )
             qr = render_qr_image(target, qr_size, thermal=thermal)
-            image.paste(
-                qr,
-                (
-                    inset if qr_left else label_width - qr_size - inset,
-                    label_height - qr_size - inset,
-                ),
-            )
+            valign = qr_config.get("vAlign", "bottom")
+            qr_y = y + round((remaining_height - qr_size) * (0 if valign == "top" else 0.5 if valign == "center" else 1))
+            if thermal and (qr_x < 0 or qr_y < 0 or qr_x + qr_size > label_width or qr_y + qr_size > label_height):
+                raise HTTPException(422, "Thermal QR box must fit inside the label")
+            image.paste(qr, (qr_x, qr_y))
         return image if colored else image.convert("L").convert("RGB")
 
     margin = max(4, label_width // 40)
