@@ -203,19 +203,23 @@ async def render_preview_png(
             ):
                 raise
 
+    async def wait_for_exit():
+        while process.poll() is None:
+            await asyncio.sleep(.01)
+
     async def cleanup():
         if socket is not None and terminal_error is None:
             with suppress(Exception):
                 await asyncio.wait_for(command("Browser.close", browser=True), 1)
         if process is not None:
             with suppress(TimeoutError):
-                await asyncio.wait_for(process.wait(), 1)
+                await asyncio.wait_for(wait_for_exit(), 1)
             # Kill the owned group even if the browser parent already crashed.
             signal_group(signal.SIGTERM)
             with suppress(TimeoutError):
-                await asyncio.wait_for(process.wait(), .5)
+                await asyncio.wait_for(wait_for_exit(), .5)
             signal_group(signal.SIGKILL)
-            await process.wait()
+            await wait_for_exit()
         for task in [reader, *requests]:
             if task is not None:
                 task.cancel()
@@ -273,14 +277,16 @@ async def render_preview_png(
             ]
             if sys.platform == "linux" and platform.machine().startswith("armv7"):
                 args.extend(["--disable-gpu", "--in-process-gpu"])
-            process = await asyncio.create_subprocess_exec(
-                *args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            # uvloop does not accept Popen's privilege-drop arguments. Spawn
+            # synchronously so cancellation cannot lose ownership of the child.
+            process = subprocess.Popen(
+                args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True,
                 **launch_options,
             )
             portfile = Path(profile) / "DevToolsActivePort"
             while not portfile.exists():
-                if process.returncode is not None:
+                if process.poll() is not None:
                     raise RuntimeError("Chromium exited during startup")
                 await asyncio.sleep(.01)
             port, socket_path = portfile.read_text().splitlines()[:2]
