@@ -1473,11 +1473,10 @@ body:has(.fm-header-filter-panel.open)::after {
   bottom: 20px;
   z-index: 1000;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
   width: min(460px, calc(100vw - 32px));
-  padding-right: 40px;
   box-shadow: var(--shadow-lg);
 }
 
@@ -1490,9 +1489,9 @@ body:has(.fm-header-filter-panel.open)::after {
 }
 
 .pc-print-prompt-close {
-  position: absolute;
-  top: 6px;
-  right: 8px;
+  grid-column: -2;
+  grid-row: 1;
+  align-self: start;
   padding: 2px 6px;
   line-height: 1;
 }
@@ -1502,11 +1501,11 @@ body:has(.fm-header-filter-panel.open)::after {
     right: 16px;
     bottom: 16px;
     left: 16px;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     width: auto;
   }
 
-  .pc-print-prompt .fm-btn {
+  .pc-print-prompt .pc-print-prompt-open {
     grid-column: 1 / -1;
     width: 100%;
   }

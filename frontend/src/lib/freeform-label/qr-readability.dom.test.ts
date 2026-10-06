@@ -106,7 +106,10 @@ describe('QR readability advisory', () => {
     controller.updateSelected({ w: 12.5 })
     binding.sync()
     expect(controller.getSelectedElement()).toMatchObject({ w: 12.5, h: 12.5 })
-    expect(warning.textContent).toContain('200 and 300 DPI')
+    expect(warning.textContent).toContain('200 DPI by 6.3 mm')
+    const warning300 = document.querySelector<HTMLElement>('#freeform-qr-readability-warning-300')!
+    expect(warning300.textContent).toContain('300 DPI by 0.1 mm')
+    expect(warning300.hidden).toBe(false)
     expect(width.hasAttribute('aria-invalid')).toBe(false)
     expect(widthIcon.hidden).toBe(false)
     expect(height.hasAttribute('aria-invalid')).toBe(false)
@@ -116,6 +119,7 @@ describe('QR readability advisory', () => {
     binding.sync()
     expect(warning.textContent).toContain('200 DPI')
     expect(warning.textContent).not.toContain('300 DPI')
+    expect(warning300.hidden).toBe(true)
     expect(width.getAttribute('aria-describedby')).toContain('freeform-qr-readability-warning')
     expect(widthIcon.hidden).toBe(false)
 
@@ -137,7 +141,7 @@ describe('QR readability advisory', () => {
     expect(recommendation.textContent).toContain('200 DPI: 20.9 mm')
     expect(recommendation.textContent).toContain('300 DPI: 13.9 mm')
     expect(warning.hidden).toBe(false)
-    expect(warning.textContent).toContain('200 and 300 DPI')
+    expect(warning.textContent).toContain('200 DPI by 7.9 mm')
     expect(controller.getSelectedElement()).toMatchObject({ w: 13, h: 13 })
 
     controller.updateSelected({ w: 20.9 })
@@ -159,6 +163,37 @@ describe('QR readability advisory', () => {
     expect(note.textContent).toContain('4-module')
     expect(note.textContent).toContain('actual size')
     expect(note.textContent).toContain('test scanning')
+    binding.destroy()
+  })
+
+  it('uses one square size input for QR and restores separate dimensions for text', async () => {
+    const { binding, controller } = await renderEditor([37], { editable: true })
+    const width = document.querySelector<HTMLInputElement>('[data-element-prop="w"]')!
+    const height = document.querySelector<HTMLInputElement>('[data-element-prop="h"]')!
+    expect(width.getAttribute('aria-label')).toBe('Side length (mm)')
+    expect(height.closest('label')!.hidden).toBe(true)
+    width.value = '15'
+    width.dispatchEvent(new Event('change', { bubbles: true }))
+    binding.sync()
+    expect(controller.getSelectedElement()).toMatchObject({ w: 15, h: 15 })
+    const warning = document.querySelector<HTMLElement>('#freeform-qr-readability-warning')!
+    expect(warning.textContent).toContain('200 DPI by 3.8 mm')
+    controller.addElement('text')
+    binding.sync()
+    expect(width.getAttribute('aria-label')).toBe('Width (mm)')
+    expect(height.closest('label')!.hidden).toBe(false)
+    binding.destroy()
+  })
+
+  it('groups the logo caution and shortfall below the 200 DPI recommendation', async () => {
+    const { binding, controller } = await renderEditor([37])
+    controller.updateSelected({ mode: 'logo', w: 15 })
+    binding.sync()
+    const logo = document.querySelector<HTMLElement>('#freeform-qr-readability-logo')!
+    const warning = document.querySelector<HTMLElement>('#freeform-qr-readability-warning')!
+    expect(logo.parentElement).toBe(warning.parentElement)
+    expect(logo.parentElement?.previousElementSibling?.textContent).toContain('200 DPI: 18.8 mm')
+    expect(logo.parentElement?.nextElementSibling?.textContent).toContain('300 DPI: 12.6 mm')
     binding.destroy()
   })
 

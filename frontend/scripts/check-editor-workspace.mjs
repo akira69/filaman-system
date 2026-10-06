@@ -86,6 +86,10 @@ try {
             const label = document.querySelector('#freeform-canvas-host').getBoundingClientRect()
             const inspector = document.querySelector('#freeform-element-inspector')
             const sideBySide = inspector.checkVisibility() && !document.querySelector('.freeform-canvas-row').classList.contains('is-geometry-below')
+            if (sideBySide) {
+              const geometry = inspector.querySelector('.freeform-geometry-grid').getBoundingClientRect()
+              if (geometry.width > 171) errors.push(`geometry inputs stretched with guidance (${geometry.width.toFixed(1)}px)`)
+            }
             const groupRight = sideBySide ? inspector.getBoundingClientRect().right : label.right
             const centered = (left, right) => Math.abs((left + right) / 2 - (region.left + region.right) / 2) <= 1
             if (groupRight - label.left <= region.width - 36 && !centered(label.left, groupRight)) {
