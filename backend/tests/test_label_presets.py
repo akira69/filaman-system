@@ -1,10 +1,10 @@
 import json
 
 import pytest
-from app.models import LabelPreset
-from app.models.label_preset import label_preset_name_key
 from sqlalchemy import delete, func, select
 
+from app.models import LabelPreset
+from app.models.label_preset import label_preset_name_key
 from tests.support.backup import export_backup_data
 
 
@@ -53,8 +53,8 @@ class TestLabelPresets:
         )
         assert response.status_code == 204
         assert (await client.get("/api/v1/labels/presets")).json() == [
-            {"id": first.id, "name": first.name, "selected": True},
-            {"id": second.id, "name": second.name, "selected": False},
+            {"id": first.id, "name": first.name, "selected": True, "width_mm": None, "height_mm": None},
+            {"id": second.id, "name": second.name, "selected": False, "width_mm": None, "height_mm": None},
         ]
 
         for preset_id in (foreign.id, filament.id, 999_999):
@@ -170,7 +170,7 @@ class TestLabelPresets:
         )
         assert response.status_code == 204
         assert (await client.get("/api/v1/labels/presets")).json() == [
-            {"id": second_row.id, "name": second_row.name, "selected": False}
+            {"id": second_row.id, "name": second_row.name, "selected": False, "width_mm": 60, "height_mm": 40}
         ]
 
     @pytest.mark.asyncio

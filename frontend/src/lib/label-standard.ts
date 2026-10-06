@@ -50,6 +50,7 @@ export interface StandardLabelSettings {
 }
 
 export interface RenderStandardLabelOptions {
+  thermalQr?: boolean
   element: HTMLElement
   data: StandardLabelData
   settings: StandardLabelSettings
@@ -264,6 +265,12 @@ export async function renderStandardLabel(options: RenderStandardLabelOptions) {
     if (options.isStale?.()) return
     qrElement.innerHTML = ''
     const url = data.qrUrl ?? `${window.location.origin}/spools/${encodeURIComponent(String(data.id))}`
+    qrElement.style.width = `${qrSizeMm}mm`
+    qrElement.style.height = `${qrSizeMm}mm`
+    if (options.thermalQr) {
+      qrElement.dataset.thermalQrUrl = url
+      return
+    }
     const QRCode = getQrCodeConstructor()
     if (!QRCode) throw new Error('QRCode is not available')
     new QRCode(qrElement, {
@@ -274,8 +281,6 @@ export async function renderStandardLabel(options: RenderStandardLabelOptions) {
       colorLight: '#fff',
       correctLevel: QRCode.CorrectLevel.H,
     })
-    qrElement.style.width = `${qrSizeMm}mm`
-    qrElement.style.height = `${qrSizeMm}mm`
     const canvas = qrElement.querySelector('canvas') as HTMLCanvasElement | null
     if (canvas) {
       qrElement.innerHTML = ''
