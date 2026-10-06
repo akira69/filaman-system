@@ -20,6 +20,53 @@ def _spool(**filament_values):
     return Spool(id=7, filament=filament, filament_id=1, status_id=1, remaining_weight_g=850)
 
 
+def test_v1_logo_preserves_alpha_on_white():
+    from app.services.label_basic_renderer import render_basic_label
+
+    logo = Image.new("RGBA", (20, 10), (0, 0, 0, 0))
+    logo.paste((0, 0, 0, 255), (10, 0, 20, 10))
+    content = BytesIO()
+    logo.save(content, format="PNG")
+    settings = {
+        "label": {"width": 40, "marginMm": 0},
+        **{key: {"show": False} for key in ("title", "title2", "info", "info2", "qr")},
+    }
+    image = render_basic_label(_spool(), 400, 300, "http://test/spools/7", [], settings, logo_content=content.getvalue())
+    assert image.getpixel((5, 5)) == (255, 255, 255)
+    assert image.getpixel((20, 5)) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("preset", ["default", "v1", "v2"])
+def test_accented_glyphs_are_distinct_in_every_basic_path(preset):
+    from app.services.label_basic_renderer import render_basic_label
+    from app.services.label_v2_renderer import render_v2_label
+
+    images = []
+    for letter in "üöäßéè□":
+        if preset == "v2":
+            design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
+                {"type": "text", "x": 0, "y": 0, "w": 30, "h": 20, "template": letter, "fontSizeMm": 3},
+            ]}
+            image = render_v2_label(design, 400, {}, [], "http://test", None, {}, False)
+        else:
+            settings = None if preset == "default" else {
+                "label": {"width": 40}, "title": {"template": letter},
+                **{key: {"show": False} for key in ("logo", "title2", "info", "info2", "qr")},
+            }
+            image = render_basic_label(_spool(designation=letter), 400, 300, "http://test", [], settings)
+        images.append(image.tobytes())
+    assert len(set(images)) == 7
+
+
+def test_bundled_font_has_real_bold_weight():
+    from app.services.label_font import label_font
+
+    regular, bold = label_font(30), label_font(30, bold=True)
+    assert regular.getname()[1] == "Regular"
+    assert bold.getname()[1] == "Bold"
+    assert bytes(regular.getmask("Müller")) != bytes(bold.getmask("Müller"))
+
+
 def test_basic_label_has_fixed_fields_color_and_exact_qr():
     import qrcode
     from app.services.label_basic_renderer import render_basic_label
@@ -105,7 +152,8 @@ def test_basic_short_label_omits_border_that_does_not_fit():
 ])
 def test_basic_v1_preserves_literal_field_markup(key, identifier):
     from app.services.label_basic_renderer import render_basic_label
-    from PIL import ImageDraw, ImageFont
+    from PIL import ImageDraw
+    from app.services.label_font import label_font
 
     settings = {
         "label": {"width": 40, "marginMm": 0},
@@ -118,6 +166,6 @@ def test_basic_v1_preserves_literal_field_markup(key, identifier):
     )
     expected = Image.new("RGB", (400, 300), "white")
     ImageDraw.Draw(expected).text(
-        (4, 4), identifier, font=ImageFont.load_default(size=30), fill="black"
+        (4, 4), identifier, font=label_font(30), fill="black"
     )
     assert ImageChops.difference(image, expected).getbbox() is None

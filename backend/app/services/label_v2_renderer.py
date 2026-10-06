@@ -6,13 +6,14 @@ from io import BytesIO
 from math import ceil, floor, isfinite
 
 from fastapi import HTTPException
-from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 
 from app.services.label_basic_renderer import (
     label_qr_target,
     label_swatch_colors,
     render_qr_image,
 )
+from app.services.label_font import label_font
 
 
 def _range(value: object, minimum: float, maximum: float) -> float:
@@ -228,14 +229,15 @@ def render_v2_label(
         elif kind == "text":
             content = resolve_v2_text(str(element.get("template", ""))[:8000], values)
             font_size = max(1, round(_mm(element.get("fontSizeMm", 3.2), 20) * scale))
-            font = ImageFont.load_default(size=font_size)
+            bold = element.get("fontWeight") == "bold"
+            font = label_font(font_size, bold)
             if element.get("fitToWidth"):
                 while font_size > 2 and any(
                     painter.textlength(line, font=font) > w
                     for line in content.splitlines()
                 ):
                     font_size -= 1
-                    font = ImageFont.load_default(size=font_size)
+                    font = label_font(font_size, bold)
             align = element.get("align", "left")
             for line_number, line in enumerate(content.splitlines() or [""]):
                 line_y = line_number * round(font_size * 1.15)

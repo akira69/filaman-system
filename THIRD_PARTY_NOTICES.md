@@ -32,6 +32,11 @@ SOFTWARE.
 
 ## Bundled label fonts
 
+The Basic renderer bundles unmodified Space Grotesk Regular and Bold TTFs
+from https://github.com/floriankarsten/space-grotesk/tree/master/fonts/ttf/static.
+Their complete SIL Open Font License 1.1 and copyright notice are included
+in `backend/app/assets/fonts/OFL.txt`.
+
 Space Grotesk (Copyright 2020 The Space Grotesk Project Authors), Roboto
 Condensed (Copyright 2011 Google Inc.), Fraunces (Copyright 2020 The Fraunces
 Project Authors), and Space Mono (Copyright 2016 The Space Mono Project

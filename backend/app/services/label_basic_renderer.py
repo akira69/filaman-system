@@ -7,10 +7,11 @@ from urllib.parse import urlsplit
 
 import qrcode
 from fastapi import HTTPException
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from qrcode.exceptions import DataOverflowError
 
 from app.models import Spool
+from app.services.label_font import label_font
 from app.utils.colors import visible_rgb_hex
 
 _MAX_QR_CONTENT = 2048
@@ -155,14 +156,14 @@ def render_basic_label(
                 has_swatch = "{color_swatch" in raw_line
                 text_line = re.sub(r"\{color_swatch\[\d+\]\}", "", raw_line).strip()
                 font_size = size
-                font = ImageFont.load_default(size=font_size)
+                font = label_font(font_size, bold)
                 if config.get("fitToWidth", True):
                     while (
                         font_size > 10
                         and draw.textlength(text_line, font=font) > text_width
                     ):
                         font_size -= 1
-                        font = ImageFont.load_default(size=font_size)
+                        font = label_font(font_size, bold)
                 if draw.textlength(text_line, font=font) > text_width:
                     while (
                         text_line
@@ -185,7 +186,6 @@ def render_basic_label(
                         text_line,
                         fill="black",
                         font=font,
-                        stroke_width=1 if bold else 0,
                     )
                 if has_swatch and colors:
                     swatch_y = y + (font_size if text_line else 0)
@@ -214,7 +214,7 @@ def render_basic_label(
         if logo_config.get("show", True) and logo_content is not None:
             try:
                 with Image.open(BytesIO(logo_content)) as source:
-                    logo = source.convert("RGB" if colored else "L").convert("RGB")
+                    logo = source.convert("RGBA")
                     logo.thumbnail(
                         (
                             text_width,
@@ -231,7 +231,7 @@ def render_basic_label(
                     if align in {"center", "right"}
                     else 0
                 )
-                image.paste(logo, (text_x + offset, y))
+                image.paste(logo, (text_x + offset, y), logo)
                 y += logo.height + max(3, label_width // 100)
             except OSError:
                 section({"template": "{filament.manufacturer}", "sizeMm": 3}, "", 3)
@@ -262,10 +262,10 @@ def render_basic_label(
 
     def line(value: str, y: int, size: int) -> int:
         size = max(8, size)
-        font = ImageFont.load_default(size=size)
+        font = label_font(size)
         while size > 8 and draw.textlength(value, font=font) > text_width:
             size -= 1
-            font = ImageFont.load_default(size=size)
+            font = label_font(size)
         if draw.textlength(value, font=font) > text_width:
             while value and draw.textlength(value + "...", font=font) > text_width:
                 value = value[:-1]
@@ -301,7 +301,7 @@ def render_basic_label(
         (margin, footer_y + margin),
         f"Spool #{spool.id}",
         fill="black",
-        font=ImageFont.load_default(size=max(8, label_width // 35)),
+        font=label_font(max(8, label_width // 35)),
     )
     qr = render_qr_image(qr_url, qr_size)
     image.paste(qr, (label_width - qr_size - margin, margin))
