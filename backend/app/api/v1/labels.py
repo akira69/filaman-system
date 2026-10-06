@@ -396,14 +396,11 @@ def _finish_raster(image, label_width, label_height, width, rotated, align, form
     return Response(output.getvalue(), media_type="image/png", headers=headers)
 
 
-def _raster_response(png, label_width, label_height, width, rotated, align, format, color, preset_id, renderer="chromium", threshold=200):
+def _decode_raster(png: bytes) -> Image.Image:
     with Image.open(BytesIO(png)) as source:
         if source.width > 2048 or source.height > 2048:
             raise HTTPException(status_code=422, detail="Rendered label exceeds the image limit")
-        image = source.convert("RGB")
-    return _finish_raster(
-        image, label_width, label_height, width, rotated, align, format, color, preset_id, renderer, threshold,
-    )
+        return source.convert("RGB")
 
 
 @router.get("/spool/{spool_id}/render", response_class=Response, responses={
@@ -442,6 +439,7 @@ async def render_spool_label(
         settings = None
         design = None
         assets = {}
+        width_mm, height_mm = _label_size(None)
         if preset_id is not None:
             if principal.user_id is None:
                 raise HTTPException(status_code=403, detail="Use a user API key to select label presets")
@@ -455,11 +453,9 @@ async def render_spool_label(
             if preset is None:
                 raise HTTPException(status_code=404, detail="Label preset not found")
             preset_data = preset.data
-            _preset_size(preset_data)
+            width_mm, height_mm = _preset_size(preset_data)
             if preset.data.get("version") == 2:
                 design = preset.data.get("design")
-                if not isinstance(design, dict) or not isinstance(design.get("label"), dict):
-                    raise HTTPException(status_code=422, detail="Preset design is invalid")
                 elements = design.get("elements")
                 if (
                     not isinstance(elements, list)
@@ -492,7 +488,6 @@ async def render_spool_label(
                         raise HTTPException(status_code=422, detail="Preset image is unavailable")
             else:
                 settings = preset.data.get("settings")
-        width_mm, height_mm = _preset_size(preset_data) if preset_id is not None else _label_size(None)
         label_width = round(width_mm * dpi / 25.4) if dpi else width
         label_height = (
             round(height_mm * dpi / 25.4)
@@ -565,30 +560,18 @@ async def render_spool_label(
                     logo_content,
                     color == "color", format == "mono1",
                 )
-            return await to_thread.run_sync(
-                _finish_raster,
-                image,
-                label_width,
-                label_height,
-                width,
-                rotated,
-                align,
-                format,
-                color,
-                preset_id,
-                renderer,
-                threshold,
-            )
-        spool_data = SpoolResponse.model_validate(spool).model_dump(mode="json")
-        spool_data["status"] = {"label": spool.status.label}
-        spool_data["location"] = {"name": spool.location.name} if spool.location else None
-        payload = {
-            "spool": spool_data, "preset": preset_data, "fieldDefinitions": definitions,
-            "assets": asset_urls, "logoUrl": logo_url,
-            "pixelWidth": label_width, "pixelHeight": label_height,
-            "thermal": format == "mono1",
-        }
-        png = await render_preview_png(payload, str(request.base_url).rstrip("/"), assets)
+        else:
+            spool_data = SpoolResponse.model_validate(spool).model_dump(mode="json")
+            spool_data["status"] = {"label": spool.status.label}
+            spool_data["location"] = {"name": spool.location.name} if spool.location else None
+            payload = {
+                "spool": spool_data, "preset": preset_data, "fieldDefinitions": definitions,
+                "assets": asset_urls, "logoUrl": logo_url,
+                "pixelWidth": label_width, "pixelHeight": label_height,
+                "thermal": format == "mono1",
+            }
+            png = await render_preview_png(payload, str(request.base_url).rstrip("/"), assets)
+            image = await to_thread.run_sync(_decode_raster, png)
         return await to_thread.run_sync(
-            _raster_response, png, label_width, label_height, width, rotated, align, format, color, preset_id, renderer, threshold,
+            _finish_raster, image, label_width, label_height, width, rotated, align, format, color, preset_id, renderer, threshold,
         )
