@@ -206,7 +206,7 @@ def _number(value, default: float, low: float, high: float) -> float:
     return min(high, max(low, number)) if isfinite(number) else default
 
 
-def _label_values(spool: Spool, colors: list[str], definitions: dict | None = None) -> dict[str, str]:
+def _label_values(spool: Spool, colors: list[str], definitions: dict | None = None) -> tuple[dict[str, str], dict[str, object]]:
     filament = spool.filament
     custom = filament.custom_fields if isinstance(filament.custom_fields, dict) else {}
 
@@ -281,12 +281,16 @@ def _label_values(spool: Spool, colors: list[str], definitions: dict | None = No
             *(getattr(entity, key, None) for entity in (spool, filament, filament.manufacturer))
         ))
 
-    def range_text(item: dict, definition: dict) -> str:
+    raw_values: dict[str, object] = dict(values)
+
+    def field_text(item, definition: dict) -> str:
+        if item is None:
+            return ""
         config = definition.get("config") or {}
         places = config.get("decimal_places")
 
         def endpoint(raw) -> str:
-            if raw is not None and isinstance(places, int) and 0 <= places <= 10:
+            if raw is not None and not isinstance(raw, bool) and isinstance(places, int) and 0 <= places <= 10:
                 try:
                     return f"{float(raw):.{places}f}"
                 except (TypeError, ValueError):
@@ -294,18 +298,37 @@ def _label_values(spool: Spool, colors: list[str], definitions: dict | None = No
             return value(raw)
 
         unit = f" {config['unit']}" if config.get("unit") else ""
-        return f"{endpoint(item.get('min'))}–{endpoint(item.get('max'))}{unit}"
+        kind = definition.get("field_type")
+        if kind == "range" and isinstance(item, dict):
+            return f"{endpoint(item.get('min'))}–{endpoint(item.get('max'))}{unit}"
+        if kind in ("number", "float") and not isinstance(item, bool):
+            try:
+                number = float(item)
+                if isfinite(number):
+                    return endpoint(item) + unit
+            except (TypeError, ValueError):
+                pass
+        if kind == "checkbox":
+            return "✓" if item is True or item == "true" else "✗"
+        if kind == "datetime":
+            try:
+                return datetime.fromisoformat(str(item).replace("Z", "+00:00")).strftime("%x, %H:%M")
+            except ValueError:
+                pass
+        if isinstance(item, list):
+            return ", ".join(value(part) for part in item)
+        return str(item).lower() if isinstance(item, bool) else value(item)
 
     def add_extra_fields(source: str, fields: dict, field_defs: dict, prefix: str = "") -> None:
         for key, item in fields.items():
             path = f"{prefix}.{key}" if prefix else key
             definition = field_defs.get(path) or {}
-            if isinstance(item, dict) and definition.get("field_type") == "range":
-                values[f"extra.{source}.{path}"] = range_text(item, definition)
-            elif isinstance(item, dict):
+            if isinstance(item, dict) and definition.get("field_type") != "range":
                 add_extra_fields(source, item, field_defs, path)
             else:
-                values[f"extra.{source}.{path}"] = value(item)
+                token = f"extra.{source}.{path}"
+                raw_values[token] = item
+                values[token] = field_text(item, definition)
 
     for source, entity in (("filament", filament), ("spool", spool)):
         fields = entity.custom_fields
@@ -318,7 +341,7 @@ def _label_values(spool: Spool, colors: list[str], definitions: dict | None = No
                 if not any(key == path or key.startswith(path + ".") or path.startswith(key + ".") for path in system_defs)
             }
             add_extra_fields(source, fields, {**field_defs, **system_defs})
-    return values
+    return values, raw_values
 
 
 def _mono1(image: Image.Image, threshold: int = 200) -> bytes:
@@ -541,7 +564,7 @@ async def render_spool_label(
             definitions[field.target_type][field.key] = SystemExtraFieldResponse.model_validate(field).model_dump(mode="json")
         if renderer == "basic":
             colors = [item.color.hex_code for item in spool.filament.filament_colors]
-            values = _label_values(spool, colors, definitions)
+            values, raw_values = _label_values(spool, colors, definitions)
             logo_content = assets.get(logo_url) if logo_url else None
             if design is not None:
                 image = await to_thread.run_sync(
@@ -549,7 +572,7 @@ async def render_spool_label(
                     design, label_width, values, colors,
                     str(request.base_url).rstrip("/") + f"/spools/{spool_id}",
                     logo_content,
-                    assets, color == "color", format == "mono1", label_height,
+                    assets, color == "color", format == "mono1", label_height, raw_values,
                 )
             else:
                 image = await to_thread.run_sync(

@@ -6,7 +6,6 @@ import pytest
 
 from app.services.label_preset_v1 import convert_label_preset_data
 
-
 CASES = json.loads((Path(__file__).parent / "fixtures/label_preset_v1_v2.json").read_text())
 
 

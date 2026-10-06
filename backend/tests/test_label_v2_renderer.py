@@ -9,6 +9,99 @@ from app.services.label_text import resolve_label_text
 from app.services.label_v2_renderer import render_v2_label
 
 
+def test_inline_swatch_runs_are_trusted_and_field_data_stays_literal():
+    from app.services.label_text import resolve_label_runs
+    assert resolve_label_runs("{COLOR-SWATCH[999]} {name}", {"name": "{color_swatch[8]}"}) == [40, " {color_swatch[8]}"]
+    assert resolve_label_runs("{Missing: {missing}}[if={id}]{color_swatch[8]}[/if]", {"id": "7"}) == [8]
+
+
+def test_inline_swatch_is_visible_and_native_long_words_wrap():
+    from PIL import ImageChops
+    design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
+        {"type": "text", "x": 0, "y": 0, "w": 38, "h": 5, "fontSizeMm": 3, "template": "{color_swatch[8]}"},
+        {"type": "text", "x": 0, "y": 5, "w": 10, "h": 25, "fontSizeMm": 3, "wrap": True,
+         "template": "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"},
+    ]}
+    image = render_v2_label(design, 400, {}, ["#FF0000"], "http://test", None, {}, True)
+    assert image.getpixel((20, 15)) == (255, 0, 0)
+    assert ImageChops.invert(image.crop((0, 100, 100, 280))).getbbox() is not None
+
+
+@pytest.mark.parametrize("valign,factor", [("top", 1), ("center", 0.5), ("bottom", 0)])
+def test_migrated_empty_rows_reflow_without_mutating_design(valign, factor):
+    import copy
+
+    from PIL import ImageChops
+
+    from app.services.label_basic_renderer import render_qr_image
+    from app.services.label_preset_v1 import convert_label_preset_data
+    source = {"settings": {"title": {"template": "{missing}", "marginMm": 1},
+        "qr": {"sizeMm": 10, "vAlign": valign}, "info": {"template": "INFO", "vAlign": "top"}}}
+    design = convert_label_preset_data(source, "spool")["design"]
+    before = copy.deepcopy(design)
+    image = render_v2_label(design, 600, {"id": "7"}, [], "http://test", None, {}, False)
+    assert design == before
+    info = ImageChops.invert(image.crop((0, 0, 300, 400))).getbbox()
+    assert info[1] < 40  # absent logo and title must not leave blank rows
+    qr = next(e for e in design["elements"] if e["type"] == "qr")
+    shift = design["elements"][0]["h"] + 0.5 + 4 + 2 + 25.4 / 96
+    x, y = round(qr["x"] * 10), round((qr["y"] - shift * factor) * 10)
+    expected = render_qr_image("http://test", 100)
+    assert ImageChops.difference(image.crop((x, y, x + 100, y + 100)), expected).getbbox() is None
+
+
+def test_typed_fields_keep_raw_dates_and_literal_modifier_keys():
+    spool = Spool(id=7, filament=Filament(manufacturer=Manufacturer(name="Maker")))
+    spool.custom_fields = {"tags": ["Dry", "Tested"], "temp": 215.0, "ready": True, "failed": False,
+        "date": "2026-09-07T14:30:00Z", "date|date": "literal"}
+    definitions = {"spool": {"tags": {"field_type": "multiselect"},
+        "temp": {"field_type": "number", "config": {"unit": "°C", "decimal_places": 1}},
+        "ready": {"field_type": "checkbox"}, "failed": {"field_type": "checkbox"},
+        "date": {"field_type": "datetime"}}}
+    values, raw = _label_values(spool, [], definitions)
+    assert [values[f"extra.spool.{key}"] for key in ("tags", "temp", "ready", "failed", "date")] == [
+        "Dry, Tested", "215.0 °C", "✓", "✗", "09/07/26, 14:30"]
+    assert raw["extra.spool.date"] == "2026-09-07T14:30:00Z"
+    assert resolve_label_text("{extra.spool.date|date}", values, raw_values=raw) == "literal"
+    del values["extra.spool.date|date"]
+    assert resolve_label_text("{extra.spool.date|date}", values, raw_values=raw) == "09/07/26"
+
+
+@pytest.mark.parametrize("number,expected", [(1234567, "1234567"), (1.23456789, "1.23456789")])
+def test_numeric_extra_fields_without_precision_preserve_value(number, expected):
+    spool = Spool(id=7, filament=Filament(manufacturer=Manufacturer(name="Maker")))
+    spool.custom_fields = {"measurement": number}
+    definitions = {"spool": {"measurement": {"field_type": "number", "config": {"unit": "mm"}}}}
+    values, raw = _label_values(spool, [], definitions)
+    assert values["extra.spool.measurement"] == f"{expected} mm"
+    assert raw["extra.spool.measurement"] == number
+
+
+def test_fitted_title_reflows_but_native_title_does_not():
+    from PIL import ImageChops
+    for legacy in (False, True):
+        title = {"type": "text", "x": 1, "y": 1, "w": 38, "h": 8, "fontSizeMm": 8,
+                 "fitToWidth": True, "template": "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+        if legacy:
+            title["legacyTextRole"] = "title"
+        design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [title,
+            {"type": "shape", "shape": "rectangle", "fill": "#FF0000", "x": 1, "y": 10, "w": 38, "h": 1}]}
+        image = render_v2_label(design, 400, {}, [], "http://test", None, {}, True)
+        bbox = ImageChops.subtract(image.getchannel("R"), image.getchannel("G")).getbbox()
+        assert (bbox[1] < 100) if legacy else (bbox[1] == 100)
+        assert ImageChops.invert(image).getbbox()
+
+
+def test_checkbox_marks_are_not_the_fonts_missing_glyph():
+    from PIL import ImageChops
+    def raster(template):
+        return render_v2_label({"version": 2, "label": {"widthMm": 20, "heightMm": 10}, "elements": [
+            {"type": "text", "template": template, "x": 0, "y": 0, "w": 20, "h": 10, "fontSizeMm": 5}]},
+            200, {}, [], "http://test", None, {}, False)
+    assert ImageChops.difference(raster("✓"), raster("✗")).getbbox()
+    assert ImageChops.difference(raster("✓"), raster("\uffff")).getbbox()
+
+
 def test_template_sentinel_is_not_a_protected_value():
     assert resolve_label_text("\0" + "0" + "\0", {}) == "�0�"
 
@@ -174,12 +267,12 @@ def test_v2_text_receives_fields_used_by_shipped_spool_presets():
 
     assert resolve_label_text(
         "[if={stocked_in_at}]Stocked in:[/if] {stocked_in_at|date}",
-        _label_values(spool, []),
+        _label_values(spool, [])[0],
     ) == "Stocked in: 09/07/26"
     assert resolve_label_text(
         "{filament.extruder_temp}/{filament.bed_temp} "
         "{extra.filament.storage.inspection|date}",
-        _label_values(spool, []),
+        _label_values(spool, [])[0],
     ) == "215/60 09/08/26"
 
 
@@ -197,7 +290,7 @@ def test_label_values_use_linked_color_names_when_manufacturer_name_is_missing()
         ],
     )
 
-    values = _label_values(Spool(id=7, filament_id=3, filament=filament), [])
+    values, _ = _label_values(Spool(id=7, filament_id=3, filament=filament), [])
 
     assert values["filament.color"] == "Ocean"
     assert values["filament.colors"] == "Ocean, Green"
@@ -233,7 +326,7 @@ def test_label_values_resolve_physical_spool_fields(level, expected):
         filament.spool_outer_diameter_mm, filament.spool_width_mm, filament.spool_material = 200, 60, "cardboard"
     if level == "spool":
         spool.spool_outer_diameter_mm, spool.spool_width_mm, spool.spool_material = 250, 80, "plastic"
-    values = _label_values(spool, [])
+    values, _ = _label_values(spool, [])
     assert tuple(values[f"filament.{key}"] for key in (
         "spool_outer_diameter_mm", "spool_width_mm", "spool_material",
     )) == expected
@@ -253,7 +346,7 @@ def test_label_values_preserve_defined_nested_ranges(raw, expected):
         entity.custom_field_definitions = {
             "drying.temperature": {"field_type": "range", "config": {"unit": "°C", "decimal_places": 1}},
         }
-    values = _label_values(spool, [])
+    values, _ = _label_values(spool, [])
     for source in ("spool", "filament"):
         assert values[f"extra.{source}.drying.temperature"] == expected
         assert values[f"extra.{source}.other.min"] == "2"
