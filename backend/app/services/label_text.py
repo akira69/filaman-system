@@ -7,6 +7,10 @@ from datetime import date, datetime
 _MAX_TEXT_LENGTH = 12000
 
 
+class InverseText(str):
+    """Text styled by trusted template markers, never by field contents."""
+
+
 def resolve_label_text(template: str, values: dict[str, object], *,
                        raw_values: dict[str, object] | None = None) -> str:
     return "".join(run if isinstance(run, str) else ""
@@ -87,32 +91,35 @@ def resolve_label_runs(template: str, values: dict[str, object], *,
         expanded,
         flags=re.IGNORECASE,
     )
-    expanded = re.sub(r"\*{1,3}|==|__|@@", "", expanded)
+    expanded = re.sub(r"\*{1,3}|__|@@", "", expanded)
     runs: list[str | int] = []
     budget = _MAX_TEXT_LENGTH
-    for part in re.split(r"(\0\d+\0)", expanded):
-        run = protected[int(part[1:-1])] if re.fullmatch(r"\0\d+\0", part) else part
-        if isinstance(run, str):
-            run = run[:budget]
-            budget -= len(run)
-            if not run:
-                continue
-            if runs and isinstance(runs[-1], str):
-                runs[-1] += run
-                continue
-        runs.append(run)
+    for section in re.split(r"(==[\s\S]*?==)", expanded):
+        inverse = section.startswith("==") and section.endswith("==") and len(section) >= 4
+        section = section[2:-2] if inverse else section.replace("==", "")
+        for part in re.split(r"(\0\d+\0)", section):
+            run = protected[int(part[1:-1])] if re.fullmatch(r"\0\d+\0", part) else part
+            if isinstance(run, str):
+                run = (InverseText if inverse else str)(run[:budget])
+                budget -= len(run)
+                if not run:
+                    continue
+                if runs and type(runs[-1]) is type(run):
+                    runs[-1] = type(run)(runs[-1] + run)
+                    continue
+            runs.append(run)
     return runs
 
 
-def clip_label_line(text, font, width, suffix=""):
+def clip_label_line(text, font, width):
     """Limit the glyph mask before Pillow allocates it, not only the output box."""
     if font.getlength(text) <= width:
         return text
     low, high = 0, len(text)
     while low < high:
         middle = (low + high + 1) // 2
-        if font.getlength(text[:middle] + suffix) <= width:
+        if font.getlength(text[:middle]) <= width:
             low = middle
         else:
             high = middle - 1
-    return text[:low if suffix else low + 1] + suffix
+    return text[:low]

@@ -88,9 +88,11 @@ async def test_thermal_qr_final_raster_has_whole_modules(auth_client, preview_sp
 
     client, _ = auth_client
     spool, preset = preview_spool
+    # The longer URL needs more modules; keep this success fixture above 3 dots/module.
+    qr_size = 24.83 if orientation == "portrait" else 14.83
     preset.data = {"version": 2, "design": {
         "version": 2, "label": {"widthMm": 40, "heightMm": 30},
-        "elements": [{"id": "qr", "type": "qr", "x": 2.13, "y": 3.17, "w": 14.83, "h": 14.83,
+        "elements": [{"id": "qr", "type": "qr", "x": 2.13, "y": 3.17, "w": qr_size, "h": qr_size,
                       "mode": "logo", "linkMode": "url", "urlTemplate": base}],
     }}
     await db_session.commit()
@@ -114,7 +116,7 @@ async def test_thermal_qr_final_raster_has_whole_modules(auth_client, preview_sp
     reference.make(fit=True)
     modules = reference.modules_count
     pitch = (right-left) // modules
-    assert pitch >= 1
+    assert pitch >= 3
     assert right-left == bottom-top == modules*pitch
     # Every module is a solid pitch-by-pitch square, never a fractional rescale.
     for y in range(modules):
@@ -129,20 +131,44 @@ async def test_thermal_qr_final_raster_has_whole_modules(auth_client, preview_sp
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.parametrize("renderer", ["basic", "chromium"])
-async def test_thermal_qr_rejects_too_small_box_but_png_keeps_original(auth_client, preview_spool, db_session, renderer):
+@pytest.mark.parametrize("qr_size", [3, 6, 10])
+async def test_thermal_qr_rejects_too_small_box_but_png_keeps_original(auth_client, preview_spool, db_session, renderer, qr_size):
     client, _ = auth_client
     spool, preset = preview_spool
     preset.data = {"version": 2, "design": {
         "version": 2, "label": {"widthMm": 40, "heightMm": 30},
-        "elements": [{"id": "qr", "type": "qr", "x": 2, "y": 3, "w": 3, "h": 3, "mode": "logo"}],
+        "elements": [{"id": "qr", "type": "qr", "x": 2, "y": 3, "w": qr_size, "h": qr_size, "mode": "logo"}],
     }}
     await db_session.commit()
     path = f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer={renderer}&dpi=203"
-    assert (await client.get(path + "&format=mono1")).status_code == 422
+    rejected = await client.get(path + "&format=mono1")
+    assert rejected.status_code == 422
+    assert "3 dots per module" in rejected.json()["detail"]
     first = await client.get(path + "&threshold=1")
     second = await client.get(path + "&threshold=255")
     assert first.status_code == second.status_code == 200
     assert first.content == second.content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("renderer,query,black", [
+    ("basic", "", True), ("chromium", "", False),
+    ("chromium", "&threshold=200", True), ("basic", "&threshold=150", False),
+    ("basic", "&threshold=0", False),
+    (None, "", False),
+])
+async def test_mono1_renderer_default_and_explicit_threshold(auth_client, preview_spool, monkeypatch, renderer, query, black):
+    client, _ = auth_client
+    spool, preset = preview_spool
+    image = Image.new("RGB", (384, 96), (175, 175, 175))
+    output = BytesIO()
+    image.save(output, format="PNG")
+    monkeypatch.setattr(labels, "render_preview_png", AsyncMock(return_value=output.getvalue()))
+    monkeypatch.setattr(labels, "render_v2_label", lambda *args: image)
+    renderer_query = f"&renderer={renderer}" if renderer else ""
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}{renderer_query}&format=mono1&width=384{query}")
+    assert response.status_code == 200, response.text
+    assert response.content == bytes([255 if black else 0]) * 4608
 
 
 @pytest.mark.asyncio
@@ -214,7 +240,7 @@ async def test_thermal_label_sample_matrix(auth_client, preview_spool, db_sessio
         if kind == "v1-columns":
             preset.data["settings"]["info"] = {"template": "ID: {id}\nPLA", "sizeMm": 1.8, "vAlign": "top"}
             preset.data["settings"]["info2"] = {"show": True, "template": "850 g\nGrün", "sizeMm": 1.8, "vAlign": "bottom", "vsep": True}
-            preset.data["settings"]["qr"].update(sizeMm=10, vAlign="center")
+            preset.data["settings"]["qr"].update(sizeMm=13, vAlign="center")
         elif kind == "v1-wrap":
             preset.data["settings"]["info"] = {"template": "Farbe: Grün matt\nHinzugefügt am 06.10.2026", "sizeMm": 2, "vAlign": "top"}
             preset.data["settings"]["qr"]["vAlign"] = "top"
@@ -248,10 +274,10 @@ async def test_thermal_label_sample_matrix(auth_client, preview_spool, db_sessio
     (tmp_path / f"{kind}-{renderer}-mono1.bin").write_bytes(mono.content)
     (tmp_path / f"{kind}-{renderer}-headers.json").write_text(json.dumps(dict(mono.headers), indent=2))
     if kind.startswith("v1"):
-        box = (8, 80, 120, 232) if kind == "v1-left" else (232, 80, 312, 232) if kind == "v1-columns" else (200, 80, 312, 232)
+        box = (8, 80, 120, 232) if kind == "v1-left" else (208, 80, 312, 232) if kind == "v1-columns" else (200, 80, 312, 232)
         slot = image.crop(box).convert("L")
         left, top, right, bottom = ImageChops.invert(slot).getbbox()
-        pitch = 2 if kind == "v1-columns" else 3
+        pitch = 3
         assert right - left == bottom - top == 25 * pitch
         assert min(left, top, slot.width - right, slot.height - bottom) >= 4 * pitch
         for row in range(25):
@@ -271,6 +297,127 @@ async def test_thermal_label_sample_matrix(auth_client, preview_spool, db_sessio
             assert min(left, top, 110-right, 110-bottom) >= 12
             codes.append(slot.crop((left, top, right, bottom)).tobytes())
         assert codes[0] == codes[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("label_render_runtime")
+@pytest.mark.parametrize("renderer", ["basic", "chromium"])
+@pytest.mark.parametrize("dpi", [203, 300])
+@pytest.mark.parametrize("scenario", [
+    "migrated-inverse", "migrated-sparse", "designer-fit", "designer-wrap-limit",
+    "designer-overflow", "designer-literal", "designer-wide", "designer-overlap",
+])
+async def test_thermal_data_matrix(auth_client, preview_spool, db_session, monkeypatch, tmp_path, renderer, dpi, scenario):
+    """Catch lost content, ignored thresholds, damaged QR modules and wire padding."""
+    client, _ = auth_client
+    spool, preset = preview_spool
+    monkeypatch.setattr(labels, "MANUFACTURER_LOGO_DIR", tmp_path)  # deliberate missing logo
+    spool.filament.designation = "Grün üöäßéè — extra long matte charcoal filament"
+    spool.filament.manufacturer_color_name = "Charcoal (11101)"
+    spool.filament.custom_fields = {"article": "11101"}
+    spool.custom_fields = {"added": "2026-08-25 02:42:32+00:00"}
+    info = "ID: {id}\nHinzugefügt: {extra.spool.added}\nFarbe: {filament.color}\nArtikel Nr: {extra.filament.article}\n{filament.name}"
+    if scenario == "designer-fit":
+        spool.filament.designation = "Grün üöäßéè"
+        spool.custom_fields = {"added": "2026-08-25"}
+    wide = scenario == "designer-wide"
+    width_mm, qr_size = (60, 23) if wide else (40, 14)
+    if scenario == "migrated-sparse":
+        spool.filament.designation = "PLA"
+        spool.filament.manufacturer_color_name = None
+        spool.filament.custom_fields = {}
+        spool.custom_fields = {}
+        info = "ID: {id}\n{Farbe: {filament.color}}\n{Artikel Nr: {extra.filament.article}}"
+    if scenario == "designer-literal":
+        spool.filament.designation = "==PLA== **not bold** {id}"
+        info = "{filament.name}\n{extra.filament.article}"
+    if scenario == "designer-overlap":
+        info = "ID: {id}\nArtikel Nr: {extra.filament.article}"
+    if scenario.startswith("migrated"):
+        preset.data = convert_label_preset_data({"settings": {
+            "label": {"width": 40, "height": 30, "marginMm": 1},
+            "logo": {"show": True, "spaceMm": 5},
+            "title": {"template": "=={filament.type}==", "sizeMm": 3, "align": "center"},
+            "info": {"template": info, "sizeMm": 2, "vAlign": "top"},
+            "qr": {"sizeMm": qr_size, "mode": "logo", "vAlign": "bottom"},
+        }}, "spool")
+    else:
+        preset.data = {"version": 2, "design": {
+            "version": 2, "label": {"widthMm": width_mm, "heightMm": 30},
+            "elements": [
+                {"id": "title", "type": "text", "x": 1, "y": 1, "w": width_mm - 2, "h": 4,
+                 "template": "=={filament.type}==", "fontSizeMm": 3, "fontWeight": 700,
+                 "fontFamily": "Space Grotesk", "align": "center"},
+                {"id": "info", "type": "text", "x": 1, "y": 6, "w": width_mm - qr_size - 4,
+                 "h": 9 if scenario == "designer-overflow" else 23, "template": info,
+                 "fontSizeMm": 2.4, "fontWeight": 400, "fontFamily": "Space Grotesk",
+                 "minFontSizeMm": 1.2, "wrap": True,
+                 "fitToWidth": scenario != "designer-overflow"},
+                {"id": "qr", "type": "qr", "x": width_mm - qr_size - 1, "y": 29 - qr_size,
+                 "w": qr_size, "h": qr_size, "mode": "colorLogo",
+                 "linkMode": "url" if wide else "spool",
+                 "urlTemplate": "https://filaman.example.test/printing/" + "long/" * 6 if wide else ""},
+            ],
+        }}
+        if scenario == "designer-overlap":
+            preset.data["design"]["elements"].append({
+                "id": "underlay", "type": "shape", "shape": "rectangle", "fill": "#000000",
+                "x": 24, "y": 14, "w": 16, "h": 16, "z": 99,
+            })
+    await db_session.commit()
+    content_width = {(40, 203): 320, (40, 300): 472, (60, 203): 480, (60, 300): 709}[(width_mm, dpi)]
+    height = {203: 240, 300: 354}[dpi]
+    wire_width = 576 if dpi == 203 else 832
+    path = f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer={renderer}&dpi={dpi}&width={wire_width}"
+    responses = {}
+    for threshold in (128, 150, 200, None):
+        query = "" if threshold is None else f"&threshold={threshold}"
+        response = await client.get(path + "&format=mono1" + query)
+        assert response.status_code == 200, response.text
+        assert response.headers["x-renderer"] == renderer
+        assert int(response.headers["x-content-width"]) == content_width
+        assert int(response.headers["x-image-height"]) == height
+        assert len(response.content) == wire_width // 8 * height
+        image = Image.frombytes("1", (wire_width, height), response.content.translate(bytes(range(255, -1, -1))))
+        assert image.crop((content_width, 0, wire_width, height)).getextrema() == (255, 255)
+        assert image.crop((0, 0, content_width, height)).getextrema() == (0, 255)
+        image.save(tmp_path / f"{scenario}-{dpi}-{renderer}-{threshold or 'default'}.png")
+        responses[threshold] = response.content
+    assert responses[None] == responses[200 if renderer == "basic" else 150]
+    for low, high in ((128, 150), (150, 200)):
+        assert all(a & ~b == 0 for a, b in zip(responses[low], responses[high]))
+    # The QR slot is bottom-right in both migrated and native designs.
+    scale = content_width / width_mm
+    box = tuple(round(v * scale) for v in (width_mm - qr_size - 1, 29 - qr_size, width_mm - 1, 29))
+    slot = image.crop(box).convert("L")
+    # Ignore a few pixels of CSS position rounding at the slot edge when
+    # locating the code over a dark underlay. Quiet zones are >=12px here;
+    # validate their complete extent against the original image below.
+    left, top, right, bottom = (
+        value + 4 for value in ImageChops.invert(slot.crop((4, 4, slot.width - 4, slot.height - 4))).getbbox()
+    )
+    assert right - left == bottom - top
+    # Finder pattern: seven modules across, with a three-module solid center.
+    row = [slot.getpixel((x, top)) for x in range(left, right)]
+    pitch = row.index(255) // 7
+    assert pitch >= 3
+    # The contract is four white modules inside the label, not necessarily
+    # inside the nominal CSS slot (Chromium can round its position differently).
+    x0, y0, x1, y1 = left + box[0], top + box[1], right + box[0], bottom + box[1]
+    gap = 4 * pitch
+    assert x0 >= gap and y0 >= gap and x1 + gap <= content_width and y1 + gap <= height
+    for quiet in ((x0-gap, y0-gap, x1+gap, y0), (x0-gap, y1, x1+gap, y1+gap),
+                  (x0-gap, y0, x0, y1), (x1, y0, x1+gap, y1)):
+        assert image.crop(quiet).getextrema() == (255, 255)
+    for y in range(top, bottom, pitch):
+        for x in range(left, right, pitch):
+            assert slot.crop((x, y, x + pitch, y + pitch)).getextrema() in ((0, 0), (255, 255))
+    for threshold in (128, 150, 200):
+        variant = Image.frombytes("1", (wire_width, height), responses[threshold].translate(bytes(range(255, -1, -1))))
+        assert variant.crop(box).tobytes() == image.crop(box).tobytes()
+    (tmp_path / "preset.json").write_text(json.dumps(preset.data, ensure_ascii=False, indent=2))
+    (tmp_path / "mono1.bin").write_bytes(responses[None])
+    (tmp_path / "headers.json").write_text(json.dumps(dict(response.headers), indent=2))
 
 
 @pytest.mark.asyncio

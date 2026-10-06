@@ -253,7 +253,6 @@ export async function renderFreeformLabel(options: RenderFreeformLabelOptions) {
         if (element.fitToWidth || element.legacyTextRole === 'title' && !element.wrap) fittingText.push({
           node,
           minimumMm: element.minFontSizeMm ?? (element.wrap ? 2 : 0.265),
-          maxLines: element.wrap ? Math.max(2, element.template.split(/\r\n|\r|\n/).length) : 1,
           legacyTitle: element.legacyTextRole === 'title' && !element.wrap,
           fitToWidth: element.fitToWidth === true,
         })

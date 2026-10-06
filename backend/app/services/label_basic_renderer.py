@@ -40,8 +40,8 @@ def render_qr_image(target: str, size: int, mode: str = "RGB", thermal: bool = F
             qr.add_data(target)
             qr.make(fit=True)
             qr.box_size = size // (qr.modules_count + 8)
-            if qr.box_size < 1:
-                raise HTTPException(422, "QR box is too small for whole modules and a quiet zone")
+            if qr.box_size < 3:
+                raise HTTPException(422, f"Thermal QR requires at least 3 dots per module (minimum {(qr.modules_count + 8) * 3} px including quiet zone)")
             code = qr.make_image().convert(mode)
             image = Image.new(mode, (size, size), "white")
             padding = (size - code.width) // 2

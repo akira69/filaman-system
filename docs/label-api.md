@@ -73,7 +73,7 @@ Supported query parameters:
 | `preset_id` | Omitted, `0`, or a saved preset ID |
 | `color` | `mono` (default) or `color`; color requires PNG |
 | `renderer` | `basic` or `chromium` |
-| `threshold` | Integer 0–255, default `200`; mono1 only, ignored for PNG |
+| `threshold` | Integer 0–255; default `200` for Basic, `150` for Chromium; mono1 only, ignored for PNG |
 
 With `dpi`, FilaMan renders the preset at its physical size and pads it to the
 requested width. Without `dpi`, the label fills the requested width and its
@@ -91,15 +91,23 @@ are top-to-bottom, start on byte boundaries, and use most-significant-bit first;
 `1` means black. Unused low bits at the end of a row are zero.
 
 Monochrome conversion uses a plain threshold, not dithering: grayscale values
-strictly below `threshold` become black. The default `200` darkens small text;
-lower it for a lighter print (for example, `threshold=128`). Tune it for your
-printer and stock. The byte layout is unchanged.
+strictly below `threshold` become black. Basic defaults to `200`; Chromium
+defaults to `150` to avoid over-darkening its antialiased text. An explicit
+`threshold` overrides either default, including `0`. Tune it for your printer
+and stock; these defaults are not a universal print-quality guarantee.
+The byte layout is unchanged.
 
 For mono1, both renderers use undecorated QR codes with error correction M,
-a four-module white quiet zone, and whole printer dots per module. Saved logo
+a four-module white quiet zone, and at least three whole printer dots per module. Saved logo
 or center-text QR modes are overridden for this response only. Codes retain
 their URL and layout slot; insufficient space or clipping at the label edge
-returns `422`. PNG and normal browser printing keep the saved QR styling.
+returns `422`. A module is one square in the QR grid: three dots per module
+means each square occupies a 3×3 printer-dot block (about 0.38 mm wide at
+203 DPI). Minimum box width is `(module count + 8) × 3` pixels, including
+the quiet zone; longer URLs may need more modules and a larger box. A too-small
+box returns the minimum pixel size in its error message. This conservative
+thermal limit is not a scan guarantee. PNG and normal browser printing keep
+the saved QR styling and are not subject to this three-dot minimum.
 
 Read these response headers before passing the raster to device-specific code:
 
@@ -130,11 +138,27 @@ Basic resolves optional fragments, conditions, uppercase and date modifiers,
 inline color swatches, and typed extra fields. It also honors word wrapping,
 vertical alignment, and manufacturer-logo alignment/manual sizing. Expanded text
 is capped at 12,000 characters, and long lines are clipped before rasterization
-to bound memory use. Native wrapped text breaks long identifiers; migrated information
+to bound memory use. Text that overflows its box ends with `...` instead of
+silently losing lines. Enable **Scale font to fit** to shrink text down to its
+configured minimum; wrapping alone does not enable shrinking. Trusted `==text==`
+template markup renders white text on black, including full-width migrated title
+bands; `==` inside field values remains literal.
+Both renderers keep field values literal: formatting markers only take effect
+when written in the template. Chromium fits wrapped text against the box width
+and height, without limiting it to the template's original number of lines.
+It still rejects output if text cannot fit at the configured minimum font size.
+Native wrapped text breaks long identifiers; migrated information
 keeps legacy word wrapping. Missing logos and empty/fitted legacy titles collapse
 their rows. Rich-text styling and browser line balancing remain approximate.
 Datetime display uses the server locale and stored offset; browser locale/timezone
 formatting may differ. Raw dates are retained for `|date` modifiers.
+
+To share a preset for troubleshooting, sign in and open
+`/api/v1/me/label-presets?preset_type=spool` on the same FilaMan server. Save the
+JSON response and share only the affected preset object after checking templates
+for private URLs or text. There is no dedicated preset-export button. Uploaded
+images are referenced by ID and are not embedded in this response; a full backup
+is not needed for a text-layout report. Never send session cookies or API keys.
 
 For v2 designs, QR elements render above non-QR content with opaque white
 backgrounds in both renderers, regardless of their saved layer positions.

@@ -102,7 +102,7 @@ export function renderThermalQrs(root: HTMLElement, scaleX: number, scaleY: numb
     const rect = node.getBoundingClientRect()
     const size = Math.floor(Math.min(rect.width, rect.height))
     const pitch = Math.floor(size / (modules + 8))
-    if (pitch < 1) throw new Error('QR box is too small for whole modules and a quiet zone')
+    if (pitch < 3) throw new Error(`Thermal QR requires at least 3 dots per module (minimum ${(modules + 8) * 3} px including quiet zone)`)
     const codeSize = (modules + 8) * pitch
     const x = Math.round(rect.left - bounds.left + (rect.width - codeSize) / 2)
     const y = Math.round(rect.top - bounds.top + (rect.height - codeSize) / 2)

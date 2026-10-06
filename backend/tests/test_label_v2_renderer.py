@@ -5,8 +5,18 @@ from fastapi import HTTPException
 
 from app.api.v1.labels import _label_values
 from app.models import Color, Filament, FilamentColor, Manufacturer, Spool
-from app.services.label_text import resolve_label_text
+from app.services.label_text import clip_label_line, resolve_label_text
 from app.services.label_v2_renderer import render_v2_label
+
+
+def test_clip_label_line_returns_only_the_fitting_prefix():
+    from app.services.label_font import label_font
+
+    font = label_font(24)
+    assert clip_label_line("Hello world", font, font.getlength("Hello")) == "Hello"
+    assert clip_label_line("Hello world", font, font.getlength("Hello") - 0.1) == "Hell"
+    assert clip_label_line("Hello", font, font.getlength("Hello")) == "Hello"
+    assert clip_label_line("Hello", font, 0) == ""
 
 
 def test_inline_swatch_runs_are_trusted_and_field_data_stays_literal():
@@ -22,7 +32,7 @@ def test_inline_swatch_is_visible_and_native_long_words_wrap():
         {"type": "text", "x": 0, "y": 5, "w": 10, "h": 25, "fontSizeMm": 3, "wrap": True,
          "template": "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"},
     ]}
-    image = render_v2_label(design, 400, {}, ["#FF0000"], "http://test", None, {}, True)
+    image = render_v2_label(design, 400, {}, ["#FF0000"], "http://test", None, {})
     assert image.getpixel((20, 15)) == (255, 0, 0)
     assert ImageChops.invert(image.crop((0, 100, 100, 280))).getbbox() is not None
 
@@ -39,7 +49,7 @@ def test_migrated_empty_rows_reflow_without_mutating_design(valign, factor):
         "qr": {"sizeMm": 10, "vAlign": valign}, "info": {"template": "INFO", "vAlign": "top"}}}
     design = convert_label_preset_data(source, "spool")["design"]
     before = copy.deepcopy(design)
-    image = render_v2_label(design, 600, {"id": "7"}, [], "http://test", None, {}, False)
+    image = render_v2_label(design, 600, {"id": "7"}, [], "http://test", None, {})
     assert design == before
     info = ImageChops.invert(image.crop((0, 0, 300, 400))).getbbox()
     assert info[1] < 40  # absent logo and title must not leave blank rows
@@ -77,6 +87,53 @@ def test_numeric_extra_fields_without_precision_preserve_value(number, expected)
     assert raw["extra.spool.measurement"] == number
 
 
+@pytest.mark.parametrize("fit,minimum", [(False, 1), (True, 2.4)])
+def test_wrapped_text_overflow_marks_last_visible_line(fit, minimum):
+    from PIL import ImageChops
+    element = {"type": "text", "x": 1, "y": 1, "w": 23, "h": 10, "fontSizeMm": 2.4,
+               "minFontSizeMm": minimum, "wrap": True, "fitToWidth": fit, "legacyTextRole": "info"}
+    def raster(text):
+        return render_v2_label({"version": 2, "label": {"widthMm": 40, "heightMm": 30},
+            "elements": [{**element, "template": text}]}, 400, {}, [], "http://test", None, {})
+    # At 24px with 1.4 spacing, two complete lines fit in the 100px box.
+    expected = raster("ID: #295\nDate...")
+    actual = raster("ID: #295\nDate\nColor\nArtikel Nr: 11101")
+    assert ImageChops.difference(actual, expected).getbbox() is None
+
+
+def test_wrapped_fit_keeps_all_lines_and_last_article_number():
+    from app.services.label_v2_renderer import _text_layout
+    element = {"template": "ID: #295\nAdded: 2026-08-25 02:42:32+00:00\nColor: Charcoal\nArtikel Nr: 11101",
+               "fontSizeMm": 2.4, "minFontSizeMm": 1.2, "w": 23, "h": 13,
+               "wrap": True, "legacyTextRole": "info", "fitToWidth": True}
+    font, lines, spacing = _text_layout(element, 8, {}, None)
+    assert 10 <= font.size < 19
+    assert len(lines) * spacing <= 104
+    assert "".join(run for line in lines for run in line).endswith("Artikel Nr: 11101")
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_inverse_template_draws_band_without_interpreting_field_markup(legacy):
+    from PIL import ImageChops
+    element = {"type": "text", "x": 1, "y": 1, "w": 38, "h": 5, "fontSizeMm": 3,
+               "template": "=={filament.type}==", "align": "center"}
+    if legacy:
+        element["legacyTextRole"] = "title"
+    def raster(template, value):
+        return render_v2_label({"version": 2, "label": {"widthMm": 40, "heightMm": 30},
+            "elements": [{**element, "template": template}]}, 400,
+            {"filament.type": value}, [], "http://test", None, {})
+    image = raster("=={filament.type}==", "PLA")
+    assert image.getpixel((175, 12)) == (0, 0, 0)
+    if legacy:
+        assert image.getpixel((12, 12)) == (0, 0, 0)
+        assert image.getpixel((387, 12)) == (0, 0, 0)
+    assert image.crop((175, 12, 225, 40)).getextrema()[0] == (0, 255)
+    literal = raster("{filament.type}", "==PLA==")
+    assert literal.getpixel((175, 12)) == (255, 255, 255)
+    assert ImageChops.difference(image, literal).getbbox()
+
+
 def test_fitted_title_reflows_but_native_title_does_not():
     from PIL import ImageChops
     for legacy in (False, True):
@@ -86,7 +143,7 @@ def test_fitted_title_reflows_but_native_title_does_not():
             title["legacyTextRole"] = "title"
         design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [title,
             {"type": "shape", "shape": "rectangle", "fill": "#FF0000", "x": 1, "y": 10, "w": 38, "h": 1}]}
-        image = render_v2_label(design, 400, {}, [], "http://test", None, {}, True)
+        image = render_v2_label(design, 400, {}, [], "http://test", None, {})
         bbox = ImageChops.subtract(image.getchannel("R"), image.getchannel("G")).getbbox()
         assert (bbox[1] < 100) if legacy else (bbox[1] == 100)
         assert ImageChops.invert(image).getbbox()
@@ -97,7 +154,7 @@ def test_checkbox_marks_are_not_the_fonts_missing_glyph():
     def raster(template):
         return render_v2_label({"version": 2, "label": {"widthMm": 20, "heightMm": 10}, "elements": [
             {"type": "text", "template": template, "x": 0, "y": 0, "w": 20, "h": 10, "fontSizeMm": 5}]},
-            200, {}, [], "http://test", None, {}, False)
+            200, {}, [], "http://test", None, {})
     assert ImageChops.difference(raster("✓"), raster("✗")).getbbox()
     assert ImageChops.difference(raster("✓"), raster("\uffff")).getbbox()
 
@@ -115,7 +172,7 @@ def test_converted_logo_preserves_alpha_and_thin_images(size):
     logo.save(output, format="PNG")
     design = convert_label_preset_data({"settings": {"label": {"width": 40, "height": 30, "marginMm": 0},
         "logo": {"spaceMm": 6}, **{key: {"show": False} for key in ("title", "title2", "info", "info2", "qr")}}}, "spool")["design"]
-    image = render_v2_label(design, 400, {}, [], "http://test", output.getvalue(), {}, False)
+    image = render_v2_label(design, 400, {}, [], "http://test", output.getvalue(), {})
     assert image.size == (400, 300)
     assert ImageChops.invert(image).getbbox()
     if size == (20, 10):
@@ -162,7 +219,7 @@ def test_v2_clips_text_before_allocating_glyph_masks(monkeypatch, template, valu
     design = {"version": 2, "label": {"widthMm": 20, "heightMm": 20}, "elements": [
         {"type": "text", "x": 0, "y": 0, "w": 20, "h": 20, "fontSizeMm": 20, "template": template},
     ]}
-    image = render_v2_label(design, 1024, values, [], "http://test", None, {}, False)
+    image = render_v2_label(design, 1024, values, [], "http://test", None, {})
     assert image.size == (1024, 1024)
     assert ImageChops.invert(image).getbbox() is not None
 
@@ -178,7 +235,7 @@ def test_v2_logo_honors_manual_size_and_alignment(alignment, left):
     design = {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
         {"type": "manufacturerLogo", "x": 1, "y": 1, "w": 38, "h": 6, "manualSizeMm": 2, "align": alignment},
     ]}
-    image = render_v2_label(design, 400, {}, [], "http://test", logo.getvalue(), {}, False)
+    image = render_v2_label(design, 400, {}, [], "http://test", logo.getvalue(), {})
     assert ImageChops.invert(image).getbbox() == (left, 30, left + 80, 50)
 
 
@@ -220,7 +277,7 @@ def test_v2_optional_field_preserves_literal_braces(identifier):
 def test_v2_short_label_omits_border_that_does_not_fit():
     image = render_v2_label(
         {"version": 2, "label": {"widthMm": 40, "heightMm": 10, "marginMm": 6, "border": True}, "elements": []},
-        576, {"id": "7"}, [], "http://test/spools/7", None, {}, False,
+        576, {"id": "7"}, [], "http://test/spools/7", None, {},
     )
     assert image.size == (576, 144)
     assert image.getextrema() == ((255, 255),) * 3
@@ -231,7 +288,7 @@ def test_v2_swatch_skips_legacy_colors_and_uses_visible_rgb():
         {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": [
             {"type": "swatch", "x": 0, "y": 0, "w": 40, "h": 30, "z": 0},
         ]},
-        400, {"id": "7"}, ["legacy", "#FF000000", "#00FF00"], "http://test/spools/7", None, {}, True,
+        400, {"id": "7"}, ["legacy", "#FF000000", "#00FF00"], "http://test/spools/7", None, {},
     )
     assert image.getpixel((100, 150)) == (255, 0, 0)
     assert image.getpixel((300, 150)) == (0, 255, 0)
@@ -297,6 +354,20 @@ def test_label_values_use_linked_color_names_when_manufacturer_name_is_missing()
     assert values["filament.colors"] == "Ocean, Green"
 
 
+@pytest.mark.parametrize("inverse", [False, True])
+def test_wrapping_whitespace_does_not_clip_visible_word(inverse):
+    from app.services.label_font import label_font
+    from app.services.label_text import InverseText
+    from app.services.label_v2_renderer import _clip_runs, _text_lines
+
+    font = label_font(24)
+    run_type = InverseText if inverse else str
+    width = font.getlength("Hello")
+    lines = _text_lines([run_type("Hello all")], font, width, True, False)
+    assert _clip_runs(lines[0], font, width) == ["Hello"]
+    assert type(lines[0][0]) is run_type
+
+
 def test_v2_label_rejects_oversized_qr_content():
     design = {
         "version": 2,
@@ -309,7 +380,7 @@ def test_v2_label_rejects_oversized_qr_content():
 
     with pytest.raises(HTTPException) as rejected:
         render_v2_label(
-            design, 400, {"id": "7"}, [], "http://test/spools/7", None, {}, False
+            design, 400, {"id": "7"}, [], "http://test/spools/7", None, {}
         )
     assert rejected.value.status_code == 422
 
@@ -361,13 +432,13 @@ def test_v2_migrated_qr_is_clipped_to_short_label():
     design = {"version": 2, "label": {"widthMm": 60, "heightMm": 10}, "elements": [
         {"type": "qr", "x": 1, "y": -4, "w": 18, "h": 18, "z": 0, "legacyVAlign": "center"},
     ]}
-    image = render_v2_label(design, 600, {"id": "7"}, [], "http://test/spools/7", None, {}, False)
+    image = render_v2_label(design, 600, {"id": "7"}, [], "http://test/spools/7", None, {})
     expected = render_qr_image("http://test/spools/7", 180).crop((0, 40, 180, 140))
     assert image.size == (600, 100)
     assert ImageChops.difference(image.crop((10, 0, 190, 100)), expected).getbbox() is None
     design["elements"][0].update(w=41, h=41)
     with pytest.raises(HTTPException) as rejected:
-        render_v2_label(design, 600, {"id": "7"}, [], "http://test/spools/7", None, {}, False)
+        render_v2_label(design, 600, {"id": "7"}, [], "http://test/spools/7", None, {})
     assert rejected.value.status_code == 422
 
 
@@ -381,7 +452,7 @@ def test_v2_qr_stays_opaque_above_overlapping_content(thermal):
         {"type": "qr", "x": 1, "y": 1, "w": 20, "h": 20, "z": 0},
         {"type": "shape", "shape": "rectangle", "fill": "#000000", "x": 0, "y": 0, "w": 40, "h": 30, "z": 99},
     ]}
-    image = render_v2_label(design, 400, {"id": "7"}, [], "http://test/spools/7", None, {}, False, thermal=thermal)
+    image = render_v2_label(design, 400, {"id": "7"}, [], "http://test/spools/7", None, {}, thermal=thermal)
     expected = render_qr_image("http://test/spools/7", 200, thermal=thermal)
     assert ImageChops.difference(image.crop((10, 10, 210, 210)), expected).getbbox() is None
 
@@ -396,10 +467,10 @@ def test_v2_accepts_zero_sized_legacy_text_at_label_edges(box):
         {"type": "text", "template": "{id}", "legacyTextRole": "info", **box},
         {"type": "qr", "x": 0, "y": 0, "w": 20, "h": 20, "z": 1},
     ]}
-    image = render_v2_label(design, 400, {"id": "7"}, [], "http://test/spools/7", None, {}, False)
+    image = render_v2_label(design, 400, {"id": "7"}, [], "http://test/spools/7", None, {})
     assert image.size == (400, 800)
     assert image.crop((0, 0, 400, 400)).getextrema() == ((0, 255),) * 3
     design["elements"][0]["x"] = 21
     with pytest.raises(HTTPException) as rejected:
-        render_v2_label(design, 400, {"id": "7"}, [], "http://test/spools/7", None, {}, False)
+        render_v2_label(design, 400, {"id": "7"}, [], "http://test/spools/7", None, {})
     assert rejected.value.status_code == 422
