@@ -39,6 +39,7 @@ import {
 } from './label-print-page'
 import type { LabelPdfDocument, LabelPdfPage } from './label-export'
 import * as labelPrintPage from './label-print-page'
+import { API_DEFAULT_LABEL_SETTINGS } from './label-standard'
 import {
   bindTemporaryPdfPreview,
   type TemporaryPdfPreviewController,
@@ -596,6 +597,17 @@ function renderPrintPageControls() {
     <button id="btn-export-pdf">PDF</button>
   `
 }
+
+it('restores API Default controls without inheriting or writing browser settings', () => {
+  renderPrintPageControls()
+  const controls = getLabelSettingsControls()
+  const saved = JSON.stringify({ width: 100, height: 50, showQR: false, extraFields: { secret: true } })
+  localStorage.setItem('filaman-label-settings', saved)
+  restoreLabelSettings(controls, JSON.parse(saved))
+  labelPrintPage.applyStandardLabelSettings(controls, API_DEFAULT_LABEL_SETTINGS)
+  expect(getStandardLabelSettings(controls)).toMatchObject({ widthMm: 60, heightMm: 40, showQR: true, qrSizeMm: 18, showColorHex: false })
+  expect(localStorage.getItem('filaman-label-settings')).toBe(saved)
+})
 
 function bindDeferredCapture(
   kind: 'single-label' | 'batch',

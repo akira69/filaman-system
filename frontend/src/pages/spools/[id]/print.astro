@@ -38,6 +38,8 @@ export function getStaticPaths() {
   import { bindLabelSheetControls, createLabelSheetPdf } from '../../../lib/label-sheet'
   import {
     buildStandardLabelDataFromFlat,
+    API_DEFAULT_LABEL_SETTINGS,
+    apiDefaultExtraFields,
     getStandardLabelDimensions,
     renderStandardLabel,
     type StandardExtraField,
@@ -45,6 +47,7 @@ export function getStaticPaths() {
   import {
     LABEL_EXPORT_PIXEL_RATIO,
     applySingleLabelPreviewZoom,
+    applyStandardLabelSettings,
     bindLabelOutputPreview,
     bindLabelOutputs,
     bindLabelPreviewZoom,
@@ -98,6 +101,9 @@ export function getStaticPaths() {
 
   const id = window.location.pathname.split('/').filter(Boolean).slice(-2, -1)[0]
   const params = new URLSearchParams(window.location.search)
+  const requestedPresetId = Number(params.get('preset_id'))
+  const apiDefaultRequest = params.get('scale_print') === '1'
+    && !(Number.isSafeInteger(requestedPresetId) && requestedPresetId > 0)
   const labelData = buildSpoolLabelDataFromParams(id, params)
 
   async function fetchSpoolApiData() {
@@ -271,7 +277,7 @@ export function getStaticPaths() {
   const extraFieldsCheckboxes = document.getElementById('extra-fields-checkboxes')!
   const extraFieldChecks: {key: string, label: string, value: string, checkbox: HTMLInputElement}[] = []
 
-  const parsedClassicSettings = parseJsonOrNull<LabelSettingsState>(readStorageValue(LABEL_SETTINGS_KEY))
+  const parsedClassicSettings = apiDefaultRequest ? null : parseJsonOrNull<LabelSettingsState>(readStorageValue(LABEL_SETTINGS_KEY))
   const savedExtraFieldSettings = parsedClassicSettings?.extraFields
     && typeof parsedClassicSettings.extraFields === 'object'
     ? parsedClassicSettings.extraFields as Record<string, boolean>
@@ -344,6 +350,7 @@ export function getStaticPaths() {
   }
 
   function saveSettings() {
+    if (apiDefaultRequest) return
     const settings: LabelSettingsState = {
       ...captureLabelSettings(settingsControls),
       extraFields: Object.fromEntries(
@@ -354,6 +361,10 @@ export function getStaticPaths() {
   }
 
   function loadSettings() {
+    if (apiDefaultRequest) {
+      applyStandardLabelSettings(settingsControls, API_DEFAULT_LABEL_SETTINGS)
+      return
+    }
     const s = parseJsonOrNull<LabelSettingsState>(readStorageValue(LABEL_SETTINGS_KEY))
     if (!s || typeof s !== 'object') return
     restoreLabelSettings(settingsControls, s)
@@ -513,10 +524,13 @@ export function getStaticPaths() {
   })
 
   function resetStandardSettings() {
-    removeStorageValue(LABEL_SETTINGS_KEY)
-    resetLabelSettings(settingsControls)
+    if (apiDefaultRequest) applyStandardLabelSettings(settingsControls, API_DEFAULT_LABEL_SETTINGS)
+    else {
+      removeStorageValue(LABEL_SETTINGS_KEY)
+      resetLabelSettings(settingsControls)
+    }
     for (const ef of extraFieldChecks) {
-      ef.checkbox.checked = false
+      ef.checkbox.checked = apiDefaultRequest && ef.key === 'api.remaining'
     }
     singlePreview.refresh()
   }
@@ -539,7 +553,6 @@ export function getStaticPaths() {
   }
 
   // A PC print request can open this page with the requested preset.
-  const requestedPresetId = Number(params.get('preset_id'))
   if (Number.isSafeInteger(requestedPresetId) && requestedPresetId > 0) {
     try {
       const preset = readStoredPresets(SPOOL_LABEL_PRESETS_KEY)
@@ -556,6 +569,13 @@ export function getStaticPaths() {
     }
   } else if (params.get('scale_print') === '1') {
     initialMode = 'standard'
+  }
+
+  if (apiDefaultRequest) {
+    for (const field of apiDefaultExtraFields(labelData.remaining_weight_g)) {
+      addExtraFieldCheckbox({ key: 'api.remaining', ...field })
+      extraFieldChecks.at(-1)!.checkbox.checked = true
+    }
   }
 
   // Initialize: load logo then render the selected workspace.
