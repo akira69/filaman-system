@@ -906,7 +906,7 @@ export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
   const zoomNext = zoom?.nextSibling ?? null
   const zoomSlot = options.designerWorkspace?.querySelector('.freeform-zoom-slot')
 
-  const activate = (mode: PrintWorkspaceMode) => {
+  const activate = (mode: PrintWorkspaceMode, persist = true) => {
     activeMode = mode
     buttons.forEach(button => {
       const active = button.dataset.workspaceMode === mode
@@ -932,7 +932,7 @@ export function bindPrintWorkspaceTabs(options: PrintWorkspaceTabsOptions) {
       if (mode === 'designer') zoomSlot.appendChild(zoom)
       else zoomParent.insertBefore(zoom, zoomNext)
     }
-    writeStorageValue(options.storageKey, mode)
+    if (persist) writeStorageValue(options.storageKey, mode)
     options.sheetControls?.setOutputMode(
       mode === 'sheets' ? 'sheet' : 'individual',
       { notify: false },

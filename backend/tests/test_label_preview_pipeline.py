@@ -60,11 +60,12 @@ async def test_saved_null_preset_is_invalid_not_default(auth_client, preview_spo
 
 
 @pytest.mark.asyncio
-async def test_unconverted_legacy_record_is_preserved_and_not_rendered(auth_client, preview_spool, db_session):
-    client, _ = auth_client
+async def test_unconverted_legacy_record_is_preserved_but_not_rendered_or_queued(auth_client, preview_spool, db_session):
+    client, csrf = auth_client
     spool, preset = preview_spool
     original = {"version": 9, "settings": {"label": {"width": 40, "height": 30}}}
     preset.data = original
+    preset.selected = True
     await db_session.commit()
     listing = await client.get("/api/v1/labels/presets")
     assert listing.json()[0]["width_mm"] is None
@@ -77,6 +78,27 @@ async def test_unconverted_legacy_record_is_preserved_and_not_rendered(auth_clie
     response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id}&renderer=basic")
     assert response.status_code == 422
     assert response.headers["cache-control"] == "no-store"
+    for query in (f"?preset_id={preset.id}", ""):
+        response = await client.post(f"/api/v1/labels/spool/{spool.id}/print-request{query}", headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 422
+    assert (await client.get("/api/v1/labels/print-requests/pending")).json() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", [
+    {"elements": [{"type": "unsupported"}]}, {"elements": None},
+    {"elements": [{}] * 101}, {"version": 9},
+])
+async def test_invalid_designer_data_cannot_be_queued(auth_client, preview_spool, db_session, invalid):
+    client, csrf = auth_client
+    spool, preset = preview_spool
+    preset.data = {**preset.data, "design": {**preset.data["design"], **invalid}}
+    preset.selected = True
+    await db_session.commit()
+    for query in (f"?preset_id={preset.id}", ""):
+        response = await client.post(f"/api/v1/labels/spool/{spool.id}/print-request{query}", headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 422
+    assert (await client.get("/api/v1/labels/print-requests/pending")).json() is None
 
 
 @pytest.mark.asyncio
@@ -513,12 +535,19 @@ async def test_dpi_converts_both_physical_dimensions_independently(
 
 
 @pytest.mark.asyncio
-async def test_oversized_logo_is_rejected_before_browser_decode(auth_client, preview_spool, monkeypatch, tmp_path):
+@pytest.mark.parametrize("renderer", ["basic", "chromium"])
+@pytest.mark.parametrize("designer", [False, True])
+async def test_oversized_logo_is_rejected_only_when_rendered(auth_client, preview_spool, db_session, monkeypatch, tmp_path, renderer, designer):
     import struct
     import zlib
 
     client, _ = auth_client
-    spool, _preset = preview_spool
+    spool, preset = preview_spool
+    if designer:
+        preset.data = {**preset.data, "design": {**preset.data["design"], "elements": [
+            {"id": "logo", "type": "manufacturerLogo", "x": 0, "y": 0, "w": 40, "h": 6},
+        ]}}
+        await db_session.commit()
     # PNG IHDR declares 80MP; generating its pixels would defeat the memory test.
     output = BytesIO()
     Image.new("L", (1, 1)).save(output, format="PNG")
@@ -529,8 +558,10 @@ async def test_oversized_logo_is_rejected_before_browser_decode(auth_client, pre
     monkeypatch.setattr(labels, "MANUFACTURER_LOGO_DIR", Path(tmp_path))
     browser = AsyncMock()
     monkeypatch.setattr(labels, "render_preview_png", browser, raising=False)
-    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id=0")
-    assert response.status_code == 422
+    response = await client.get(f"/api/v1/labels/spool/{spool.id}/render?preset_id={preset.id if designer else 0}&renderer={renderer}")
+    assert response.status_code == (200 if renderer == "basic" and not designer else 422)
+    if response.status_code == 200:
+        assert Image.open(BytesIO(response.content)).size == (576, 384)
     browser.assert_not_called()
 
 
@@ -590,8 +621,8 @@ async def test_qr_canvases_share_the_render_pixel_budget(
 
 @pytest.mark.parametrize("width", [None, "", " "])
 def test_legacy_empty_dimensions_match_preview_normalization(width):
-    assert labels._preset_size(convert_label_preset_data({"settings": {"label": {"width": width, "height": 40}}}, "spool")) == (20, 40)
-    assert labels._preset_size(convert_label_preset_data({"settings": {"label": {}}}, "spool")) == (60, 40)
+    assert labels._validated_preset_size(convert_label_preset_data({"settings": {"label": {"width": width, "height": 40}}}, "spool")) == (20, 40)
+    assert labels._validated_preset_size(convert_label_preset_data({"settings": {"label": {}}}, "spool")) == (60, 40)
 
 
 @pytest.mark.asyncio
