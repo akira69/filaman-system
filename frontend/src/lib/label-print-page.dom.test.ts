@@ -189,7 +189,9 @@ describe('print workspace modes', () => {
       onChange: mode => changes.push(mode),
     })
 
-    binding.activate('sheets')
+    localStorage.setItem('workspace-mode', 'designer')
+    binding.activate('sheets', false)
+    expect(localStorage.getItem('workspace-mode')).toBe('designer')
     const sidebar = document.querySelector<HTMLElement>('.print-sidebar')!
     expect(sidebar.classList.contains('sidebar-sheets-wide')).toBe(true)
     expect(document.querySelector<HTMLElement>('#sheets')!.hidden).toBe(false)
@@ -205,7 +207,8 @@ describe('print workspace modes', () => {
     expect(changes).toEqual(['sheets', 'designer'])
     expect(binding.getActiveMode()).toBe('designer')
     binding.activate('sheets')
-    binding.activate('standard')
+    document.querySelector<HTMLButtonElement>('[data-workspace-mode="standard"]')!.click()
+    expect(localStorage.getItem('workspace-mode')).toBe('standard')
     expect(sidebar.classList.contains('sidebar-sheets-wide')).toBe(false)
     expect(sidebar.classList.contains('sidebar-wide')).toBe(false)
   })

@@ -83,14 +83,17 @@ async def request_pc_print(
         preset_id = None
     elif preset_id is None:
         preset_id = await _selected_preset_id(db, principal.user_id)
-    if preset_id is not None and await db.scalar(
-        select(LabelPreset.id).where(
-            LabelPreset.id == preset_id,
-            LabelPreset.user_id == principal.user_id,
-            LabelPreset.preset_type == "spool",
+    if preset_id is not None:
+        preset = await db.scalar(
+            select(LabelPreset).where(
+                LabelPreset.id == preset_id,
+                LabelPreset.user_id == principal.user_id,
+                LabelPreset.preset_type == "spool",
+            )
         )
-    ) is None:
-        raise HTTPException(status_code=404, detail="Label preset not found")
+        if preset is None:
+            raise HTTPException(status_code=404, detail="Label preset not found")
+        _validated_preset_size(preset.data)
     await db.execute(
         delete(LabelPrintRequest).where(
             LabelPrintRequest.created_at < datetime.now(timezone.utc) - timedelta(minutes=5)
@@ -163,7 +166,7 @@ async def list_scale_presets(
     result = []
     for row in rows:
         try:
-            width_mm, height_mm = _preset_size(row.data)
+            width_mm, height_mm = _validated_preset_size(row.data)
         except HTTPException:
             width_mm = height_mm = None
         result.append({"id": row.id, "name": row.name, "selected": row.selected,
@@ -171,17 +174,31 @@ async def list_scale_presets(
     return result
 
 
-def _preset_size(data: dict) -> tuple[float, float]:
+def _validated_preset_size(data: dict) -> tuple[float, float]:
     if not isinstance(data, dict):
         raise HTTPException(422, "Preset is invalid")
     if data.get("version") == 2:
         design = data.get("design")
-        if not isinstance(design, dict) or not isinstance(design.get("label"), dict):
+        if not isinstance(design, dict) or design.get("version") != 2 or not isinstance(design.get("label"), dict):
             raise HTTPException(422, "Preset design is invalid")
         width, height = (design["label"].get(key) for key in ("widthMm", "heightMm"))
         if any(not isinstance(value, (int, float)) or not low <= value <= high
                for value, low, high in ((width, 20, 300), (height, 10, 200))):
             raise HTTPException(422, "Preset design has invalid dimensions")
+        elements = design.get("elements")
+        if (
+            not isinstance(elements, list)
+            or len(elements) > 100
+            or any(
+                not isinstance(element, dict)
+                or not isinstance(element.get("type"), str)
+                or element["type"] not in {
+                    "text", "qr", "manufacturerLogo", "image", "swatch", "shape",
+                }
+                for element in elements
+            )
+        ):
+            raise HTTPException(status_code=422, detail="Preset design is invalid")
         return width, height
     raise HTTPException(422, "Legacy or unsupported preset could not be migrated; reopen and save it in the Label Designer")
 
@@ -457,22 +474,9 @@ async def render_spool_label(
             if preset is None:
                 raise HTTPException(status_code=404, detail="Label preset not found")
             preset_data = preset.data
-            width_mm, height_mm = _preset_size(preset_data)
+            width_mm, height_mm = _validated_preset_size(preset_data)
             design = preset.data.get("design")
-            elements = design.get("elements")
-            if (
-                not isinstance(elements, list)
-                or len(elements) > 100
-                or any(
-                    not isinstance(element, dict)
-                    or not isinstance(element.get("type"), str)
-                    or element["type"] not in {
-                        "text", "qr", "manufacturerLogo", "image", "swatch", "shape",
-                    }
-                    for element in elements
-                )
-            ):
-                raise HTTPException(status_code=422, detail="Preset design is invalid")
+            elements = design["elements"]
             asset_ids = set()
             for element in elements:
                 if isinstance(element, dict) and element.get("type") == "image":
@@ -512,7 +516,7 @@ async def render_spool_label(
             )
             qr_count = sum(element.get("type") == "qr" for element in design["elements"])
         else:
-            image_uses = Counter({"/__label-assets/manufacturer.png": 1})
+            image_uses = Counter({"/__label-assets/manufacturer.png": int(renderer == "chromium")})
             qr_count = 1
         logo_path = (
             MANUFACTURER_LOGO_DIR / f"{spool.filament.manufacturer_id}_label.png"

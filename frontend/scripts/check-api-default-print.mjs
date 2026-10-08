@@ -41,6 +41,7 @@ try {
     showColorSwatch: true, showColorHex: true, extraFields: { private: true } })
   await context.addInitScript(value => {
     if (!localStorage.getItem('filaman-label-settings')) localStorage.setItem('filaman-label-settings', value)
+    if (!localStorage.getItem('filaman-label-active-tab')) localStorage.setItem('filaman-label-active-tab', 'designer')
   }, saved)
   const page = await context.newPage()
   page.on('pageerror', error => console.error(error.message))
@@ -55,6 +56,8 @@ try {
   assert.equal(await request.locator('#input-width').inputValue(), '60')
   assert.equal(await request.locator('#input-height').inputValue(), '40')
   assert.equal(await request.locator('#check-qr').isChecked(), true)
+  assert.equal(await request.locator('#tab-btn-print').getAttribute('aria-selected'), 'true')
+  assert.equal(await request.evaluate(() => localStorage.getItem('filaman-label-active-tab')), 'designer')
   assert.match(await request.locator('.label-extra-fields').innerText(), /Remaining:\s*850 g/)
   assert.equal(await request.evaluate(() => localStorage.getItem('filaman-label-settings')), saved)
   await request.locator('#input-width').fill('65')
@@ -77,8 +80,32 @@ try {
   await request.emulateMedia({ media: 'screen' })
   await request.goto(`${origin}/spools/73/print`)
   await request.waitForFunction(() => document.querySelector('#input-width')?.value === '100')
+  await request.waitForFunction(() => document.querySelector('#tab-btn-designer')?.getAttribute('aria-selected') === 'true')
   assert.equal(await request.locator('#check-qr').isChecked(), false)
-  console.log('Default request: popup, API settings, Remaining, local edits/reset and unchanged normal preferences passed')
+  const missingPresetAlert = request.waitForEvent('dialog')
+  await request.goto(`${origin}/spools/73/print?scale_print=1&preset_id=9999`, { waitUntil: 'domcontentloaded' })
+  const alert = await missingPresetAlert
+  assert.match(alert.message(), /preset.*unavailable/i)
+  await alert.accept()
+  // Settings and late extra-field refreshes must not resurrect a Standard label.
+  await request.locator('#tab-btn-print').click()
+  await request.locator('#input-width').fill('65')
+  await request.locator('#input-width').dispatchEvent('change')
+  assert.equal(await request.locator('#label-preview').innerText(), '')
+  for (const id of ['btn-print', 'btn-export-png', 'btn-export-pdf', 'btn-export-aml']) {
+    assert.equal(await request.locator(`#${id}`).isDisabled(), true)
+  }
+  // The preparation gate must also stop stale/programmatic output actions.
+  await request.evaluate(() => { window.printCalled = false; window.print = () => { window.printCalled = true } })
+  await request.locator('#check-print-pdf').uncheck()
+  const blockedPrintAlert = request.waitForEvent('dialog')
+  const printClick = request.locator('#btn-print').evaluate(button => { button.disabled = false; button.click() })
+  const blocked = await blockedPrintAlert
+  await blocked.accept()
+  await printClick
+  assert.match(blocked.message(), /printing failed/i)
+  assert.equal(await request.evaluate(() => window.printCalled), false)
+  console.log('API request: Default popup, unchanged normal preferences, and unavailable preset print/export blocking passed')
 } finally {
   await browser.close()
   server.kill('SIGTERM')

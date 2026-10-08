@@ -259,7 +259,7 @@ async def test_pc_print_request_uses_selected_preset_when_omitted(
         preset_type="spool",
         name="Selected",
         name_key=label_preset_name_key("Selected"),
-        data={"version": 2, "design": {"version": 2}},
+        data={"version": 1, "settings": {}},
         selected=True,
     )
     preset.data = convert_label_preset_data(preset.data, "spool")
@@ -445,18 +445,20 @@ async def test_preset_dimensions_match_render_policy_and_isolate_bad_records(aut
     client, _ = auth_client
     cases = [
         ({"settings": {"label": {"width": 40, "height": 30}}}, (40, 30)),
-        ({"version": 2, "design": {"label": {"widthMm": 40, "heightMm": 30}}}, (40, 30)),
+        ({"version": 2, "design": {"version": 2, "label": {"widthMm": 40, "heightMm": 30}, "elements": []}}, (40, 30)),
+        ({"version": 2, "design": {"label": {"widthMm": 40, "heightMm": 30}}}, (None, None)),
         ({"settings": {"label": {"width": None, "height": ""}}}, (20, 10)),
         ({"settings": {}}, (60, 40)),
-        ({"version": 2, "design": {"label": {"widthMm": "40", "heightMm": 30}}}, (None, None)),
+        ({"version": 2, "design": {"version": 2, "label": {"widthMm": "40", "heightMm": 30}, "elements": []}}, (None, None)),
         ({"version": 2, "design": []}, (None, None)),
         ({"settings": {"label": []}}, (None, None)),
         ({"settings": {"label": {"width": 10**400, "height": 30}}}, (60, 30)),
-        ({"version": 2, "design": {"label": {"widthMm": 10**400, "heightMm": 30}}}, (None, None)),
+        ({"version": 2, "design": {"version": 2, "label": {"widthMm": 10**400, "heightMm": 30}, "elements": []}}, (None, None)),
         (None, (None, None)),
     ]
     for index, (data, _) in enumerate(cases):
-        db_session.add(LabelPreset(user_id=admin_user.id, preset_type="spool", name=str(index), name_key=label_preset_name_key(str(index)), data=convert_label_preset_data(data, "spool")))
+        name = f"{index:02d}"
+        db_session.add(LabelPreset(user_id=admin_user.id, preset_type="spool", name=name, name_key=label_preset_name_key(name), data=convert_label_preset_data(data, "spool")))
     await db_session.commit()
     response = await client.get("/api/v1/labels/presets")
     assert response.status_code == 200

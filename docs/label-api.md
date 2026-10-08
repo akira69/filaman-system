@@ -214,6 +214,11 @@ The person can dismiss it or open the label page and choose **Print** or
 **Export PDF**. A `201` confirms that the request was queued, not that anything
 was physically printed.
 
+Unsupported preset data is rejected with `422` before queueing. If the requested
+preset is unavailable when the browser opens it, printing and export are blocked;
+FilaMan does not substitute Standard. Automatic tab selection does not change the
+user's saved workspace tab.
+
 These endpoints are used by FilaMan's browser UI; device clients do not need to
 call them directly:
 
