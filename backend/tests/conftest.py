@@ -196,7 +196,7 @@ def browser_executable():
 
 
 @pytest.fixture
-def label_render_runtime(browser_executable, monkeypatch):
+def label_render_runtime(browser_executable, monkeypatch, request):
     from pathlib import Path
 
     from app.core.config import settings as app_settings
@@ -209,4 +209,4 @@ def label_render_runtime(browser_executable, monkeypatch):
     monkeypatch.setenv("LABEL_RENDER_STATIC_DIR", str(frontend))
     if browser_executable:
         monkeypatch.setenv("LABEL_RENDER_CHROMIUM_EXECUTABLE", browser_executable)
-    monkeypatch.setattr(app_settings, "label_renderer", "chromium")
+    monkeypatch.setattr(app_settings, "label_renderer", getattr(request, 'param', 'chromium'))

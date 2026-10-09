@@ -36,6 +36,7 @@ from app.services.label_asset_service import (
 )
 from app.services.label_basic_renderer import render_basic_label
 from app.services.label_preview_browser import label_render_slot, render_preview_png
+from app.services.label_svg_renderer import render_svg_png
 from app.services.label_v2_renderer import render_v2_label
 from app.services.spool_service import SpoolService
 
@@ -437,8 +438,8 @@ async def render_spool_label(
     orientation: Literal["original", "landscape", "portrait"] = "original",
     preset_id: int | None = Query(None, ge=0, description="Omit for the selected preset; 0 uses Default for this request"),
     color: Literal["mono", "color"] = "mono",
-    renderer: Literal["chromium", "basic"] | None = None,
-    threshold: int | None = Query(None, ge=0, le=255, description="mono1 only: values below this are black; defaults to 200 for Basic, 150 for Chromium"),
+    renderer: Literal["svg", "chromium", "basic"] | None = None,
+    threshold: int | None = Query(None, ge=0, le=255, description="mono1 only: values below this are black; defaults to 200 for SVG/Basic, 150 for Chromium"),
     principal=RequirePermission("spools:read"),
 ):
     if format == "mono1" and color == "color":
@@ -446,7 +447,7 @@ async def render_spool_label(
     renderer = renderer or app_settings.label_renderer
     if threshold is None:
         threshold = 150 if renderer == "chromium" else 200
-    async with label_render_slot() if renderer == "chromium" else nullcontext():
+    async with label_render_slot() if renderer != "basic" else nullcontext():
         spool = await db.scalar(select(Spool).where(Spool.id == spool_id).options(
             selectinload(Spool.filament).selectinload(Filament.manufacturer),
             selectinload(Spool.filament).selectinload(Filament.filament_colors).selectinload(FilamentColor.color),
@@ -516,14 +517,14 @@ async def render_spool_label(
             )
             qr_count = sum(element.get("type") == "qr" for element in design["elements"])
         else:
-            image_uses = Counter({"/__label-assets/manufacturer.png": int(renderer == "chromium")})
+            image_uses = Counter({"/__label-assets/manufacturer.png": int(renderer != "basic")})
             qr_count = 1
         logo_path = (
             MANUFACTURER_LOGO_DIR / f"{spool.filament.manufacturer_id}_label.png"
             if image_uses["/__label-assets/manufacturer.png"] else None
         )
         asset_urls = {}
-        if renderer == "chromium":
+        if renderer != "basic":
             asset_urls = {
                 asset_id: f"/__label-assets/{index}.png"
                 for index, asset_id in enumerate(assets)
@@ -570,7 +571,8 @@ async def render_spool_label(
                 "pixelWidth": label_width, "pixelHeight": label_height,
                 "thermal": format == "mono1",
             }
-            png = await render_preview_png(payload, str(request.base_url).rstrip("/"), assets)
+            render = render_svg_png if renderer == "svg" else render_preview_png
+            png = await render(payload, str(request.base_url).rstrip("/"), assets)
             image = await to_thread.run_sync(_decode_raster, png)
         return await to_thread.run_sync(
             _finish_raster, image, label_width, label_height, width, rotated, align, format, color, preset_id, renderer, threshold,

@@ -1,4 +1,5 @@
-import { buildSpoolDataFromApiSpool, renderDesignerLabel } from './label-designer'
+import { buildSpoolDataFromApiSpool } from './label-designer-data'
+import { renderFreeformLabel } from './freeform-label/render'
 import { captureLabelElement } from './label-export'
 import { normalizeDesignerPresetData } from './freeform-label/migrate-v1'
 import { API_DEFAULT_LABEL_SETTINGS, apiDefaultExtraFields, buildStandardLabelDataFromApiSpool, renderStandardLabel } from './label-standard'
@@ -27,7 +28,7 @@ export async function renderApiLabel(payload: ApiLabelRenderPayload): Promise<st
   try {
     const data = buildSpoolDataFromApiSpool(payload.spool, undefined, payload.fieldDefinitions)
     if (payload.preset !== null) {
-      await renderDesignerLabel({
+      await renderFreeformLabel({
         thermalQr: payload.thermal,
         element,
         design: normalizeDesignerPresetData(payload.preset, 'spool').design,

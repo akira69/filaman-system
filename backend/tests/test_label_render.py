@@ -55,6 +55,42 @@ def test_render_openapi_describes_binary_responses():
     assert set(content) == {"image/png", "application/octet-stream"}
 
 
+@pytest.mark.asyncio
+async def test_svg_is_default_and_preserves_wire_finishing(auth_client, db_session, monkeypatch):
+    from app.api.v1 import labels
+    from app.core.config import Settings
+    assert Settings.model_fields['label_renderer'].default == 'svg'
+    monkeypatch.setattr(labels.app_settings, 'label_renderer', 'svg')
+    client, _ = auth_client
+    manufacturer = Manufacturer(name='SVG labels')
+    db_session.add(manufacturer)
+    await db_session.flush()
+    filament = Filament(manufacturer_id=manufacturer.id, designation='Grüße', material_type='PLA', diameter_mm=1.75)
+    db_session.add(filament)
+    await db_session.flush()
+    status = await db_session.scalar(select(SpoolStatus).where(SpoolStatus.key == 'active'))
+    spool = Spool(filament_id=filament.id, status_id=status.id)
+    db_session.add(spool)
+    await db_session.commit()
+    path = f'/api/v1/labels/spool/{spool.id}/render?width=481&preset_id=0'
+    for renderer in ('', '&renderer=svg', '&renderer=basic'):
+        response = await client.get(path + renderer)
+        assert response.status_code == 200, response.text
+        assert response.headers['x-renderer'] == ('basic' if 'basic' in renderer else 'svg')
+        assert struct.unpack('>II', response.content[16:24]) == (481, 321)
+    for threshold in (0, 150, 200, 255):
+        response = await client.get(path + f'&format=mono1&threshold={threshold}&align=right')
+        assert response.status_code == 200, response.text
+        assert len(response.content) == 61 * 321
+        assert all(value & 127 == 0 for value in response.content[60::61])
+        assert 'no-store' in response.headers['cache-control']
+        if threshold == 0:
+            assert not any(response.content)
+    for orientation in ('portrait', 'landscape'):
+        response = await client.get(path + f'&dpi=100&orientation={orientation}')
+        assert response.status_code == 200, response.text
+
+
 @pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
 async def test_spool_label_render_formats(auth_client, db_session):
@@ -467,6 +503,7 @@ async def test_preset_dimensions_match_render_policy_and_isolate_bad_records(aut
 
 @pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
+@pytest.mark.parametrize('label_render_runtime', ['chromium', 'svg'], indirect=True)
 async def test_scale_render_uses_active_preset_when_id_is_omitted(
     auth_client, db_session, admin_user
 ):
@@ -518,6 +555,7 @@ async def test_scale_render_uses_active_preset_when_id_is_omitted(
 
 @pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
+@pytest.mark.parametrize('label_render_runtime', ['chromium', 'svg'], indirect=True)
 async def test_scale_renders_version_two_designer_preset(auth_client, db_session, admin_user):
     client, _ = auth_client
     manufacturer = Manufacturer(name="V2 Labels")
@@ -577,6 +615,7 @@ async def test_scale_renders_version_two_designer_preset(auth_client, db_session
 
 @pytest.mark.usefixtures("label_render_runtime")
 @pytest.mark.asyncio
+@pytest.mark.parametrize('label_render_runtime', ['chromium', 'svg'], indirect=True)
 async def test_scale_renders_version_two_uploaded_image(auth_client, db_session, admin_user):
     client, _ = auth_client
     manufacturer = Manufacturer(name="Image Labels")

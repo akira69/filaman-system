@@ -52,7 +52,7 @@ class Settings(BaseSettings):
 
     # FilamentDB community database URL for lookup/autocomplete
     filamentdb_url: str = "https://db.filaman.app"
-    label_renderer: Literal["chromium", "basic"] = "basic"
+    label_renderer: Literal["svg", "chromium", "basic"] = "svg"
 
 
 settings = Settings()

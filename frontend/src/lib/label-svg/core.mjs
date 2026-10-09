@@ -318,7 +318,7 @@ export function renderLabel(preset, data, assets, fonts, dpi, baseUrl, { thermal
   const flowed = flowElements(elements, data, assets, fonts);
   const sorted = flowed.elements.sort((a, b) => Number(a.type === 'qr') - Number(b.type === 'qr') || (a.z ?? 0) - (b.z ?? 0));
   for (const element of sorted) {
-    if (![element.x, element.y, element.w, element.h].every(Number.isFinite) || element.x < -1e-8 || element.y < -1e-8 || element.w <= 0 || element.h <= 0 || element.x + element.w > label.widthMm + 1e-8 || element.y + element.h > label.heightMm + 1e-8) throw new Error(`Element ${element.id} lies outside prototype label bounds`);
+    if (![element.x, element.y, element.w, element.h].every(Number.isFinite) || element.w <= 0 || element.h <= 0) throw new Error(`Invalid geometry for element ${element.id}`);
     if (element.type === 'text') {
       const result = textSvg(element, data, fonts);
       parts.push(result.svg); text.push(result.layout);
