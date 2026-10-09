@@ -7,10 +7,12 @@ import type { LabelDesignV2 } from '../freeform-label/types'
 import { normalizeLabelDesign } from '../freeform-label/normalize'
 import { renderText } from '../freeform-label/render'
 import { LabelOutputAssetError } from '../label-output-readiness'
+import { assertLabelRasterBudget, LabelRasterBudgetError, MAX_BATCH_RASTER_PIXELS } from '../label-export'
 
 const fontUrls = import.meta.glob<string>('/node_modules/@fontsource/*/files/*-latin-*-normal.woff2', { query: '?url', import: 'default', eager: true })
 const contexts = new WeakMap<HTMLElement, Context>()
 interface Context {
+  owner: HTMLElement
   input: SvgInput
   runtime?: SvgRuntime
   pending: Promise<void>
@@ -109,7 +111,7 @@ export async function renderSvgDesignerLabel(options: RenderDesignerLabelOptions
   const input: SvgInput = { preset: { version: 2, design }, data: structuredClone(options.data), assets: {},
     origin: location.origin, entityPath: options.entityPath === 'filaments' ? 'filaments' : 'spools',
     pixelWidth: Math.round(design.label.widthMm * 300 / 25.4), pixelHeight: Math.round(design.label.heightMm * 300 / 25.4), thermal: !!options.thermalQr }
-  const state: Context = { input, revision: (contexts.get(root)?.revision ?? 0) + 1, invalid: true, pending: Promise.resolve() }
+  const state: Context = { owner: root, input, revision: (contexts.get(root)?.revision ?? 0) + 1, invalid: true, pending: Promise.resolve() }
   contexts.set(root, state)
   const current = () => contexts.get(root) === state && !options.isStale?.()
   state.pending = (async () => {
@@ -155,8 +157,46 @@ export async function renderSvgElementOutput(element: HTMLElement, pixelWidth: n
   const state = contexts.get(element)
   if (!state) throw new LabelOutputAssetError('Shared label context is unavailable')
   await state.pending
-  if (contexts.get(element) !== state || state.invalid || !state.runtime || element.querySelector('[data-label-composing]')) throw new LabelOutputAssetError(element.dataset.labelOutputError || 'Label changed or could not be rendered')
+  if (contexts.get(element) !== state || contexts.get(state.owner) !== state || state.invalid || !state.runtime || state.owner.querySelector('[data-label-composing]')) throw new LabelOutputAssetError(element.dataset.labelOutputError || 'Label changed or could not be rendered')
   return renderSvgLabel({ ...state.input, pixelWidth, pixelHeight, thermal }, state.runtime, threshold)
+}
+
+/** A sheet preview is a snapshot, not a new layout or independently editable design. */
+export function bindSvgClone(source: HTMLElement, clone: HTMLElement) {
+  const state = contexts.get(source)
+  if (state) contexts.set(clone, state)
+}
+
+/** Prepare print-grade images before the final output clone/page composition. */
+export async function prepareSvgPrintImages(roots: HTMLElement[], dpi: number) {
+  const labels = roots.flatMap(root => [
+    ...(root.hasAttribute('data-label-svg') ? [root] : []),
+    ...root.querySelectorAll<HTMLElement>('[data-label-svg]'),
+  ])
+  const rendered = new Map<Context, string>()
+  const pending: Array<{ label: HTMLElement; state: Context; url: string }> = []
+  let pixels = 0
+  for (const label of labels) {
+    const state = contexts.get(label)
+    if (!state) throw new LabelOutputAssetError('Shared label context is unavailable')
+    let url = rendered.get(state)
+    if (!url) {
+      const dimensions = state.input.preset.design.label
+      assertLabelRasterBudget(dimensions)
+      const width = Math.round(dimensions.widthMm * dpi / 25.4), height = Math.round(dimensions.heightMm * dpi / 25.4)
+      pixels += width * height
+      if (pixels > MAX_BATCH_RASTER_PIXELS) throw new LabelRasterBudgetError('batch', 'This batch is too large to export safely')
+      url = pngDataUrl((await renderSvgElementOutput(label, width, height, false)).png)
+      rendered.set(state, url)
+    }
+    pending.push({ label, state, url })
+  }
+  if (pending.some(({ label, state }) => contexts.get(label) !== state || contexts.get(state.owner) !== state || state.invalid)) throw new LabelOutputAssetError('Label changed during output preparation')
+  for (const { label, url } of pending) {
+    const image = label.querySelector<HTMLImageElement>('[data-label-svg-raster]')
+    if (!image) throw new LabelOutputAssetError('Shared label raster is unavailable')
+    image.src = url
+  }
 }
 
 /** Repaint the shared raster during a gesture without replacing its live handles. */

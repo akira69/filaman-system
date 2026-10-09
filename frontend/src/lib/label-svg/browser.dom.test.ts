@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderDesignerLabel, buildSpoolDataFromFlatLabel } from '../label-designer'
-import { renderSvgElementOutput, redrawSvgGesture } from './browser'
+import { renderSvgElementOutput, redrawSvgGesture, bindSvgClone, prepareSvgPrintImages } from './browser'
 import type { LabelDesignV2 } from '../freeform-label/types'
 
 vi.mock('./runtime.mjs', async importOriginal => {
@@ -71,4 +71,16 @@ it('repaints a gesture without replacing its handles', async () => {
   expect(element.querySelector('[data-label-element-id="info"]')).toBe(target)
   expect(element.querySelector<HTMLImageElement>('[data-label-svg-raster]')!.src).not.toBe(previous)
   expect((await renderSvgElementOutput(element, 320, 240, false)).boxes.find((box: { id: string }) => box.id === 'info').x).toBe(2)
+})
+
+it('renders sheet copies at output resolution and rejects stale clone context', async () => {
+  const element = root()
+  await renderDesignerLabel({ element, design: design(), data, interactive: true })
+  const clone = element.cloneNode(true) as HTMLElement
+  bindSvgClone(element, clone)
+  await prepareSvgPrintImages([clone], 600)
+  const png = Buffer.from(clone.querySelector<HTMLImageElement>('[data-label-svg-raster]')!.src.split(',')[1], 'base64')
+  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([945, 709])
+  await renderDesignerLabel({ element, design: design(), data: { ...data, 'filament.name': 'Changed' } })
+  await expect(prepareSvgPrintImages([clone], 600)).rejects.toThrow(/changed/i)
 })

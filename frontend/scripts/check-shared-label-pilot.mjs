@@ -22,6 +22,7 @@ const spool = { id: 295, filament_id: 8, filament, remaining_weight_g: 432, purc
 const browser = await chromium.launch({ executablePath: process.env.CHROME_EXECUTABLE_PATH, headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  page.on('dialog', async dialog => { console.error(dialog.message()); await dialog.dismiss(); });
   await page.addInitScript(design => {
     for (const entity of ['spool', 'filament']) {
       const key = `filaman-${entity}-label-designer-v1`;
@@ -31,7 +32,7 @@ try {
   }, design);
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
-    if (path.includes('/label-assets/') && path.endsWith('/content') || path.includes('/logo')) return route.fulfill({ contentType: 'image/png', body: logo });
+    if (path.includes('/label-assets/') && path.endsWith('/content') || path.endsWith('/label-logo')) return route.fulfill({ contentType: 'image/png', body: logo });
     let data = [];
     if (path.endsWith('/me')) data = { id: 1, email: 'label@example.test', language: 'en', roles: ['user'], permissions: [] };
     if (path.endsWith('/filaments/8')) data = filament;
@@ -74,6 +75,58 @@ try {
     await page.locator('#tab-btn-designer').click();
     await surface.locator('[data-label-svg-raster]').waitFor();
     assert.equal(await page.evaluate(entity => localStorage.getItem(`filaman-${entity === 'spools' ? 'spool' : 'filament'}-label-designer-v1`), entity), beforeReload);
+    await page.waitForFunction(async () => {
+      try {
+        const { renderSvgElementOutput } = await import('/src/lib/label-svg/browser.ts');
+        await renderSvgElementOutput(document.querySelector('#freeform-canvas-host .label-preview'), 1417, 945, false);
+        return true;
+      } catch { return false; }
+    });
+    const exported = await page.evaluate(async () => {
+      const { captureLabelElement, createLabelPagesPdf } = await import('/src/lib/label-export.ts');
+      const { renderSvgElementOutput, pngDataUrl } = await import('/src/lib/label-svg/browser.ts');
+      const root = document.querySelector('#freeform-canvas-host .label-preview');
+      const png = await captureLabelElement(root);
+      const expected = pngDataUrl((await renderSvgElementOutput(root, 1417, 945, false)).png);
+      if (png !== expected) throw new Error('Export differs from shared pixels');
+      const pdf = await createLabelPagesPdf([{ dataUrl: png, widthMm: 60, heightMm: 40 }]);
+      const bytes = new Uint8Array(await pdf.output('blob').arrayBuffer());
+      let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
+      return { png: png.split(',')[1], pdf: btoa(binary) };
+    });
+    await writeFile(`${directory}/${entity}-export-600dpi.png`, Buffer.from(exported.png, 'base64'));
+    await writeFile(`${directory}/${entity}-export.pdf`, Buffer.from(exported.pdf, 'base64'));
+    for (const mode of ['individual', 'sheet']) {
+      if (mode === 'sheet') {
+        await page.locator('#tab-btn-sheets').click();
+        await page.locator('[name="label-sheet-source"][value="designer"]').check();
+        for (const [id, value] of [['sheet-columns', '2'], ['sheet-rows', '2'], ['sheet-copies', '5']]) {
+          await page.locator('#' + id).fill(value);
+          await page.locator('#' + id).press('Tab');
+        }
+        await page.locator('#sheet-print-grid').check();
+        await page.waitForFunction(() => document.querySelectorAll('.label-sheet-page [data-label-svg]').length === 5);
+      }
+      await page.evaluate(() => {
+        window.__previewInvoked = false;
+        window.print = () => { window.__previewInvoked = true; }; // No physical printing.
+      });
+      await page.locator('#check-print-pdf').uncheck();
+      await page.locator('#btn-print').click();
+      await page.waitForFunction(() => window.__previewInvoked);
+      const info = await page.evaluate(() => {
+        const host = document.querySelector('#filaman-label-print-host');
+        if (host.querySelector('[data-label-editor-chrome], [contenteditable], [data-label-selection-for]')) throw new Error('Editor chrome leaked into print');
+        return { invoked: window.__previewInvoked, pages: host.querySelectorAll('.filaman-print-page').length,
+          expectedWidths: [...host.querySelectorAll('[data-label-svg]')].map(label => Math.round(parseFloat(label.style.width) * 600 / 25.4)),
+          widths: [...host.querySelectorAll('[data-label-svg-raster]')].map(image => image.naturalWidth) };
+      });
+      assert.ok(info.invoked);
+      assert.equal(info.pages, mode === 'individual' ? 1 : 2);
+      assert.deepEqual(info.widths, info.expectedWidths);
+      await page.pdf({ path: `${directory}/${entity}-${mode}-browser-print.pdf`, preferCSSPageSize: true, printBackground: true });
+      await page.evaluate(async () => (await import('/src/lib/label-browser-print.ts')).cleanupLabelBrowserPrint());
+    }
     console.log(`${entity}: mixed fonts, image, decorated QR, inline edit, undo/redo, drag, reload passed`);
   }
 } finally { await browser.close(); }
