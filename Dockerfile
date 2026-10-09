@@ -9,7 +9,7 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 
 # Install dependencies
-RUN npm install --production
+RUN npm ci
 
 # Copy frontend source
 COPY frontend/ ./
@@ -61,19 +61,23 @@ ENV PYTHONUNBUFFERED=1
 ENV RUN_MIGRATIONS_IN_APP=false
 ENV LABEL_RENDER_CHROMIUM_EXECUTABLE=/usr/lib/chromium/chromium-headless-shell
 ENV LABEL_RENDER_CHROMIUM_USER=label-render
-ARG DEFAULT_LABEL_RENDERER=basic
+ENV LABEL_RENDER_USER=label-render
+ENV LABEL_RENDER_NODE_EXECUTABLE=/usr/local/bin/node
+ARG DEFAULT_LABEL_RENDERER=svg
 ENV LABEL_RENDERER=${DEFAULT_LABEL_RENDERER}
 
 # Install uv, services, and the Pillow runtime libraries used by ARMv7 source builds.
-RUN pip install uv && apt-get update && apt-get install -y cron nginx libjpeg62-turbo libfreetype6 && rm -rf /var/lib/apt/lists/*
+RUN pip install uv && apt-get update && apt-get install -y cron nginx libjpeg62-turbo libfreetype6 libstdc++6 libatomic1 && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system label-render \
     && useradd --system --gid label-render --no-create-home --shell /usr/sbin/nologin label-render
 
 # Copy installed dependencies from backend-builder
 COPY --from=backend-builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
+COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
+COPY --from=frontend-builder /usr/local/LICENSE /usr/local/share/licenses/node/LICENSE
 
-# The default image stays small; the -chromium image enables shared-preview rendering.
+# No browser in the default image; Chromium remains an explicit comparison option.
 ARG INSTALL_LABEL_BROWSER=false
 RUN if [ "$INSTALL_LABEL_BROWSER" = "true" ]; then \
       apt-get update && apt-get install -y --no-install-recommends chromium-headless-shell chromium-sandbox; \

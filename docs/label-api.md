@@ -72,8 +72,8 @@ Supported query parameters:
 | `orientation` | `original` (default), `portrait`, or `landscape` |
 | `preset_id` | Omitted, `0`, or a saved preset ID |
 | `color` | `mono` (default) or `color`; color requires PNG |
-| `renderer` | `basic` or `chromium` |
-| `threshold` | Integer 0–255; default `200` for Basic, `150` for Chromium; mono1 only, ignored for PNG |
+| `renderer` | `svg` (pilot branch default), `basic`, or `chromium` |
+| `threshold` | Integer 0–255; default `200` for SVG/Basic, `150` for Chromium; mono1 only, ignored for PNG |
 
 With `dpi`, FilaMan renders the preset at its physical size and pads it to the
 requested width. Without `dpi`, the label fills the requested width and its
@@ -91,13 +91,13 @@ are top-to-bottom, start on byte boundaries, and use most-significant-bit first;
 `1` means black. Unused low bits at the end of a row are zero.
 
 Monochrome conversion uses a plain threshold, not dithering: grayscale values
-strictly below `threshold` become black. Basic defaults to `200`; Chromium
+strictly below `threshold` become black. SVG/Basic default to `200`; Chromium
 defaults to `150` to avoid over-darkening its antialiased text. An explicit
-`threshold` overrides either default, including `0`. Tune it for your printer
+`threshold` overrides the renderer default, including `0`. Tune it for your printer
 and stock; these defaults are not a universal print-quality guarantee.
 The byte layout is unchanged.
 
-For mono1, both renderers use undecorated QR codes with error correction M,
+For mono1, all three renderers use undecorated QR codes with error correction M,
 a four-module white quiet zone, and at least three whole printer dots per module. Saved logo
 or center-text QR modes are overridden for this response only. Codes retain
 their URL and layout slot; insufficient space or clipping at the label edge
@@ -115,7 +115,7 @@ Read these response headers before passing the raster to device-specific code:
 - `X-Bit-Order: msb-black-1`
 - `X-Content-Width` and `X-Rotated`
 - `X-Preset-Id` (`0` means Default)
-- `X-Renderer: basic|chromium` (also returned for PNG)
+- `X-Renderer: svg|basic|chromium` (also returned for PNG)
 
 Validate that the body length equals `X-Row-Bytes * X-Image-Height`. The body is
 a raster, not printer commands.
@@ -124,10 +124,30 @@ All render responses, including errors, include `Cache-Control: no-store`.
 
 ## Renderer options
 
-The standard Docker image defaults to `basic`. When `preset_id` is omitted, the
+On the experimental `codex/svg-label-prototype` branch, source builds default to
+`svg`. Published release images are not this pilot. SVG shares font metrics,
+wrapping, fitting, geometry and rasterization with the designer's WASM preview
+and 600-DPI exports. It supports all four bundled font families, inline styles,
+images/logos, shapes and umlauts. Text that cannot fit at the configured minimum
+returns `422`; enable **Scale font to fit** or enlarge its box. No silent fallback
+to another renderer occurs. Existing V2 presets and migrated V1 presets are reused;
+no V3 format is introduced. Normal QR styling remains separate from mono1.
+
+The source-built image includes Node 20, the standalone command, fonts/WASM and
+licenses, but no Chromium by default. Source installations must build the frontend
+(or run `npm run build:label-svg` from `frontend`) and install Node 20.
+`LABEL_RENDERER=svg`, `LABEL_RENDER_NODE_EXECUTABLE` and `LABEL_RENDER_SVG_DIR`
+select the default, executable and bundle directory. Containers run the command
+as the unprivileged `LABEL_RENDER_USER=label-render`. The command reads one JSON
+request through stdin and has no HTTP listener or request-controlled URL fetching.
+It starts a fresh process per request, with a 30-second deadline and bounded I/O.
+Container/multi-architecture verification and physical print/scan acceptance are
+still pending; see the [pilot notes](../frontend/prototypes/svg-label/README.md).
+
+When `preset_id` is omitted, the
 user's selected preset determines the label dimensions; Default is used only
 when no preset is selected. Designer presets (including automatically migrated V1) use V2
-dimensions and a best-effort Pillow implementation of text, tokens, QR codes,
+dimensions. Explicit `renderer=basic` uses a best-effort Pillow implementation of text, tokens, QR codes,
 logos, images, swatches, and shapes. Basic does not reproduce custom fonts,
 rich text, wrapping, or browser text fitting exactly.
 It bundles Space Grotesk regular and bold fonts, including Latin-1 accents.
@@ -143,7 +163,7 @@ silently losing lines. Enable **Scale font to fit** to shrink text down to its
 configured minimum; wrapping alone does not enable shrinking. Trusted `==text==`
 template markup renders white text on black, including full-width migrated title
 bands; `==` inside field values remains literal.
-Both renderers keep field values literal: formatting markers only take effect
+All renderers keep field values literal: formatting markers only take effect
 when written in the template. Chromium fits wrapped text against the box width
 and height, without limiting it to the template's original number of lines.
 It still rejects output if text cannot fit at the configured minimum font size.
@@ -161,16 +181,16 @@ images are referenced by ID and are not embedded in this response; a full backup
 is not needed for a text-layout report. Never send session cookies or API keys.
 
 For v2 designs, QR elements render above non-QR content with opaque white
-backgrounds in both renderers, regardless of their saved layer positions.
-The browser designer and Chromium PNG/normal print output add an automatic
+backgrounds in all renderers, regardless of their saved layer positions.
+The shared designer/SVG and Chromium PNG/normal print output add an automatic
 four-module white outline outside the QR's size handles. It can occupy the
 label margin; the editor warns only when it extends off the physical label.
 The existing Basic/`mono1` QR slot includes its quiet zone internally, preserving
 the printer-raster sizing contract. The editor provides separate 200/300 DPI
 size guidance and a caution for center decoration; neither guarantees scanning.
 
-The `-chromium` image defaults to `chromium` and reproduces the editor's saved
-presets using the editor's fonts, rich fields, fitting, images, and QR styling
+The `-chromium` image defaults to `chromium` and retains the previous HTML/CSS
+reference renderer with fonts, rich fields, fitting, images, and QR styling
 (except for the mono1 thermal QR override described above).
 Start it with the supplied sandbox configuration:
 
@@ -182,7 +202,7 @@ For source installations, install Chromium and set `LABEL_RENDERER=chromium`.
 `LABEL_RENDER_STATIC_DIR` can select the built frontend directory, and
 `LABEL_RENDER_CHROMIUM_EXECUTABLE` can select the browser executable.
 
-Chromium handles one render at a time across server workers. A busy request
+SVG and Chromium share one render slot across server workers. A busy request
 returns `503` with `Retry-After: 1`. A Chromium request where Chromium is not
 installed returns `503` without a retry hint.
 

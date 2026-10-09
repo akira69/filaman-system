@@ -8,6 +8,7 @@ services:
     ports:
       - "${PORT}:8000"
     environment:
+      - LABEL_RENDERER=${LABEL_RENDERER:-svg}
       - DATABASE_URL=${DATABASE_URL}
       - SECRET_KEY=${SECRET_KEY}
       - CSRF_SECRET_KEY=${CSRF_SECRET_KEY}
@@ -34,4 +35,3 @@ services:
 networks:
   default:
     name: filaman-network
-

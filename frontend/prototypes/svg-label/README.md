@@ -1,9 +1,54 @@
-# Shared SVG label spike
+# Shared SVG label pilot
 
-Disposable feasibility experiment on `codex/svg-label-prototype`, based on API commit
-`7cfbdda`. It does not change production editor/API behavior, preset storage or Docker
-image. The existing template-expansion helper is exported for reuse, without changing
-its implementation.
+Experimental branch `codex/svg-label-prototype`, based on API commit `7cfbdda`.
+The shared core now drives the real designer, 600-DPI exports/browser printing and
+the default API renderer. Basic and Chromium remain explicit comparison paths.
+The lab below reuses that same core; it is not a second layout implementation.
+Preset storage remains V2 with the existing V1 migration. No deployment or physical
+printer validation has been performed. Docker packaging is implemented but not yet
+verified in a running container; the development machine has no Docker daemon.
+
+## Application integration checks
+
+Build resources with `npm run build:label-svg` from `frontend`, then run
+`node_modules/.bin/astro dev --host 127.0.0.1 --port 4408`. With
+`CHROME_EXECUTABLE_PATH` and `LABEL_EVIDENCE_DIR` set, run
+`node scripts/check-shared-label-pilot.mjs`: it intercepts API calls with local
+fixtures, exercises spool/filament editing and exports, and stubs `window.print`.
+It never sends a physical print command. PNG export pixels must equal shared output;
+PDF/browser-print artifacts cover single labels and five copies on two A4 sheets.
+
+For actual authenticated API parity, run from `backend`:
+
+```sh
+LABEL_EVIDENCE_DIR=/absolute/ignored/evidence \
+LABEL_TESTER_PRESETS_DIR=/absolute/read-only/tester-exports \
+LABEL_RENDER_NODE_EXECUTABLE=/path/to/node20 \
+.venv/bin/pytest tests/test_shared_label_pilot.py -q
+```
+
+The test uses an in-memory database, an owned image and representative German
+spool data; it never connects to the live installation. Tester exports are optional,
+read-only and hash-checked. Then run `node scripts/check-shared-label-api.mjs` from
+`frontend` with the same evidence directory and browser path. It compares browser
+RGBA and final API wire bytes, including padding, rotation, threshold 0/150/200/255,
+203/300 DPI and 100/600-DPI boundaries. Original overflowing/tiny-QR exports must
+produce matching errors; the fit-enabled comparison copy is labelled separately.
+
+Container follow-up: build the default and Chromium variants in an isolated test
+environment, not the live Compose data mount. Run the fixture test with
+`LABEL_CONTAINER_SMOKE=1` inside the default image (with test dependencies available)
+to require Node 20, no Chromium executable, and authenticated SVG output. This is
+not a claim that a source-text Docker recipe check validates the resulting image.
+
+Local integration result (macOS arm64, Node 20.20.2): 22 API/browser outcomes agree,
+19 rendered and three expected thermal QR size rejections. The first mixed-font,
+owned-image 203-DPI request took 0.217 s; five repeated requests took 0.206–0.217 s
+each, including a fresh child every time. Peak child RSS across this matrix was
+155 MiB. These are in-process ASGI measurements, not network/Docker benchmarks;
+the renderer admission-lock regression checks contention and release after failure.
+The runtime bundle is 6.7 MiB; Linux image-size delta remains unmeasured. There is
+no measured need here for a persistent worker.
 
 ## Run
 
@@ -122,7 +167,7 @@ rejects a layout. A separately labelled fit-enabled copy of tester 4 with an exp
 not counted as an untouched-export success. The prototype now uses the editor's implicit
 minimums: 2 mm for wrapping text and 0.265 mm for non-wrapping text.
 
-### Integration costs
+### Original feasibility measurements and remaining costs
 
 - Three new development dependencies: fontkit, qrcode and resvg-wasm; 34 added lockfile
   package nodes. The WASM file is about 2.4 MiB and fontkit's browser module about
@@ -131,29 +176,29 @@ minimums: 2 mm for wrapping text and 0.265 mm for non-wrapping text.
 - Timings in `results.json` measure warm layout+raster only. Startup, font/WASM loading,
   network and Python process launch are excluded. This is not a throughput or
   end-to-end benchmark; all 14 font faces are eagerly loaded in the lab.
-- The current production Docker runtime does not contain Node. Adoption needs a
-  JavaScript runtime/worker integration; it is not a drop-in Python replacement.
+- The pilot packages a Node command plus a roughly 6.7-MiB resource bundle. Runtime
+  startup is paid per API request; there is no persistent worker or separate service.
+  Docker image size and Linux/multi-architecture performance still need measurement.
 - Greedy wrapping differs from browser balanced wrapping. Synthetic italic, line metrics
   and normal QR decoration are approximate rather than pixel-identical to HTML/CSS.
   Non-fitting text is rejected instead of using the browser's legacy title ellipsis or
-  clipping behavior. Full bidi, arbitrary editor behavior and all V2 validation are not
-  implemented. This is not a production V2 importer.
-- Text becomes SVG paths, so text editing/selection still needs the editor's controls
-  or overlay. Browser-native SVG rendering is not claimed to match resvg pixels;
-  the editor would need the same WASM preview for exact raster parity.
+  clipping behavior. Full bidi is not supported. Existing application normalization,
+  authorization and asset budgets remain the input boundary.
+- Text becomes SVG paths. The pilot retains the editor controls and a temporary DOM
+  text-editing surface; hit targets consume shared geometry, while the preview uses
+  the same WASM rasterizer as the command. The editing overlay is never exported.
 
-Verification: seventeen focused tests pass, including separator-font wrapping, empty
+Original spike verification: seventeen focused tests passed, including separator-font wrapping, empty
 conditional boxes, crop isolation and legacy inline sizing; frontend type check/build pass, lint has no
 errors, scoped duplication check has no clones, and the Python helper passes Ruff.
 The full frontend suite has 1,283 passes and one pre-existing changelog-scope failure
-about missing streaming-JSONL release notes. Production backend code is unchanged.
+about missing streaming-JSONL release notes. These are historical spike counts, not
+the later integration run. The backend now includes the bounded SVG command adapter.
 
 ## Decision
 
-The shared-renderer approach is feasible for this subset and removes the *two-layout*
-problem: fonts, wrapping and rasterization have one implementation. It does not yet
-prove a full editor replacement is simpler. The supplied exports now have comparison
-coverage, with remaining layout differences and overflow called out. Decide which
-behaviors must be retained before wiring this into production. Keep Basic/Chromium unchanged until that compatibility and
-deployment cost is understood; do not build a second full compatibility framework
-inside this spike.
+The shared-renderer approach now has application integration on this branch, not
+just lab coverage. Font metrics, wrapping and rasterization have one implementation.
+Basic/Chromium remain available for explicit comparisons while container acceptance
+and the tester's physical prints are pending. Do not deploy this experiment as an
+accepted replacement based only on pixel comparisons.

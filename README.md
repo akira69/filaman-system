@@ -75,9 +75,14 @@ The application will be available at `http://localhost:8083`.
 - **Default Email:** `admin@example.com`
 - **Default Password:** `admin123`
 
-The standard image uses the lightweight Basic API label renderer. For exact
-saved-preset rendering, use the `-chromium` image with the supplied sandbox
-profile:
+**Experimental `codex/svg-label-prototype` branch:** source builds default to
+the shared SVG/WASM renderer (`svg`), used by the designer, exports and API.
+The image packages Node 20 and fonts; Chromium is not required. Published release
+images above are not this pilot. `renderer=basic` and `renderer=chromium` remain
+explicit comparisons, with no automatic fallback. Container and physical-printer
+acceptance are still pending. See [API documentation](docs/label-api.md).
+
+The Chromium-enabled release image still uses its supplied sandbox profile:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.chromium.yml up -d

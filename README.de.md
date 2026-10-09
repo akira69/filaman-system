@@ -75,6 +75,13 @@ Die Anwendung ist anschließend unter `http://localhost:8083` erreichbar.
 - **Standard E-Mail:** `admin@example.com`
 - **Standard Passwort:** `admin123`
 
+**Experimenteller Branch `codex/svg-label-prototype`:** Eigene Builds verwenden
+standardmäßig den gemeinsamen SVG/WASM-Renderer (`svg`) für Designer, Export und
+API. Das Image enthält Node 20 und Schriftarten; Chromium ist nicht erforderlich.
+Die oben genannten Release-Images sind nicht dieser Pilot. `renderer=basic` und
+`renderer=chromium` bleiben explizite Vergleichsoptionen ohne automatischen Fallback.
+Container- und Drucker-Abnahme stehen noch aus. Siehe [API-Dokumentation](docs/label-api.md).
+
 ### Docker Container selber bauen
 
 #### Voraussetzungen
