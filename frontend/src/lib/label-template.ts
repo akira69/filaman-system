@@ -228,7 +228,7 @@ export function renderTemplateText(template: string, data: SpoolData): string {
 }
 
 /** Track UTF-16 offsets alongside expansion, before markup hides its delimiters. */
-function expandTemplate(template: string, data: SpoolData, selectable: boolean): {
+export function expandTemplate(template: string, data: SpoolData, selectable: boolean): {
   text: string
   sources?: TemplateCharacterSource[]
 } {
