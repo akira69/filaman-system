@@ -14,7 +14,7 @@ try {
   const results = await page.evaluate(async () => {
     const { renderLabel, rasterize, loadFonts } = await import('/prototypes/svg-label/render.mjs');
     const { LABEL_FONT_FAMILIES, LABEL_FONT_WEIGHTS, LABEL_SHAPES } = await import('/src/lib/freeform-label/types.ts');
-    const { renderDesignerLabel } = await import('/src/lib/label-designer.ts');
+    const { renderFreeformLabel: renderDesignerLabel } = await import('/src/lib/freeform-label/render.ts');
     const { waitForLabelOutputAssets } = await import('/src/lib/label-output-readiness.ts');
     const model = await fetch('/probe/fixtures').then(r => r.json());
     const fonts = await loadFonts(async (_file, index) => new Uint8Array(await fetch(`/probe/font/${index}`).then(r => r.arrayBuffer())));

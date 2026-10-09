@@ -1,0 +1,79 @@
+// Local browser fixtures only: never sends writes or print commands to a server.
+import assert from 'node:assert/strict';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chromium } from 'playwright-core';
+
+const origin = process.argv[2] || 'http://127.0.0.1:4408';
+if (!['127.0.0.1', 'localhost'].includes(new URL(origin).hostname)) throw new Error('Local test server required');
+const directory = process.env.LABEL_EVIDENCE_DIR;
+if (!directory) throw new Error('Set LABEL_EVIDENCE_DIR to an ignored evidence directory');
+await mkdir(directory, { recursive: true });
+const logo = await readFile('public/logo-qr.png');
+const design = { version: 2, label: { widthMm: 60, heightMm: 40, marginMm: 1, border: false }, elements: [
+  { id: 'text', type: 'text', x: 2, y: 9, w: 33, h: 21, z: 0,
+    template: '{filament.name}\n[font=Fraunces]Grüße[/font] [font=Space Mono]Ä Ö Ü ß[/font]\n[font=Roboto Condensed][b]größere Füße[/b][/font]',
+    fontFamily: 'Space Grotesk', fontSizeMm: 2.5, fontWeight: 400, wrap: true, fitToWidth: true, minFontSizeMm: 1.5 },
+  { id: 'image', type: 'image', assetId: '12345678-1234-1234-1234-123456789abc', x: 2, y: 1, w: 28, h: 7, z: 1, objectFit: 'contain' },
+  { id: 'shape', type: 'shape', shape: 'circle', x: 3, y: 32, w: 5, h: 5, z: 2, fill: '#f4a123', stroke: '#000', strokeWidthMm: .3 },
+  { id: 'qr', type: 'qr', x: 39, y: 12, w: 18, h: 18, z: 3, mode: 'colorLogo', linkMode: 'spool', urlTemplate: '' },
+] };
+const filament = { id: 8, designation: 'Matte Charcoal 11101', material_type: 'PLA', diameter_mm: 1.75, manufacturer_id: 1, manufacturer: { id: 1, name: 'Bambu Lab' }, extra: {} };
+const spool = { id: 295, filament_id: 8, filament, remaining_weight_g: 432, purchase_date: '2026-10-05', extra: {} };
+const browser = await chromium.launch({ executablePath: process.env.CHROME_EXECUTABLE_PATH, headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+  await page.addInitScript(design => {
+    for (const entity of ['spool', 'filament']) {
+      const key = `filaman-${entity}-label-designer-v1`;
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ version: 2, design }));
+    }
+    localStorage.setItem('sidebar-collapsed', 'true');
+  }, design);
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.includes('/label-assets/') && path.endsWith('/content') || path.includes('/logo')) return route.fulfill({ contentType: 'image/png', body: logo });
+    let data = [];
+    if (path.endsWith('/me')) data = { id: 1, email: 'label@example.test', language: 'en', roles: ['user'], permissions: [] };
+    if (path.endsWith('/filaments/8')) data = filament;
+    if (path.endsWith('/spools/295')) data = spool;
+    if (path.endsWith('/label-assets')) data = [{ id: design.elements[1].assetId, display_name: 'Fixture logo', width: 100, height: 50 }];
+    if (path.endsWith('/events/stream')) return route.fulfill({ contentType: 'text/event-stream', body: ': ready\n\n' });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
+  });
+  for (const entity of ['spools', 'filaments']) {
+    await page.goto(`${origin}/${entity}/${entity === 'spools' ? 295 : 8}/print`);
+    await page.locator('#tab-btn-designer').click();
+    const surface = page.locator('#freeform-canvas-host .label-preview').first();
+    await surface.locator('[data-label-svg-raster]').waitFor();
+    assert.equal(await surface.locator('[data-label-output-error]').count(), 0);
+    const initial = await surface.locator('[data-label-svg-raster]').getAttribute('src');
+    await surface.locator('[data-label-element-id="text"]').click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' Ende');
+    await page.waitForFunction(previous => document.querySelector('#freeform-canvas-host [data-label-svg-raster]')?.getAttribute('src') !== previous, initial);
+    await page.keyboard.press('Escape');
+    const saved = await page.evaluate(entity => JSON.parse(localStorage.getItem(`filaman-${entity === 'spools' ? 'spool' : 'filament'}-label-designer-v1`)), entity);
+    assert.ok(saved.design.elements.find(e => e.id === 'text').template.includes('Ende'));
+    // Exercise undo/redo through the real keyboard controller.
+    await page.locator('#freeform-canvas-host').focus();
+    await page.keyboard.press('ControlOrMeta+z');
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    const shape = surface.locator('[data-label-element-id="shape"]');
+    const before = await shape.boundingBox();
+    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(before.x + before.width / 2 + 20, before.y + before.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForFunction(() => Number.parseFloat(document.querySelector('#freeform-canvas-host [data-label-element-id="shape"]').style.left) > 3);
+    await page.keyboard.press('Escape');
+    await surface.screenshot({ path: `${directory}/${entity}-shared-editor.png` });
+    const raster = await surface.locator('[data-label-svg-raster]').getAttribute('src');
+    await writeFile(`${directory}/${entity}-shared-preview.png`, Buffer.from(raster.split(',')[1], 'base64'));
+    const beforeReload = await page.evaluate(entity => localStorage.getItem(`filaman-${entity === 'spools' ? 'spool' : 'filament'}-label-designer-v1`), entity);
+    await page.reload();
+    await page.locator('#tab-btn-designer').click();
+    await surface.locator('[data-label-svg-raster]').waitFor();
+    assert.equal(await page.evaluate(entity => localStorage.getItem(`filaman-${entity === 'spools' ? 'spool' : 'filament'}-label-designer-v1`), entity), beforeReload);
+    console.log(`${entity}: mixed fonts, image, decorated QR, inline edit, undo/redo, drag, reload passed`);
+  }
+} finally { await browser.close(); }

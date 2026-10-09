@@ -34,6 +34,8 @@ try {
     await page.setViewportSize({ width: 1600, height: 900 })
     await page.goto(new URL(path, process.argv[2] || 'http://127.0.0.1:4321').href)
     await page.locator('#tab-btn-designer').click()
+    await page.locator('#freeform-canvas-host [data-label-svg-raster]').first().waitFor()
+    assert.equal(await page.locator('#freeform-canvas-host [data-label-output-error]').count(), 0)
     await page.locator('#preview-zoom-input').fill('100')
     await page.locator('#preview-zoom-input').press('Tab')
     if (path.includes('?ids=')) {

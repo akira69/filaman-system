@@ -1,4 +1,5 @@
 import { bindCanvasTextEditor } from './canvas-text-editor'
+import { redrawSvgGesture } from '../label-svg/browser'
 import { bindElementClipboard } from './element-clipboard'
 import { bindFieldDrawer } from './field-drawer'
 import { bindShapeMenu } from './shape-menu'
@@ -436,6 +437,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
       },
       onGeometryChange: (elementId, geometry) => {
         controller.updateGesture(elementId, geometry)
+        redrawSvgGesture(canvas, controller.getDesign())
         syncQrReadability()
         textEditor?.positionToolbar()
       },
@@ -447,7 +449,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
         const changed = controller.endGesture()
         textEditor?.setGestureActive(false)
         syncDom()
-        if (changed && controller.getElement(elementId)?.type !== 'shape') void refresh()
+        if (changed && (canvas.hasAttribute('data-label-svg') || controller.getElement(elementId)?.type !== 'shape')) void refresh()
       },
       loadInteract: options.loadInteract,
       shouldInitialize: isCurrent,

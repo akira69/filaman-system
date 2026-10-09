@@ -97,7 +97,7 @@ function showImagePlaceholder(node: HTMLElement, assetId: string) {
   node.setAttribute('aria-label', node.dataset.labelOutputError)
 }
 
-function renderText(node: HTMLElement, element: Extract<LabelDesignElement, { type: 'text' }>, data: SpoolData, interactive = false) {
+export function renderText(node: HTMLElement, element: Extract<LabelDesignElement, { type: 'text' }>, data: SpoolData, interactive = false) {
   node.style.fontFamily = `"${element.fontFamily}", sans-serif`
   node.style.fontSize = `${element.fontSizeMm}mm`
   node.style.fontWeight = String(element.fontWeight)

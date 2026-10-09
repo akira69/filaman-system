@@ -149,6 +149,12 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
     for (const node of canvas?.querySelectorAll<HTMLElement>('[data-label-element-id]') ?? []) {
       const editing = node.dataset.labelElementId === editingId
       node.toggleAttribute('data-label-text-editing', editing)
+      if (!editing) node.removeAttribute('data-label-composing')
+      if (node.hasAttribute('data-label-svg-target')) {
+        const content = node.firstElementChild as HTMLElement | null
+        if (content) content.style.visibility = editing ? 'visible' : 'hidden'
+        node.style.background = editing ? 'white' : 'transparent'
+      }
       if (editing) node.contentEditable = 'true'
       else node.removeAttribute('contenteditable')
       for (const [index, token] of [...node.querySelectorAll<HTMLElement>('[data-template-atomic]')].entries()) {
@@ -379,10 +385,12 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
   listen<CompositionEvent>(canvas, 'compositionstart', () => {
     if (!editingId) return
     rememberCanvasRange()
+    selectedNode()?.setAttribute('data-label-composing', '')
     const selected = options.getSelected()
     if (selected?.type === 'text') compositionRange = canvasRange ?? { start: selected.template.length, end: selected.template.length }
   })
   listen<CompositionEvent>(canvas, 'compositionend', event => {
+    selectedNode()?.removeAttribute('data-label-composing')
     const range = compositionRange
     compositionRange = null
     if (range) edit(event.data, range)
@@ -534,7 +542,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
       canvas?.querySelectorAll('[data-template-token-caption]').forEach(caption => caption.remove())
       captionTokens = []
       canvas?.querySelectorAll('[data-label-text-editing]').forEach(node => {
-        node.removeAttribute('data-label-text-editing'); node.removeAttribute('contenteditable')
+        node.removeAttribute('data-label-text-editing'); node.removeAttribute('contenteditable'); node.removeAttribute('data-label-composing')
         node.querySelectorAll('[data-template-atomic]').forEach(token => { token.removeAttribute('contenteditable'); token.removeAttribute('draggable'); token.removeAttribute('data-template-token-chip'); token.removeAttribute('data-template-token-active'); token.removeAttribute('title') })
       })
       if (toolbar) toolbar.hidden = true

@@ -1,5 +1,5 @@
 import { initWasm, loadFonts, renderLabel, rasterize } from './render.mjs';
-import { renderDesignerLabel } from '../../src/lib/label-designer.ts';
+import { renderFreeformLabel as renderDesignerLabel } from '../../src/lib/freeform-label/render.ts';
 import { waitForLabelOutputAssets } from '../../src/lib/label-output-readiness.ts';
 import { renderThermalQrs } from '../../src/lib/qr-code.ts';
 import '../../src/styles/label-fonts.css';

@@ -1,6 +1,6 @@
 import type { SpoolData } from './label-template'
 import { clampFinite } from './freeform-label/geometry'
-import { renderFreeformLabel } from './freeform-label/render'
+import { renderSvgDesignerLabel } from './label-svg/browser'
 import type { LabelDesignV2 } from './freeform-label/types'
 export { buildSpoolDataFromFlatLabel, buildSpoolDesignerDataFromLabelData, buildSpoolDataFromApiSpool } from './label-designer-data'
 export type { DesignerExtraField, DesignerFlatLabelData } from './label-designer-data'
@@ -29,7 +29,7 @@ export async function renderDesignerLabel(options: RenderDesignerLabelOptions) {
   if (!options.design || options.design.version !== 2) {
     throw new Error('A version 2 label design is required')
   }
-  await renderFreeformLabel({
+  await renderSvgDesignerLabel({
     thermalQr: options.thermalQr,
     element: options.element,
     design: options.design,
