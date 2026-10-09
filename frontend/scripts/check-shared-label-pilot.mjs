@@ -127,6 +127,18 @@ try {
       await page.pdf({ path: `${directory}/${entity}-${mode}-browser-print.pdf`, preferCSSPageSize: true, printBackground: true });
       await page.evaluate(async () => (await import('/src/lib/label-browser-print.ts')).cleanupLabelBrowserPrint());
     }
+    // Switching away must not export the last designer bitmap or leave stale output errors.
+    await page.locator('#tab-btn-print').click();
+    await page.waitForFunction(() => document.querySelector('#label-preview .label-designation')?.textContent.includes('Matte'));
+    assert.equal(await page.locator('#label-preview').getAttribute('data-label-svg'), null);
+    const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#btn-export-png').click()]);
+    const standardPath = `${directory}/${entity}-standard-after-designer.png`;
+    await download.saveAs(standardPath);
+    assert.notEqual((await readFile(standardPath)).toString('base64'), exported.png);
+    await page.evaluate(() => { window.__previewInvoked = false; });
+    await page.locator('#btn-print').click();
+    await page.waitForFunction(() => window.__previewInvoked);
+    await page.evaluate(async () => (await import('/src/lib/label-browser-print.ts')).cleanupLabelBrowserPrint());
     console.log(`${entity}: mixed fonts, image, decorated QR, inline edit, undo/redo, drag, reload passed`);
   }
 } finally { await browser.close(); }

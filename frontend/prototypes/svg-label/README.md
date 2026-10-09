@@ -43,9 +43,9 @@ not a claim that a source-text Docker recipe check validates the resulting image
 
 Local integration result (macOS arm64, Node 20.20.2): 22 API/browser outcomes agree,
 19 rendered and three expected thermal QR size rejections. The first mixed-font,
-owned-image 203-DPI request took 0.217 s; five repeated requests took 0.206–0.217 s
+owned-image 203-DPI request took 0.304 s; five repeated requests took 0.212–0.225 s
 each, including a fresh child every time. Peak child RSS across this matrix was
-155 MiB. These are in-process ASGI measurements, not network/Docker benchmarks;
+160 MiB. These are in-process ASGI measurements, not network/Docker benchmarks;
 the renderer admission-lock regression checks contention and release after failure.
 The runtime bundle is 6.7 MiB; Linux image-size delta remains unmeasured. There is
 no measured need here for a persistent worker.

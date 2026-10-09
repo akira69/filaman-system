@@ -365,7 +365,8 @@ export function rasterize(svg, threshold = 200) {
     for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
       const i = (y * image.width + x) * 4;
       // Match Pillow's rounded RGB luminance; SVG always has an opaque white base.
-      const dark = Math.round((299 * pixels[i] + 587 * pixels[i + 1] + 114 * pixels[i + 2]) / 1000) < threshold;
+      // Pillow's RGB -> L uses these fixed-point coefficients, including half-up rounding.
+      const dark = ((19595 * pixels[i] + 38470 * pixels[i + 1] + 7471 * pixels[i + 2] + 32768) >> 16) < threshold;
       if (dark) mono[y * stride + (x >> 3)] |= 1 << (7 - (x & 7));
     }
     return { png: new Uint8Array(image.asPng()), pixels, mono, width: image.width, height: image.height };

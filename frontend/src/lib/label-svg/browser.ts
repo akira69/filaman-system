@@ -21,6 +21,20 @@ interface Context {
   frame?: number
 }
 
+/** Standard and designer previews reuse a root; invalidate its old raster job too. */
+export function clearSvgDesignerLabel(root: HTMLElement) {
+  const state = contexts.get(root)
+  if (state?.frame !== undefined) cancelAnimationFrame(state.frame)
+  contexts.delete(root)
+  if (root.hasAttribute('data-label-svg')) {
+    root.style.padding = ''
+    root.style.overflow = ''
+    root.removeAttribute('data-label-svg')
+    root.removeAttribute('data-label-interactive')
+    root.removeAttribute('data-label-output-error')
+  }
+}
+
 export const pngDataUrl = (bytes: Uint8Array) => {
   let binary = ''
   for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192))

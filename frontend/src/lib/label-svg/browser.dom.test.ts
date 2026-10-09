@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { renderDesignerLabel, buildSpoolDataFromFlatLabel } from '../label-designer'
 import { renderSvgElementOutput, redrawSvgGesture, bindSvgClone, prepareSvgPrintImages } from './browser'
 import type { LabelDesignV2 } from '../freeform-label/types'
+import { renderStandardLabel, API_DEFAULT_LABEL_SETTINGS } from '../label-standard'
 
 vi.mock('./runtime.mjs', async importOriginal => {
   const module = await importOriginal<typeof import('./runtime.mjs')>()
@@ -83,4 +84,28 @@ it('renders sheet copies at output resolution and rejects stale clone context', 
   expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([945, 709])
   await renderDesignerLabel({ element, design: design(), data: { ...data, 'filament.name': 'Changed' } })
   await expect(prepareSvgPrintImages([clone], 600)).rejects.toThrow(/changed/i)
+})
+
+it.each([false, true])('invalidates completed and pending SVG work when switching to standard (pending=%s)', async pending => {
+  const element = root()
+  await renderDesignerLabel({ element, design: design(), data })
+  const clone = element.cloneNode(true) as HTMLElement
+  bindSvgClone(element, clone)
+  let release!: (value: null) => void
+  const delayedDesign = design()
+  delayedDesign.elements = [{ id: 'photo', type: 'image', assetId: 'slow', x: 1, y: 1, w: 10, h: 10, z: 0, objectFit: 'contain' }]
+  const rendering = pending ? renderDesignerLabel({ element, design: delayedDesign, data,
+    resolveAssetUrl: () => new Promise(resolve => { release = resolve }) }) : Promise.resolve()
+  await renderStandardLabel({ element, settings: { ...API_DEFAULT_LABEL_SETTINGS, showQR: false },
+    data: { id: '1', designation: 'NEW STANDARD', manufacturer: 'Maker', material: 'PLA',
+      colorName: 'Black', hexCode: '#000000', colorHexes: '#000000', multiColorStyle: 'bands', extraFields: [] } })
+  if (pending) release(null)
+  await rendering
+  expect(element.hasAttribute('data-label-svg')).toBe(false)
+  expect(element.hasAttribute('data-label-output-error')).toBe(false)
+  expect(element.querySelector('.label-designation')?.textContent).toBe('NEW STANDARD PLA')
+  await expect(renderSvgElementOutput(element, 320, 240, false)).rejects.toThrow()
+  await expect(renderSvgElementOutput(clone, 320, 240, false)).rejects.toThrow()
+  await renderDesignerLabel({ element, design: design(), data })
+  expect(element.querySelector('[data-label-svg-raster]')).not.toBeNull()
 })

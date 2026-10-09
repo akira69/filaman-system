@@ -72,6 +72,7 @@ async def test_shared_api_parity_fixtures(auth_client, db_session, admin_user, m
          'fontFamily': 'Space Grotesk', 'wrap': True, 'fitToWidth': True, 'minFontSizeMm': 1.5,
          'template': '{filament.name}\n[font=Fraunces]Grüße[/font] [font=Space Mono]ÄÖÜß[/font] [font=Roboto Condensed][b]Füße[/b][/font]'},
         {'id': 'photo', 'type': 'image', 'assetId': asset_id, 'x': 1, 'y': 12, 'w': 15, 'h': 12, 'z': 1},
+        {'id': 'boundary', 'type': 'shape', 'shape': 'rectangle', 'x': 1, 'y': 26, 'w': 10, 'h': 2, 'z': 1, 'fill': '#02e57f', 'strokeWidthMm': 0},
         {'id': 'qr', 'type': 'qr', 'x': 20, 'y': 11, 'w': 18, 'h': 18, 'z': 2, 'mode': 'colorLogo'},
     ]}
     preset = LabelPreset(user_id=admin_user.id, preset_type='spool', name='Parity', name_key=label_preset_name_key('Parity'),

@@ -15,7 +15,8 @@ export function prepareSvgApiInput(payload: ApiLabelRenderPayload, origin: strin
     logo: { show: defaults.showLogo, spaceMm: 5 },
     title: { template: '{filament.name}', sizeMm: 4, fitToWidth: true },
     qr: { show: defaults.showQR, sizeMm: defaults.qrSizeMm },
-    info: { template: ['ID: {id}', '{filament.manufacturer}', '{filament.type}', '{filament.color}',
+    info: { template: ['ID: {id}', '{filament.manufacturer}', '{filament.type}',
+      `${defaults.showColorSwatch ? '{color_swatch[4]} ' : ''}{filament.color}`,
       ...apiDefaultExtraFields(data.remaining_weight_g).map(field => `${field.label}: {remaining_weight_g} g`)].join('\n') },
   } }, 'spool')
   const embedded: Record<string, SvgAsset> = {}

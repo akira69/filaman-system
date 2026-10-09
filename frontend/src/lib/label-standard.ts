@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { canvasToQrImage, ensureQrCodeLoaded, getQrCodeConstructor } from './qr-code'
 import { LABEL_EXPORT_DPI } from './label-export'
+import { clearSvgDesignerLabel } from './label-svg/browser'
 import {
   buildFilamentSwatchBackground,
   getFilamentSwatchColors,
@@ -168,6 +169,7 @@ export async function renderStandardLabel(options: RenderStandardLabelOptions) {
   if (options.isStale?.()) return
 
   const { element: container, data, settings } = options
+  clearSvgDesignerLabel(container)
   ensureStandardLabelLayout(container)
 
   const widthMm = settings.widthMm

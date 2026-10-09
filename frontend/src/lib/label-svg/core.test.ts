@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { beforeAll, expect, it } from 'vitest'
-import { renderSvgLabel } from './core.mjs'
+import { renderSvgLabel, rasterize } from './core.mjs'
 import { createSvgRuntime } from './runtime.mjs'
 import type { SvgInput, SvgRuntime } from './types'
 import { fixtures, data } from '../../../prototypes/svg-label/fixtures.mjs'
@@ -12,6 +12,12 @@ beforeAll(async () => {
 const input = () => ({ preset: structuredClone(fixtures[0].preset), data, assets: {},
   pixelWidth: 641, pixelHeight: 481, origin: 'https://fila.test', entityPath: 'spools', thermal: false } as unknown as SvgInput)
 const render = (value: SvgInput, threshold = 200) => renderSvgLabel(value, runtime, threshold)
+
+it('uses the same fixed-point luminance rounding as Pillow at threshold boundaries', () => {
+  const output = rasterize('<svg xmlns="http://www.w3.org/2000/svg" width="9" height="1"><rect width="9" height="1" fill="#02e57f"/></svg>', 150)
+  // Pillow RGB(2, 229, 127) -> L=150; equality is white, not black.
+  expect([...output.mono]).toEqual([0, 0])
+})
 
 it('keeps multiple QR hit boxes and opaque clearance above non-QR artwork', () => {
   const value = input()
