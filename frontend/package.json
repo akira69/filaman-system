@@ -3,6 +3,7 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
+    "build:label-svg": "node scripts/build-label-svg.mjs",
     "prototype:svg": "node prototypes/svg-label/server.mjs",
     "dev": "astro dev",
     "build": "sh -c 'echo \"export const VERSION=\\\"$(cat ./version.txt)\\\"\" > src/version.js && astro build'",
