@@ -95,7 +95,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     canvasRow.style.setProperty('--freeform-label-width', `${labelWidth}px`)
     canvasHost.style.width = `${labelWidth}px`
     if (renderedLabelHeight > 0) canvasHost.style.height = `${renderedLabelHeight}px`
-    const available = rowWidth - labelWidth - 8
+    const available = (rowWidth - labelWidth) / 2 - 8
     canvasRow.style.setProperty('--freeform-inspector-width', `${Math.max(170, Math.min(360, available))}px`)
     const below = available < 104
     canvasRow.classList.toggle('is-geometry-below', below)

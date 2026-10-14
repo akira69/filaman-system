@@ -47,6 +47,26 @@ try {
     const surface = page.locator('#freeform-canvas-host .label-preview').first();
     await surface.locator('[data-label-svg-raster]').waitFor();
     assert.equal(await surface.locator('[data-label-output-error]').count(), 0);
+    // Editing chrome must not re-center the label-plus-inspector as a group.
+    for (const [width, zoom] of [[1600, 100], [1100, 250]]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.locator('#preview-zoom-input').fill(String(zoom));
+      await page.locator('#preview-zoom-input').press('Tab');
+      await page.locator('.freeform-canvas-region').click({ position: { x: 8, y: 8 } });
+      const anchor = await surface.boundingBox();
+      for (const id of ['text', 'qr']) {
+        await surface.locator(`[data-label-element-id="${id}"]`).click();
+        const editing = await surface.boundingBox();
+        assert.ok(Math.abs(editing.x - anchor.x) < 1 && Math.abs(editing.y - anchor.y) < 1,
+          `${entity} ${width}px/${zoom}%: selecting ${id} moved the label`);
+        await page.locator('.freeform-canvas-region').click({ position: { x: 8, y: 8 } });
+        const cleared = await surface.boundingBox();
+        assert.ok(Math.abs(cleared.x - anchor.x) < 1 && Math.abs(cleared.y - anchor.y) < 1);
+      }
+    }
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.locator('#preview-zoom-input').fill('100');
+    await page.locator('#preview-zoom-input').press('Tab');
     const initial = await surface.locator('[data-label-svg-raster]').getAttribute('src');
     await surface.locator('[data-label-element-id="text"]').click();
     await page.keyboard.press('End');

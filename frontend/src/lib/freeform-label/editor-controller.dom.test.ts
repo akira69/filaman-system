@@ -1434,7 +1434,7 @@ describe('freeform editor DOM binding', () => {
     binding.destroy()
   })
 
-  it('stacks geometry beside a zoomed label before moving it below', async () => {
+  it('fits geometry into the right half of the space around a centered label before moving it below', async () => {
     await renderRealDesignerEditor()
     const controller = makeController()
     const binding = bindFreeformEditorDom({ controller })
@@ -1444,7 +1444,7 @@ describe('freeform editor DOM binding', () => {
     const label = host.querySelector<HTMLElement>('.label-preview')!
     let labelWidth = 280
     let labelHeight = 180
-    Object.defineProperty(row, 'clientWidth', { configurable: true, value: 500 })
+    Object.defineProperty(row, 'clientWidth', { configurable: true, value: 720 })
     Object.defineProperty(host, 'getBoundingClientRect', {
       configurable: true,
       value: () => DOMRect.fromRect({ x: 150, width: labelWidth }),
@@ -1467,18 +1467,22 @@ describe('freeform editor DOM binding', () => {
     expect(row.style.getPropertyValue('--freeform-inspector-width')).toBe('212px')
     expect(row.classList.contains('is-geometry-narrow')).toBe(false)
     expect(row.classList.contains('is-geometry-below')).toBe(false)
-    labelWidth = 312
+    labelWidth = 360
     binding.sync()
     expect(row.classList.contains('is-geometry-narrow')).toBe(false)
     expect(row.classList.contains('is-geometry-below')).toBe(false)
-    labelWidth = 350
+    labelWidth = 420
     labelHeight = 220
     binding.sync()
-    expect(row.style.getPropertyValue('--freeform-label-width')).toBe('350px')
+    expect(row.style.getPropertyValue('--freeform-label-width')).toBe('420px')
     expect(host.style.height).toBe('220px')
     expect(row.classList.contains('is-geometry-narrow')).toBe(true)
     expect(row.classList.contains('is-geometry-below')).toBe(false)
-    labelWidth = 400
+    labelWidth = 496
+    binding.sync()
+    expect(row.classList.contains('is-geometry-narrow')).toBe(true)
+    expect(row.classList.contains('is-geometry-below')).toBe(false)
+    labelWidth = 498
     binding.sync()
     expect(row.classList.contains('is-geometry-narrow')).toBe(false)
     expect(row.classList.contains('is-geometry-below')).toBe(true)
