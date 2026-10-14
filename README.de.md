@@ -80,7 +80,9 @@ standardmäßig den gemeinsamen SVG/WASM-Renderer (`svg`) für Designer, Export 
 API. Das Image enthält Node 20 und Schriftarten; Chromium ist nicht erforderlich.
 Die oben genannten Release-Images sind nicht dieser Pilot. `renderer=basic` und
 `renderer=chromium` bleiben explizite Vergleichsoptionen ohne automatischen Fallback.
-Container- und Drucker-Abnahme stehen noch aus. Siehe [API-Dokumentation](docs/label-api.md).
+Container-Prüfungen auf nativem ARM64 sowie emuliertem AMD64/ARMv7 sind bestanden;
+die Abnahme durch echte Druck- und Scan-Tests steht noch aus.
+Siehe [API-Dokumentation](docs/label-api.md).
 
 ### Docker Container selber bauen
 

@@ -4,9 +4,9 @@ Experimental branch `codex/svg-label-prototype`, based on API commit `7cfbdda`.
 The shared core now drives the real designer, 600-DPI exports/browser printing and
 the default API renderer. Basic and Chromium remain explicit comparison paths.
 The lab below reuses that same core; it is not a second layout implementation.
-Preset storage remains V2 with the existing V1 migration. No deployment or physical
-printer validation has been performed. Docker packaging is implemented but not yet
-verified in a running container; the development machine has no Docker daemon.
+Preset storage remains V2 with the existing V1 migration. An isolated Docker test
+deployment is verified; no production deployment or physical printer validation
+has been performed. Physical print/scan acceptance remains with the tester.
 
 ## Application integration checks
 
@@ -35,7 +35,7 @@ RGBA and final API wire bytes, including padding, rotation, threshold 0/150/200/
 203/300 DPI and 100/600-DPI boundaries. Original overflowing/tiny-QR exports must
 produce matching errors; the fit-enabled comparison copy is labelled separately.
 
-Container follow-up: build the default and Chromium variants in an isolated test
+To repeat container checks, build the default and Chromium variants in an isolated test
 environment, not the live Compose data mount. Run the fixture test with
 `LABEL_CONTAINER_SMOKE=1` inside the default image (with test dependencies available)
 to require Node 20, no Chromium executable, and authenticated SVG output. This is
@@ -49,6 +49,38 @@ each, including a fresh child every time. Peak child RSS across this matrix was
 the renderer admission-lock regression checks contention and release after failure.
 The runtime bundle is 6.7 MiB; Linux image-size delta remains unmeasured. There is
 no measured need here for a persistent worker.
+
+### Container acceptance (2026-10-14)
+
+- Default images build for Linux ARM64, AMD64 and ARMv7. Six uvloop renders per
+  architecture (mixed fonts/image and tester preset, at 203/300/600 DPI) produce
+  identical RGBA hashes. ARM64 is native; AMD64/ARMv7 run under Docker emulation,
+  not on physical x86 or Raspberry Pi hardware.
+- The normal ARM64 entrypoint, migrations, nginx and four Gunicorn workers run
+  against an isolated database. Authenticated PNG/mono1 requests cover six presets
+  and three DPIs: 33 renders and three expected tiny-QR rejections. The same matrix
+  passes after restart. A 16-request burst returns one successful render and 15
+  intentional busy responses (`503`, `Retry-After: 1`), then recovers with `200`.
+  No Node child remains after the requests finish.
+- The real served designer loads tester presets, images, bundled fonts and QR
+  decoration without console errors; QR layering controls remain disabled. Earlier
+  browser harness checks cover editing, PNG/PDF exports and sheet composition.
+- Both browser-free and optional Chromium images passed isolated API checks under
+  uvloop. Chromium uses the supplied sandbox profile; it is not silently substituted
+  when SVG fails. The browser-free image returns `503` for explicit Chromium requests.
+
+The earlier native Linux comparison measured additional peak container working
+memory of roughly 5–13 MiB for Basic, 127–133 MiB for SVG and 102–117 MiB for headless
+Chromium. Repeated renders were roughly 17–46 ms, 236–273 ms and 194–216 ms respectively.
+These are isolated renderer/API measurements, not the memory of the full web service.
+SVG is **not** a demonstrated speed or RAM improvement over Linux headless Chromium;
+its benefit is shared layout across editor and API without a browser installation.
+
+The Node command now loads only used font faces and omits unused RGBA/mono readback.
+Paired measurements improved the tester's 600-DPI case from about 250 to 237 ms;
+other cases were effectively unchanged, with no reliable peak-memory reduction.
+The optimizations preserve all 22 saved Node PNG/error outcomes and 18 saved mono1
+wire rasters. No persistent process or new dependency was added.
 
 ## Run
 
@@ -178,7 +210,8 @@ minimums: 2 mm for wrapping text and 0.265 mm for non-wrapping text.
   end-to-end benchmark; all 14 font faces are eagerly loaded in the lab.
 - The pilot packages a Node command plus a roughly 6.7-MiB resource bundle. Runtime
   startup is paid per API request; there is no persistent worker or separate service.
-  Docker image size and Linux/multi-architecture performance still need measurement.
+  Linux measurements and cross-architecture checks are above. A comparable image-size
+  delta against the pre-pilot branch has not been measured.
 - Greedy wrapping differs from browser balanced wrapping. Synthetic italic, line metrics
   and normal QR decoration are approximate rather than pixel-identical to HTML/CSS.
   Non-fitting text is rejected instead of using the browser's legacy title ellipsis or
@@ -199,6 +232,6 @@ the later integration run. The backend now includes the bounded SVG command adap
 
 The shared-renderer approach now has application integration on this branch, not
 just lab coverage. Font metrics, wrapping and rasterization have one implementation.
-Basic/Chromium remain available for explicit comparisons while container acceptance
-and the tester's physical prints are pending. Do not deploy this experiment as an
+Basic/Chromium remain available for explicit comparisons while the tester's physical
+prints are pending. Do not deploy this experiment as an
 accepted replacement based only on pixel comparisons.

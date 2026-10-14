@@ -353,12 +353,25 @@ export function renderLabel(preset, data, assets, fonts, dpi, baseUrl, { thermal
   return { width, height, text, qrs, boxes: flowed.boxes, svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}" viewBox="0 0 ${label.widthMm} ${label.heightMm}" preserveAspectRatio="none"><rect width="100%" height="100%" fill="#fff"/>${parts.join('')}</svg>` };
 }
 
-export function rasterize(svg, threshold = 200) {
-  if (!Number.isInteger(threshold) || threshold < 0 || threshold > 255) throw new Error('Invalid threshold');
+/** @template T
+ * @param {string} svg
+ * @param {(image: ReturnType<Resvg['render']>) => T} read
+ * @returns {T}
+ */
+function withRenderedImage(svg, read) {
   const renderer = new Resvg(svg);
   let image;
   try {
     image = renderer.render();
+    return read(image);
+  } finally { image?.free(); renderer.free(); }
+}
+
+export const rasterizePng = svg => withRenderedImage(svg, image => new Uint8Array(image.asPng()));
+
+export function rasterize(svg, threshold = 200) {
+  if (!Number.isInteger(threshold) || threshold < 0 || threshold > 255) throw new Error('Invalid threshold');
+  return withRenderedImage(svg, image => {
     const pixels = new Uint8Array(image.pixels);
     const stride = Math.ceil(image.width / 8);
     const mono = new Uint8Array(stride * image.height);
@@ -370,7 +383,7 @@ export function rasterize(svg, threshold = 200) {
       if (dark) mono[y * stride + (x >> 3)] |= 1 << (7 - (x & 7));
     }
     return { png: new Uint8Array(image.asPng()), pixels, mono, width: image.width, height: image.height };
-  } finally { image?.free(); renderer.free(); }
+  });
 }
 
 /** @param {import('./types').SvgInput} input */

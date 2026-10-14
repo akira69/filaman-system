@@ -79,8 +79,9 @@ The application will be available at `http://localhost:8083`.
 the shared SVG/WASM renderer (`svg`), used by the designer, exports and API.
 The image packages Node 20 and fonts; Chromium is not required. Published release
 images above are not this pilot. `renderer=basic` and `renderer=chromium` remain
-explicit comparisons, with no automatic fallback. Container and physical-printer
-acceptance are still pending. See [API documentation](docs/label-api.md).
+explicit comparisons, with no automatic fallback. Container checks pass on native
+ARM64 and emulated AMD64/ARMv7; physical print/scan acceptance is still pending.
+See [API documentation](docs/label-api.md).
 
 The Chromium-enabled release image still uses its supplied sandbox profile:
 

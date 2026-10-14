@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
-import { beforeAll, expect, it } from 'vitest'
-import { renderSvgLabel, rasterize } from './core.mjs'
+import { beforeAll, expect, it, vi } from 'vitest'
+import { Resvg } from '@resvg/resvg-wasm'
+import { renderSvgLabel, rasterize, rasterizePng } from './core.mjs'
 import { createSvgRuntime } from './runtime.mjs'
 import type { SvgInput, SvgRuntime } from './types'
 import { fixtures, data } from '../../../prototypes/svg-label/fixtures.mjs'
@@ -12,6 +13,17 @@ beforeAll(async () => {
 const input = () => ({ preset: structuredClone(fixtures[0].preset), data, assets: {},
   pixelWidth: 641, pixelHeight: 481, origin: 'https://fila.test', entityPath: 'spools', thermal: false } as unknown as SvgInput)
 const render = (value: SvgInput, threshold = 200) => renderSvgLabel(value, runtime, threshold)
+
+it('produces identical PNG bytes without reading back unused RGBA pixels', () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="9" height="7"><circle cx="4" cy="3" r="2" fill="#02e57f"/></svg>'
+  const expected = rasterize(svg).png
+  const renderer = new Resvg(svg), image = renderer.render()
+  const pixels = vi.spyOn(Object.getPrototypeOf(image), 'pixels', 'get').mockImplementation(() => {
+    throw new Error('PNG-only rendering must not allocate an RGBA copy')
+  })
+  try { expect(rasterizePng(svg)).toEqual(expected) }
+  finally { pixels.mockRestore(); image.free(); renderer.free() }
+})
 
 it('uses the same fixed-point luminance rounding as Pillow at threshold boundaries', () => {
   const output = rasterize('<svg xmlns="http://www.w3.org/2000/svg" width="9" height="1"><rect width="9" height="1" fill="#02e57f"/></svg>', 150)

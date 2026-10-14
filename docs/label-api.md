@@ -141,8 +141,10 @@ select the default, executable and bundle directory. Containers run the command
 as the unprivileged `LABEL_RENDER_USER=label-render`. The command reads one JSON
 request through stdin and has no HTTP listener or request-controlled URL fetching.
 It starts a fresh process per request, with a 30-second deadline and bounded I/O.
-Container/multi-architecture verification and physical print/scan acceptance are
-still pending; see the [pilot notes](../frontend/prototypes/svg-label/README.md).
+Container builds and uvloop rendering pass on native ARM64 and emulated AMD64/ARMv7,
+with identical pixels in the cross-architecture fixtures. Normal four-worker startup,
+contention and restart recovery are checked on ARM64. Physical print/scan acceptance
+is still pending; see the [pilot notes](../frontend/prototypes/svg-label/README.md).
 
 When `preset_id` is omitted, the
 user's selected preset determines the label dimensions; Default is used only
