@@ -14,6 +14,7 @@ import {
 } from './filamentdb-lookup'
 import { buildFilamentHeroStyle, buildFilamentSwatchStyle } from './filament-detail'
 import { t } from './i18n'
+import { createSpoolProfilePicker } from './filament-spool-profile'
 import { bindInlineColorEditor } from './inline-color-editor'
 import {
   ADD_MANUFACTURER_VALUE,
@@ -160,6 +161,14 @@ export function createFilamentFormController(options: {
   let submitting = false
   let hasChanges = mode === 'create'
   submitButton.disabled = !hasChanges
+  let spoolImageFile: string | null | undefined
+  let spoolProfileId: number | null | undefined
+  const spoolProfilePicker = form.querySelector('#filament-spool-profile')
+    ? createSpoolProfilePicker(form, (id, image) => {
+      spoolProfileId = id
+      spoolImageFile = image
+      updateDirtyState()
+    }) : null
 
   const entityExtraFields = createEntityExtraFieldEditor({
     container: customFieldsContainer,
@@ -322,6 +331,8 @@ export function createFilamentFormController(options: {
       build_plate_compatibility: serialize(input('build_plate_compatibility').value.split(',').map((value) => value.trim()).filter(Boolean)),
       is_discontinued: serialize(input('is_discontinued').checked),
       default_spool_weight_g: serialize(numberValue('default_spool_weight_g')),
+      filamentdb_spool_image_file: serialize(spoolImageFile ?? null),
+      filamentdb_spool_profile_id: serialize(spoolProfileId ?? null),
       spool_material: serialize(select('spool_material').value),
       spool_outer_diameter_mm: serialize(numberValue('spool_outer_diameter_mm')),
       spool_width_mm: serialize(numberValue('spool_width_mm')),
@@ -335,7 +346,7 @@ export function createFilamentFormController(options: {
   function updateDirtyState(): void {
     if (!baseline || mode !== 'edit') return
     const current = readSnapshot()
-    let anyDirty = false
+    let anyDirty = baseline.filamentdb_spool_image_file !== current.filamentdb_spool_image_file || baseline.filamentdb_spool_profile_id !== current.filamentdb_spool_profile_id
     for (const wrapper of dirtyWrappers) {
       const keys = (wrapper.dataset.dirtyKey || '').split(/\s+/).filter(Boolean)
       const dirty = keys.some((key) => baseline?.[key] !== current[key])
@@ -524,7 +535,10 @@ export function createFilamentFormController(options: {
     event.preventDefault()
     closeColorDialog()
   })
-  const handleDraftChange = () => {
+  const handleDraftChange = (event?: Event | MutationRecord[]) => {
+    if (event instanceof Event && (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement)) {
+      if (['default_spool_weight_g', 'spool_material', 'spool_outer_diameter_mm', 'spool_width_mm'].includes((event.target as HTMLInputElement).name)) spoolProfilePicker?.match()
+    }
     syncHeroPreview()
     updateDirtyState()
   }
@@ -643,6 +657,8 @@ export function createFilamentFormController(options: {
                 spool_profile_outer_diameter_mm: item.spool_profile?.outer_diameter_mm || null,
                 spool_profile_width_mm: item.spool_profile?.width_mm || null,
                 spool_profile_material: item.spool_profile?.spool_material || null,
+                spool_profile_image_file: item.spool_profile?.image_file ?? null,
+                spool_profile_id: item.spool_profile?.id ?? null,
               }),
             })
             if (!response.ok) {
@@ -782,6 +798,7 @@ export function createFilamentFormController(options: {
     renderSystemFields()
 
     if (lookupSource === 'filamandb' && filamentDbActive) bindCatalogLookup()
+    if (filamentDbActive) void spoolProfilePicker?.load()
   }
 
   function setField(id: string, value: unknown): void {
@@ -803,6 +820,8 @@ export function createFilamentFormController(options: {
   }
 
   function applyInitialData(data: InitialData, source: 'initial' | 'duplicate' | 'catalog' = 'initial'): void {
+    if (Object.hasOwn(data, 'filamentdb_spool_image_file')) spoolImageFile = data.filamentdb_spool_image_file ?? null
+    if (Object.hasOwn(data, 'filamentdb_spool_profile_id')) spoolProfileId = data.filamentdb_spool_profile_id ?? null
     const hasValue = (key: string): boolean => {
       if (!Object.hasOwn(data, key)) return false
       if (source !== 'catalog') return true
@@ -878,6 +897,8 @@ export function createFilamentFormController(options: {
       renderSystemFields(flattenObject(fields), fields)
       entityExtraFields.setData(fields, data.custom_field_definitions)
     }
+    spoolProfilePicker?.setLink(spoolProfileId ?? null, spoolImageFile ?? null)
+    if (mode === 'create' || source === 'catalog') spoolProfilePicker?.match()
     syncHeroPreview()
     updateDirtyState()
   }
@@ -897,6 +918,8 @@ export function createFilamentFormController(options: {
       diameter_mm: Number(formData.get('diameter_mm')),
       color_mode: colorMode,
     }
+    if (spoolImageFile !== undefined) scalar.filamentdb_spool_image_file = spoolImageFile
+    if (spoolProfileId !== undefined) scalar.filamentdb_spool_profile_id = spoolProfileId
     const optionalText = [
       'material_subgroup', 'finish_type', 'manufacturer_color_name', 'spool_material', 'shop_url',
       'manufacturer_sku', 'datasheet_url', 'image_url',
@@ -982,12 +1005,15 @@ export function createFilamentFormController(options: {
       const listView = colorListToggle.checked
       form.reset()
       colorListToggle.checked = listView
+      spoolImageFile = undefined
+      spoolProfileId = undefined
       for (const prefix of ['extruder_temp', 'bed_temp', 'cooling_fan']) setRange(prefix, null)
       applyInitialData({ colors: [], color_mode: 'single', custom_fields: {}, custom_field_definitions: {}, ...data }, 'initial')
     },
     captureBaseline() {
       if (mode !== 'edit') return
       baseline = readSnapshot()
+      spoolProfilePicker?.match()
       updateDirtyState()
     },
     collectPayload,
@@ -999,6 +1025,7 @@ export function createFilamentFormController(options: {
       form.removeEventListener('submit', handleSubmit)
       form.removeEventListener('input', handleDraftChange)
       form.removeEventListener('change', handleDraftChange)
+      spoolProfilePicker?.destroy()
       manufacturerDialog?.close()
       closeColorDialog()
       inlineColorEditor.close()

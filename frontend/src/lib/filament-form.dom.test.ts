@@ -14,6 +14,7 @@ function jsonResponse(value: unknown, status = 200): Response {
 function installFetchStub() {
   const fetchStub = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
+    if (url.includes('/api/v1/filamentdb/spool-profiles?')) return jsonResponse({ items: [{ id: 735, name: 'Cardboard reel', empty_weight_g: 170, spool_material: 'Cardboard', outer_diameter_mm: 200, width_mm: 68, image_file: '735.png' }], total: 1 })
     if (url.endsWith('/api/v1/filamentdb/status')) return jsonResponse({ active: true })
     if (url.endsWith('/api/v1/app-settings/public-info')) {
       return jsonResponse({ filament_lookup_source: 'filamandb' })
@@ -133,6 +134,7 @@ function renderForm(): HTMLFormElement {
         <input id="build_plate_compatibility" name="build_plate_compatibility">
       </div>
       <label class="filament-form-check" data-dirty-key="is_discontinued"><input id="is_discontinued" name="is_discontinued" type="checkbox"><span>Discontinued</span></label>
+      <div id="filament-spool-profile" hidden data-dirty-key="filamentdb_spool_profile_id filamentdb_spool_image_file"><span class="fm-label">Spool type</span><button class="spool-profile-choose" type="button">Choose</button><span role="status"></span><span class="spool-profile-preview"></span><button class="spool-profile-clear" type="button">Match entered values</button><div class="spool-profile-lookup" hidden></div></div>
       <input id="default_spool_weight_g" name="default_spool_weight_g" type="number">
       <select id="spool_material" name="spool_material">
         <option value=""></option><option value="Cardboard">Cardboard</option>
@@ -277,6 +279,28 @@ describe('shared filament form controller', () => {
     controller.destroy()
   })
 
+  it('opens the editor without waiting for the optional spool catalog', async () => {
+    const fetchReferences = globalThis.fetch
+    let finishCatalog!: (response: Response) => void
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes('/api/v1/filamentdb/spool-profiles?')
+        ? new Promise<Response>(resolve => { finishCatalog = resolve })
+        : fetchReferences(input, init))
+    const form = renderForm()
+    const controller = createFilamentFormController({ form, mode: 'edit', onSubmit: async () => {} })
+    let ready = false
+    const loading = controller.loadReferenceData().then(() => { ready = true })
+    try {
+      await vi.waitFor(() => expect(ready).toBe(true))
+      controller.applyInitialData({ manufacturer_id: 7, designation: 'Basic', material_type: 'PLA', filamentdb_spool_profile_id: 735, filamentdb_spool_image_file: '735.png' })
+      expect(form.querySelector('#filament-spool-profile img')?.getAttribute('src')).toContain('735.png')
+    } finally {
+      finishCatalog(jsonResponse({ items: [], total: 0 }))
+      await loading
+      controller.destroy()
+    }
+  })
+
   it('resets discarded edit controls and metadata on re-entry without creating a second controller', async () => {
     const { controller } = await createLoadedController('edit')
     const data = { manufacturer_id: 7, designation: 'Basic', material_type: 'PLA', colors: [{ color_id: 11, position: 1 }] }
@@ -334,6 +358,16 @@ describe('shared filament form controller', () => {
     designation.value = 'Basic'
     designation.dispatchEvent(new Event('input', { bubbles: true }))
     expect(save.disabled).toBe(true)
+    controller.destroy()
+  })
+  it('preserves the catalog spool image through weight edits and clears it for a new imageless catalog selection', async () => {
+    const { controller } = await createLoadedController('edit')
+    controller.applyInitialData({ manufacturer_id: 7, designation: 'PLA', material_type: 'PLA', colors: [{ color_id: 11, position: 1 }], default_spool_weight_g: 170, filamentdb_spool_image_file: '735.png' })
+    document.querySelector<HTMLInputElement>('#default_spool_weight_g')!.value = '164'
+    expect(controller.collectPayload().scalar.filamentdb_spool_image_file).toBe('735.png')
+    controller.applyInitialData({ filamentdb_spool_image_file: null }, 'catalog')
+    expect(controller.collectPayload().scalar.filamentdb_spool_image_file).toBeNull()
+    expect(document.querySelector<HTMLInputElement>('#default_spool_weight_g')!.value).toBe('164')
     controller.destroy()
   })
   it.each(['create', 'edit'] as const)('keeps the external %s toolbar submit usable after a failed save', async mode => {
@@ -1232,4 +1266,20 @@ describe('shared filament form controller', () => {
     expect(document.querySelector('[data-dirty-key="designation"]')?.classList.contains('is-dirty')).toBe(true)
     controller.destroy()
   })
+})
+
+
+it('keeps an initially inferred spool-type link saveable until it is persisted', async () => {
+  installFetchStub()
+  const form = renderForm()
+  const controller = createFilamentFormController({ form, mode: 'edit', onSubmit: async () => {} })
+  await controller.loadReferenceData()
+  controller.applyInitialData({ manufacturer_id: 7, designation: 'Manual PLA', material_type: 'PLA', diameter_mm: 1.75, colors: [{ color_id: 11, position: 1 }], default_spool_weight_g: 170, spool_material: 'Cardboard', spool_outer_diameter_mm: 200, spool_width_mm: 68 })
+  controller.captureBaseline()
+  await vi.waitFor(() => expect(controller.collectPayload().scalar.filamentdb_spool_profile_id).toBe(735))
+  expect(form.querySelector<HTMLButtonElement>('#submit-btn')!.disabled).toBe(false)
+  controller.applyInitialData({ filamentdb_spool_profile_id: 735, filamentdb_spool_image_file: '735.png' })
+  controller.captureBaseline()
+  expect(form.querySelector<HTMLButtonElement>('#submit-btn')!.disabled).toBe(true)
+  controller.destroy()
 })
