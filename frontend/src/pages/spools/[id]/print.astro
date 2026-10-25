@@ -74,7 +74,6 @@ export function getStaticPaths() {
   import {
     dedupeLabelExtraFields,
     isBuiltInLabelField,
-    scopeLabelExtraField,
     type LabelExtraFieldValue,
   } from '../../../lib/label-extra-fields'
   import {
@@ -88,9 +87,9 @@ export function getStaticPaths() {
   import {
     buildSpoolLabelDataFromApi,
     buildSpoolLabelDataFromParams,
+    buildDesignerExtraFieldsFromApiSpool,
     mergeMissingSpoolLabelData,
   } from '../../../lib/spool-label-data'
-  import { buildEntityExtraFieldsForPrint } from '../../../lib/entity-extra-fields'
   import { type SystemExtraFieldDef } from '../../../lib/extra-fields'
   import { consumeScopedLabelFields } from '../../../lib/label-print-session'
 
@@ -111,7 +110,7 @@ export function getStaticPaths() {
 
   async function fetchSpoolApiData() {
     try {
-      const response = await fetch(`/api/v1/spools/${id}`, { credentials: 'include' })
+      const response = await fetch(`/api/v1/spools/${id}?derived_for=template`, { credentials: 'include' })
       if (!response.ok) return null
       const spool = await response.json()
       return spool
@@ -610,20 +609,10 @@ export function getStaticPaths() {
         if (!sd) return
 
         // Populate extraFields and rebuild UI.
-        const fallbackFields = [
-          ...buildEntityExtraFieldsForPrint(
-            sd.custom_fields,
-            sd.custom_field_definitions,
-            spoolSystemDefinitions,
-            true,
-          ).map(field => scopeLabelExtraField(field, 'spool')),
-          ...buildEntityExtraFieldsForPrint(
-            sd.filament?.custom_fields,
-            sd.filament?.custom_field_definitions,
-            filamentSystemDefinitions,
-            true,
-          ).map(field => scopeLabelExtraField(field, 'filament')),
-        ].filter(field => !isBuiltInLabelField(field.source, field.key, field.label))
+        const fallbackFields = buildDesignerExtraFieldsFromApiSpool(sd, {
+          spool: spoolSystemDefinitions,
+          filament: filamentSystemDefinitions,
+        }).filter(field => !isBuiltInLabelField(field.source ?? 'spool', field.key, field.label))
         if (fallbackFields.length === 0) return
 
         for (const field of fallbackFields) {

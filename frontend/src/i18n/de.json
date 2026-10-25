@@ -96,7 +96,8 @@
     "clearColumnFilters": "Spaltenfilter leeren",
     "clearAllFilters": "Alle Filter leeren",
     "showAllCustomFields": "Alle {count} benutzerdefinierten Felder anzeigen",
-    "showFewerCustomFields": "Weniger benutzerdefinierte Felder anzeigen"
+    "showFewerCustomFields": "Weniger benutzerdefinierte Felder anzeigen",
+    "derivedFields": "Abgeleitete Felder"
   },
   "rfid": {
     "writeTag": "RFID-Tag schreiben",

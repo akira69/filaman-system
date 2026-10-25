@@ -5,6 +5,7 @@ import {
 import { buildEntityExtraFieldsForPrint } from './entity-extra-fields'
 import { firstLabelValue, toLabelString } from './label-entity-data'
 import {
+  buildDerivedLabelExtraFields,
   isBuiltInLabelField,
   scopeLabelExtraField,
   type LabelExtraFieldSource,
@@ -72,7 +73,7 @@ export function buildSpoolStandardModelFields(data: SpoolLabelData) {
   }))
 }
 
-export type SpoolDesignerExtraField = LabelExtraFieldValue
+export type SpoolDesignerExtraField = LabelExtraFieldValue & { value: string }
 
 export type SpoolExtraFieldDefinitionMap = Partial<
   Record<LabelExtraFieldSource, Record<string, SystemExtraFieldDef>>
@@ -260,6 +261,16 @@ export function buildDesignerExtraFieldsFromApiSpool(
       fieldDefs?.filament,
       'filament',
     ),
+    ...buildDerivedLabelExtraFields(
+      record.derived as Record<string, unknown> | undefined,
+      fieldDefs?.spool ?? {},
+      'spool',
+    ),
+    ...buildDerivedLabelExtraFields(
+      filament.derived as Record<string, unknown> | undefined,
+      fieldDefs?.filament ?? {},
+      'filament',
+    ),
   ]
 }
 
@@ -270,6 +281,7 @@ function buildDesignerExtraFields(
   source: LabelExtraFieldSource,
 ): SpoolDesignerExtraField[] {
   return buildEntityExtraFieldsForPrint(values, entityDefinitions, systemDefinitions)
+    .filter(field => !systemDefinitions?.[field.key]?.formula)
     .filter(field => !isBuiltInLabelField(source, field.key, field.label))
     .map(field => scopeLabelExtraField(field, source))
 }
