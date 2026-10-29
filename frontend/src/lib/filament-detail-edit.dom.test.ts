@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { createSourceFile, isFunctionDeclaration, ScriptTarget, transpileModule } from 'typescript'
 import { afterEach, expect, it, vi } from 'vitest'
 import { captureDetailEditPosition } from './detail-edit-position'
+import { prepareExtraFieldUpdate } from './entity-extra-fields'
 
 const source = readFileSync('src/pages/filaments/[id]/index.astro', 'utf8').match(/<script>([\s\S]*?)<\/script>/)![1]
 const parsed = createSourceFile('detail.ts', source, ScriptTarget.Latest, true)
@@ -35,6 +36,7 @@ it('toggles fields in place without navigating, collapsing the sidebar or losing
   expect(location.search).toBe('')
   expect(document.getElementById('filament-content')!.classList.contains('hidden')).toBe(false)
   expect(document.getElementById('filament-editor')!.classList.contains('hidden')).toBe(true)
+  expect(setEditing.mock.calls).toEqual([[true], [false]])
   expect(form.resetInitialData).toHaveBeenCalledWith({ id: 16 })
   expect(main.scrollTop).toBe(800)
 })
@@ -47,6 +49,7 @@ function editorFixture(failReferences = false) {
   const controller = {
     loadReferenceData: vi.fn().mockRejectedValueOnce(new Error('Metadata unavailable')).mockResolvedValue(undefined),
     resetInitialData: vi.fn(), captureBaseline: vi.fn(), updateDirtyState: vi.fn(),
+    prepareExtraFieldUpdate: (path: string, scalar: Record<string, unknown>) => prepareExtraFieldUpdate(path, { customFields: null, customFieldDefinitions: null }, { customFields: scalar.custom_fields as Record<string, unknown> ?? null, customFieldDefinitions: null }),
   }
   if (!failReferences) controller.loadReferenceData.mockReset().mockResolvedValue(undefined)
   const functions = parsed.statements.filter(node => isFunctionDeclaration(node) && ['renderFilamentEditor', 'setFilamentEditing', 'refreshFilamentSnapshot'].includes(node.name?.text || '')).map(node => node.getText(parsed)).join('\n')

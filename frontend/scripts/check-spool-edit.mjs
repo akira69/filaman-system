@@ -14,7 +14,7 @@ try {
     localStorage.setItem('lang', 'en')
     localStorage.setItem('sidebar-collapsed', 'false')
   })
-  await page.route('**/api/**', async route => {
+  await page.route(/\/(?:api\/|auth\/me$)/, async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
     if (path.endsWith('/events/stream')) return route.fulfill({ status: 204 })
@@ -192,7 +192,7 @@ try {
   assert.equal(new URL(page.url()).searchParams.has('edit'), false)
   const payload = writes.filter(write => write.path === '/api/v1/spools/16').at(-1).body
   assert.deepEqual(payload, {
-    initial_total_weight_g: 1200, empty_spool_weight_g: 200, spool_core_weight_g: null, spool_material: 'Cardboard', spool_outer_diameter_mm: 200, spool_width_mm: 65, low_weight_threshold_g: 100, purchase_price: 24.95, purchase_date: '2026-10-01', lot_number: 'LOT-1', external_id: 'EX-1', filament_id: 11, rfid_uid: 'aa:bb:cc:dd', rfid_uid_2: null, custom_fields: { inspection: 'Passed' }, custom_field_definitions: { inspection: { label: 'Inspection', field_type: 'text', options: null, config: null } },
+    initial_total_weight_g: 1200, empty_spool_weight_g: 200, spool_core_weight_g: null, spool_material: 'Cardboard', spool_outer_diameter_mm: 200, spool_width_mm: 65, low_weight_threshold_g: 100, purchase_price: 24.95, purchase_date: '2026-10-01', lot_number: 'LOT-1', external_id: 'EX-1', filament_id: 11, rfid_uid: 'aa:bb:cc:dd', rfid_uid_2: null,
   })
   await page.reload()
   await page.locator('#btn-edit-spool').waitFor()

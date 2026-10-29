@@ -5,8 +5,10 @@ import {
   collectExtraFieldPayload,
   createEntityExtraFieldEditor,
   getExtraFieldValue,
+  prepareExtraFieldUpdate,
+  type EntityExtraFieldPayload,
 } from './entity-extra-fields'
-import { collectSystemFieldValues, escapeHtml, parseNumericRangeInputs, renderFieldInput } from './extra-fields'
+import { collectSystemFieldValues, escapeHtml, parseNumericRangeInputs, renderFieldInput, type SystemExtraFieldDef } from './extra-fields'
 import {
   bindFilamentDbLookupToManufacturer,
   checkFilamentDbActive,
@@ -90,6 +92,7 @@ export function createFilamentFormController(options: {
   form: HTMLFormElement
   mode: FormMode
   onSubmit(payload: FilamentFormPayload): Promise<void>
+  hasExternalChanges?: () => boolean
 }) {
   const { form, mode, onSubmit } = options
   const byId = <T extends HTMLElement>(id: string): T => {
@@ -151,13 +154,16 @@ export function createFilamentFormController(options: {
   let selectedColorIds: number[] = []
   let colorFilter: ColorFilterValue | null = null
   let allManufacturers: Manufacturer[] = []
-  let systemFields: any[] = []
+  let systemFields: SystemExtraFieldDef[] = []
   let addManufacturerOption: HTMLOptionElement | null = null
   let manufacturerDialog: ManufacturerDialog | null = null
   let lookupBound = false
+  // The detail page reuses this controller after Cancel, while catalog work may still be pending.
+  let catalogRequest = 0
   let newColorEditorOpen = false
   let destroyed = false
   let baseline: FormSnapshot | null = null
+  let extraFieldBaseline: EntityExtraFieldPayload = { customFields: null, customFieldDefinitions: null }
   let submitting = false
   let hasChanges = mode === 'create'
   submitButton.disabled = !hasChanges
@@ -360,6 +366,7 @@ export function createFilamentFormController(options: {
       'multi_color_style',
       'colors',
     ].some((key) => baseline?.[key] !== current[key]))
+    anyDirty ||= options.hasExternalChanges?.() ?? false
     unsavedStatus?.classList.toggle('hidden', !anyDirty)
     hasChanges = anyDirty
     submitButton.disabled = submitting || !hasChanges
@@ -579,7 +586,10 @@ export function createFilamentFormController(options: {
     lookupBound = true
     lookupHeading.textContent = t('filamentdbLookup.searchExistingFilament', { database: t('admin.filamentLookupFilaManDB') })
     lookupScopeHint.textContent = t('filamentdbLookup.selectManufacturerToSearch', { database: t('admin.filamentLookupFilaManDB') })
+    manufacturerSelect.addEventListener('change', invalidateCatalogRequest)
+    lookupSearchAll.addEventListener('change', invalidateCatalogRequest)
     bindFilamentDbLookupToManufacturer(manufacturerSelect, lookupSearchAll, lookupSection, (scopedToManufacturer) => {
+      catalogRequest++
       lookupToast.style.display = 'none'
       return createFilamentDbLookup<any>({
         container: lookupContainer,
@@ -605,11 +615,14 @@ export function createFilamentFormController(options: {
           return `<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;min-width:0"><div class="fdb-lookup-item-name">${escapeHtml(item.name || item.designation || '?')}</div><div class="fdb-lookup-item-sub">${details} ${colors}</div></div><span style="font-size:1.2rem;flex-shrink:0">&#x1F9F5;</span></div>`
         },
         async onSelect(item) {
+          const request = ++catalogRequest
+          const isCurrent = () => !destroyed && request === catalogRequest
           try {
             const response = await fetch('/api/v1/filamentdb/prepare-filament', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
               credentials: 'include',
+              signal: getAbortSignal(),
               body: JSON.stringify({
                 manufacturer_name: item.manufacturer?.name || selectedManufacturerName(),
                 manufacturer_website: item.manufacturer?.website || null,
@@ -661,16 +674,17 @@ export function createFilamentFormController(options: {
                 spool_profile_id: item.spool_profile?.id ?? null,
               }),
             })
-            if (!response.ok) {
-              const error = await response.json()
-              throw new Error(error.detail?.message || t('filamentdbLookup.prefillError'))
-            }
             const result = await response.json()
-            if (result.colors_created > 0) {
-              invalidateCachePrefix(CACHE_KEYS.COLORS)
-              await loadColors()
-            }
+            // Prepared colors are committed server-side even when this edit was canceled.
+            if (response.ok && result.colors_created > 0) invalidateCachePrefix(CACHE_KEYS.COLORS)
+            if (!isCurrent()) return
+            if (!response.ok) throw new Error(result.detail?.message || t('filamentdbLookup.prefillError'))
             const prefilled = result.prefilled || {}
+            if (result.colors_created > 0 || prefilled.color_ids?.some((id: number) => !allColors.some(color => color.id === id))) {
+              invalidateCachePrefix(CACHE_KEYS.COLORS)
+              await loadColors(isCurrent)
+              if (!isCurrent()) return
+            }
             const catalogData = { ...prefilled }
             delete catalogData.manufacturer_id
             if (!scopedToManufacturer && result.manufacturer_id) {
@@ -693,8 +707,6 @@ export function createFilamentFormController(options: {
               }
             }
             if (item.diameter_mm == null) delete catalogData.diameter_mm
-            const finishType = prefilled.finish_type
-            if (finishType) catalogData.finish_type = finishType
             if (prefilled.color_ids?.length) {
               catalogData.colors = prefilled.color_ids.map((colorId: number, index: number) => ({
                 color_id: colorId,
@@ -710,6 +722,7 @@ export function createFilamentFormController(options: {
               : [t('filamentdbLookup.prefillSuccess')]
             showLookupToast(messages.join(' · '))
           } catch (error) {
+            if (!isCurrent() || isAbortError(error)) return
             showLookupToast(error instanceof Error ? error.message : t('filamentdbLookup.prefillError'), 'error')
           }
         },
@@ -717,11 +730,14 @@ export function createFilamentFormController(options: {
     })
   }
 
-  async function loadColors(): Promise<void> {
+  async function loadColors(isCurrent = () => !destroyed): Promise<void> {
     const data = await cachedFetchAllPages<Color>(CACHE_KEYS.COLORS, '/api/v1/colors')
+    if (!isCurrent()) return
     allColors = data.items
     renderColorGrid()
   }
+
+  function invalidateCatalogRequest(): void { catalogRequest++ }
 
   async function loadReferenceData(): Promise<void> {
     const filamentDbActive = await checkFilamentDbActive()
@@ -738,6 +754,23 @@ export function createFilamentFormController(options: {
     } catch (error) {
       if (!isAbortError(error)) console.error('Failed to load filament lookup source:', error)
     }
+
+    // Failed edit entry retries this controller; install controls only after required reads succeed.
+    const manufacturers = await cachedFetchAllPages<Manufacturer>(CACHE_KEYS.MANUFACTURERS, '/api/v1/manufacturers')
+    const typesResponse = await fetch('/api/v1/filaments/types', {
+      credentials: 'include',
+      signal: getAbortSignal(),
+    })
+    const types = typesResponse.ok
+      ? await typesResponse.json() as string[]
+      : ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'NYLON', 'PC']
+    await loadColors()
+    const systemFieldsResponse = await fetch('/api/v1/system-extra-fields?target_type=filament', {
+      credentials: 'include',
+      signal: getAbortSignal(),
+    })
+    if (!systemFieldsResponse.ok) throw new Error(t('common.systemFieldsUnavailable'))
+    systemFields = await systemFieldsResponse.json()
 
     manufacturerDialog = createManufacturerDialog({
       filamentDbActive,
@@ -760,7 +793,6 @@ export function createFilamentFormController(options: {
     })
     addManufacturerOption = bindManufacturerCreateOption(manufacturerSelect, () => manufacturerDialog?.open())
 
-    const manufacturers = await cachedFetchAllPages<Manufacturer>(CACHE_KEYS.MANUFACTURERS, '/api/v1/manufacturers')
     allManufacturers = manufacturers.items
     for (const manufacturer of allManufacturers) {
       const option = document.createElement('option')
@@ -769,13 +801,6 @@ export function createFilamentFormController(options: {
       manufacturerSelect.insertBefore(option, addManufacturerOption)
     }
 
-    const typesResponse = await fetch('/api/v1/filaments/types', {
-      credentials: 'include',
-      signal: getAbortSignal(),
-    })
-    const types = typesResponse.ok
-      ? await typesResponse.json() as string[]
-      : ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'NYLON', 'PC']
     for (const type of types) {
       const option = document.createElement('option')
       option.value = type
@@ -787,14 +812,7 @@ export function createFilamentFormController(options: {
     customOption.textContent = t('filaments.addCustomType')
     typeSelect.appendChild(customOption)
 
-    await loadColors()
-    const systemFieldsResponse = await fetch('/api/v1/system-extra-fields?target_type=filament', {
-      credentials: 'include',
-      signal: getAbortSignal(),
-    })
-    if (!systemFieldsResponse.ok) throw new Error(t('common.systemFieldsUnavailable'))
-    systemFields = await systemFieldsResponse.json()
-    entityExtraFields.setSystemFieldKeys(systemFields.map((field: any) => field.key))
+    entityExtraFields.setSystemFieldKeys(systemFields.map(field => field.key))
     renderSystemFields()
 
     if (lookupSource === 'filamandb' && filamentDbActive) bindCatalogLookup()
@@ -998,10 +1016,12 @@ export function createFilamentFormController(options: {
     loadReferenceData,
     applyInitialData,
     resetInitialData(data: InitialData) {
+      catalogRequest++
       manufacturerDialog?.close()
       closeColorDialog()
       inlineColorEditor.close()
       baseline = null
+      extraFieldBaseline = { customFields: data.custom_fields ?? null, customFieldDefinitions: data.custom_field_definitions ?? null }
       const listView = colorListToggle.checked
       form.reset()
       colorListToggle.checked = listView
@@ -1012,16 +1032,25 @@ export function createFilamentFormController(options: {
     },
     captureBaseline() {
       if (mode !== 'edit') return
+      extraFieldBaseline = collectExtraFieldPayload(systemFieldsGrid, entityExtraFields) ?? extraFieldBaseline
       baseline = readSnapshot()
       spoolProfilePicker?.match()
       updateDirtyState()
     },
+    prepareExtraFieldUpdate(path: string, scalar: Record<string, unknown>) {
+      return prepareExtraFieldUpdate(path, extraFieldBaseline, {
+        customFields: scalar.custom_fields as EntityExtraFieldPayload['customFields'],
+        customFieldDefinitions: scalar.custom_field_definitions as EntityExtraFieldPayload['customFieldDefinitions'],
+      })
+    },
     collectPayload,
+    updateDirtyState,
     setSubmitting,
     showError,
     destroy() {
       if (destroyed) return
       destroyed = true
+      catalogRequest++
       form.removeEventListener('submit', handleSubmit)
       form.removeEventListener('input', handleDraftChange)
       form.removeEventListener('change', handleDraftChange)
@@ -1033,6 +1062,8 @@ export function createFilamentFormController(options: {
       byId<HTMLButtonElement>('filament-color-dialog-close').removeEventListener('click', closeColorDialog)
       byId<HTMLButtonElement>('filament-color-dialog-done').removeEventListener('click', closeColorDialog)
       colorDialog.removeEventListener('click', handleColorDialogClick)
+      manufacturerSelect.removeEventListener('change', invalidateCatalogRequest)
+      lookupSearchAll.removeEventListener('change', invalidateCatalogRequest)
       clearColorFilter()
       lookupContainer.replaceChildren()
       colorTooltip.remove()

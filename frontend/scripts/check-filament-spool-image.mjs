@@ -14,7 +14,7 @@ try {
   let catalogActive = false
   const writes = []
   await page.addInitScript(() => localStorage.setItem('lang', 'en'))
-  await page.route('**/api/**', async route => {
+  await page.route(/\/(?:api\/|auth\/me$)/, async route => {
     const request = route.request()
     const path = new URL(request.url()).pathname
     if (path.endsWith('/events/stream')) return route.fulfill({ status: 204 })
