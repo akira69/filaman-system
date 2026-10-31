@@ -36,6 +36,7 @@ from app.services.spoolman_extra_field_planner import (
     DefinitionAssessment,
     SpoolmanExtraFieldPlanner,
 )
+from app.services.spoolman_projection import promotion_alias
 from app.services.spoolman_standard_fields import (
     compatible_unit,
     standard_fan_pair,
@@ -1175,6 +1176,8 @@ class SpoolmanImportService:
             # Extra-Dict: bekannte Felder mappen, Rest als spoolman_extra
             local_definitions: dict[str, Any] = {}
             standard_fields: dict[str, Any] = {}
+            aliases: dict[str, Any] = {}
+            temperature_sources = {}
             extra = fil_data.get("extra")
             if extra and isinstance(extra, dict):
                 extracted_keys: set[str] = set()
@@ -1194,6 +1197,7 @@ class SpoolmanImportService:
                             if key not in (incompatible_temperature_keys or set())
                         ],
                     )
+                temperature_sources["extruder_temp_range_c"] = set(extracted_keys)
                 # Bed-Temp aus Extra
                 if bed_temp is None:
                     bed_temp = self._extract_extra(
@@ -1205,6 +1209,7 @@ class SpoolmanImportService:
                             if key not in (incompatible_temperature_keys or set())
                         ],
                     )
+                temperature_sources["bed_temp_range_c"] = extracted_keys - temperature_sources["extruder_temp_range_c"]
                 for source_key, (target, definition) in (
                     standard_sources or {}
                 ).items():
@@ -1216,6 +1221,9 @@ class SpoolmanImportService:
                         )
                     except SpoolmanFieldError:
                         continue
+                    aliases[f"spoolman_extra.{source_key}"] = promotion_alias(
+                        target, extra[source_key], standard_fields[target]
+                    )
                     extracted_keys.add(source_key)
                 if (
                     promote_fan_pair
@@ -1227,6 +1235,11 @@ class SpoolmanImportService:
                         fan_pair = None
                     if fan_pair is not None:
                         standard_fields["cooling_fan_range_percent"] = fan_pair[0]
+                        for source in fan_pair[1]:
+                            endpoint = "min" if source == "fan_speed_min" else "max"
+                            aliases[f"spoolman_extra.{source}"] = promotion_alias(
+                                f"cooling_fan_range_percent.{endpoint}", extra[source], fan_pair[0][endpoint]
+                            )
                         extracted_keys.update(fan_pair[1])
                 # Restliche Extra-Felder als JSON speichern
                 promoted, local_definitions, remaining = self._promote_extra_values(
@@ -1255,6 +1268,13 @@ class SpoolmanImportService:
                     )
                 except SpoolmanFieldError:
                     custom[legacy_key] = raw_value
+                else:
+                    if fil_data.get(legacy_key) is not None:
+                        aliases[legacy_key] = promotion_alias(column, fil_data[legacy_key], temperature_ranges[column])
+                    for source in temperature_sources.get(column, ()):
+                        aliases[f"spoolman_extra.{source}"] = promotion_alias(
+                            column, extra[source], temperature_ranges[column]
+                        )
 
             try:
                 new_fil = Filament(
@@ -1267,6 +1287,7 @@ class SpoolmanImportService:
                     density_g_cm3=fil_data.get("density"),
                     **temperature_ranges,
                     **standard_fields,
+                    label_field_aliases=aliases or None,
                     price=fil_data.get("price"),
                     shop_url=self._shop_url(fil_data.get("article_number")),
                     manufacturer_color_name=self._clean(fil_data.get("color_hex")),
