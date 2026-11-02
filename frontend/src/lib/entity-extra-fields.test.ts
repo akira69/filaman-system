@@ -482,6 +482,31 @@ describe('entity extra field helpers', () => {
 })
 
 describe('record-local fields in label designer', () => {
+  it('exposes template-enabled formula values as typed system fields', () => {
+    const fields = buildDesignerExtraFieldsFromFilament(
+      { derived: { drying_score: [45, 55] } },
+      {
+        drying_score: {
+          key: 'drying_score',
+          label: 'Drying score',
+          field_type: 'formula',
+          formula: { var: 'custom_fields.temperature' },
+          show_in_template: true,
+        },
+      },
+    )
+
+    expect(fields).toEqual([{
+      key: 'filament.drying_score',
+      label: 'Drying score',
+      value: '45, 55',
+      rawValue: [45, 55],
+      fieldType: 'formula',
+      source: 'filament',
+      origin: 'system',
+    }])
+  })
+
   it('exposes legacy-named temperatures in the correct Extra Fields catalog', () => {
     const fields = buildDesignerExtraFieldsFromFilament(
       {

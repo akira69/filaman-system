@@ -1,3 +1,5 @@
+import { renderFieldPlainText, type SystemExtraFieldDef } from './extra-fields'
+
 export type LabelExtraFieldSource = 'spool' | 'filament'
 export type LabelExtraFieldOrigin = 'system' | 'custom'
 
@@ -30,6 +32,25 @@ export function scopeLabelExtraField<T extends { key: string }>(
     key: `${source}.${field.key}`,
     source,
   }
+}
+
+export function buildDerivedLabelExtraFields(
+  values: Record<string, unknown> | null | undefined,
+  definitions: Record<string, SystemExtraFieldDef>,
+  source: LabelExtraFieldSource,
+): Array<LabelExtraFieldValue & { value: string }> {
+  const derived = values ?? {}
+  return Object.values(definitions)
+    .filter(definition => definition.formula && definition.show_in_template === true)
+    .map(definition => ({
+      key: `${source}.${definition.key}`,
+      label: definition.label,
+      value: renderFieldPlainText(definition, derived[definition.key]),
+      rawValue: derived[definition.key],
+      fieldType: definition.field_type,
+      source,
+      origin: 'system' as const,
+    }))
 }
 
 export function dedupeLabelExtraFields<T extends LabelExtraFieldCatalogItem>(
