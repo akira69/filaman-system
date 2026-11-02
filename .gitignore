@@ -65,6 +65,7 @@ coverage/
 spec
 bump-version.sh
 _*/
+.playwright-mcp/
 local_cache
 .sisyphus/
 .opencode
