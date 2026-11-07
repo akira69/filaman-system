@@ -155,7 +155,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
       if (!editing) node.removeAttribute('data-label-composing')
       if (node.hasAttribute('data-label-svg-target') && node.dataset.labelElementType === 'text') {
         const content = node.firstElementChild as HTMLElement | null
-        if (content) content.style.visibility = editing ? 'visible' : 'hidden'
+        if (content) content.style.visibility = editing || node.hasAttribute('data-label-inline-preview') ? 'visible' : 'hidden'
         node.style.background = editing ? 'white' : 'transparent'
       }
       if (editing) node.contentEditable = 'true'

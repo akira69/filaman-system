@@ -156,7 +156,7 @@ it('shows selectable missing data markers without changing rendered output', asy
   const element = root(), value = design()
   const text = value.elements.find(e => e.type === 'text' && e.id === 'info')!
   if (text.type !== 'text') throw new Error('Expected text fixture')
-  text.template = 'A**{filament.bed_temp_range_c|unit}**{extra.zero}[if={extra.empty}]{extra.hidden}[/if]Z'
+  text.template = 'A**{filament.bed_temp_range_c|unit}**{extra.zero}{lot_number}[if={extra.empty}]{extra.hidden}[/if]Z'
   value.elements = [text]
   const previewData = { ...data, extra: { zero: '0', empty: '' } }
   await renderDesignerLabel({ element, design: value, data: previewData, interactive: true })
@@ -164,13 +164,17 @@ it('shows selectable missing data markers without changing rendered output', asy
   expect(marker?.textContent).toBe('?')
   expect(marker.hasAttribute('data-template-atomic')).toBe(true)
   expect(marker.title).toBe('No data in token {filament.bed_temp_range_c|unit}')
-  expect(element.querySelectorAll('[data-template-missing]')).toHaveLength(1)
-  expect(element.querySelector('[data-label-missing-summary]')?.getAttribute('title')).toBe(marker.title)
+  const inline = element.querySelector<HTMLElement>('[data-label-inline-preview]')!
+  expect(inline?.firstElementChild?.textContent).toBe('A?0?Z')
+  expect(inline.querySelectorAll('[data-template-missing]')).toHaveLength(2)
+  expect(element.querySelector('[data-label-missing-summary]')).toBeNull()
+  const previewSvg = await (vi.mocked(URL.createObjectURL).mock.calls.at(-1)![0] as Blob).text()
+  expect(previewSvg).not.toContain('<path')
   expect(element.querySelector('[data-label-output-error]')).toBeNull()
   const output = await renderSvgElementOutput(element, 480, 360, false)
   text.template = 'A0Z'
   await renderDesignerLabel({ element, design: value, data: previewData, interactive: true })
-  expect(element.querySelector('[data-label-missing-summary]')).toBeNull()
+  expect(element.querySelector('[data-label-inline-preview], [data-template-missing]')).toBeNull()
   const clean = await renderSvgElementOutput(element, 480, 360, false)
   expect(output.svg).toBe(clean.svg)
   expect(output.png).toEqual(clean.png)

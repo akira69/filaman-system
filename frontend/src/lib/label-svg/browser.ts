@@ -115,12 +115,12 @@ function hitTargets(options: RenderDesignerLabelOptions, input: SvgInput, output
       width: box.w + 'mm', height: box.h + 'mm', boxSizing: 'border-box',
       zIndex: String(element.z + 1), overflow: 'hidden' })
     if (element.type === 'text') {
-      // Temporary editing surface only; shared pixels remain the output.
       const text = output?.text.find((row: { id: string }) => row.id === element.id)
       const missing = renderEditableText(node, { ...element, fontSizeMm: text?.size ?? element.fontSizeMm }, input.data, true)
       if (box.hidden && !missing) continue
+      node.toggleAttribute('data-label-inline-preview', missing)
       const content = node.firstElementChild as HTMLElement | null
-      if (content) content.style.visibility = 'hidden'
+      if (content && !missing) content.style.visibility = 'hidden'
       showElementWarning(node, text?.error)
     }
     const qr = output?.qrs.find((row: { id: string }) => row.id === element.id)
@@ -263,8 +263,9 @@ export function redrawSvgGesture(root: HTMLElement, design: LabelDesignV2) {
       root.querySelector('[data-label-svg-raster]')?.replaceWith(previewNode(root, output))
       root.removeAttribute('data-label-output-error')
       for (const node of root.querySelectorAll<HTMLElement>('[data-label-svg-target]')) {
-        showElementWarning(node, output.text.find(row => row.id === node.dataset.labelElementId)?.error
-          ?? output.qrs.find(row => row.id === node.dataset.labelElementId)?.error)
+        const text = output.text.find(row => row.id === node.dataset.labelElementId)
+        if (text && node.hasAttribute('data-label-inline-preview')) node.style.fontSize = text.size + 'mm'
+        showElementWarning(node, text?.error ?? output.qrs.find(row => row.id === node.dataset.labelElementId)?.error)
       }
       state.invalid = output.text.some(row => row.error) || output.qrs.some(row => row.error)
     } catch (error) {

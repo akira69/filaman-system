@@ -257,9 +257,10 @@ export function previewLabelToken(token: string, data: SpoolData): string {
 }
 
 /** Track UTF-16 offsets alongside expansion, before markup hides its delimiters. */
-export function expandTemplate(template: string, data: SpoolData, selectable: boolean, showMissing = false): {
+export function expandTemplate(template: string, data: SpoolData, selectable: boolean, missingMode?: 'mark' | 'detect'): {
   text: string
   sources?: TemplateCharacterSource[]
+  hasMissing: boolean
 } {
   const boundedTemplate = template.length > MAX_TEMPLATE_CHARS
     ? template.slice(0, MAX_TEMPLATE_CHARS)
@@ -276,11 +277,15 @@ export function expandTemplate(template: string, data: SpoolData, selectable: bo
       const resolved = swatch ?? resolveToken(token, data)
       if (!field.token) {
         if (resolved !== '?' && resolved !== '') yield* parts(field.innerStart, field.innerEnd)
-      } else if (showMissing && (resolved === '?' || !resolved.trim())) {
-        yield { text: '?', start: field.start, end: field.end, atomic: true, literal: true,
-          missing: boundedTemplate.slice(field.start, field.end) }
-      } else if (resolved !== '?') {
-        yield { text: resolved, start: field.start, end: field.end, atomic: true, literal: swatch === null }
+      } else {
+        const missing = missingMode && (resolved === '?' || !resolved.trim())
+        if (missing) output.hasMissing = true
+        if (missing && missingMode === 'mark') {
+          yield { text: '?', start: field.start, end: field.end, atomic: true, literal: true,
+            missing: boundedTemplate.slice(field.start, field.end) }
+        } else if (resolved !== '?') {
+          yield { text: resolved, start: field.start, end: field.end, atomic: true, literal: swatch === null }
+        }
       }
     }
     yield { text: boundedTemplate.slice(last, to), start: last, end: to }
@@ -289,7 +294,7 @@ export function expandTemplate(template: string, data: SpoolData, selectable: bo
   // A caps run stays buffered until its closing ^^, which may follow a huge token.
   const limit = MAX_MARKUP_CHARS + 1
   const buffer = () => ({ text: '', sources: selectable ? [] as TemplateCharacterSource[] : undefined })
-  const output = buffer()
+  const output = { ...buffer(), hasMissing: false }
   let caps: ReturnType<typeof buffer> | undefined
   let openingSources: Array<TemplateCharacterSource | undefined> = []
   let caret = false
@@ -498,7 +503,7 @@ export function parseTemplate(template: string, data: SpoolData): DocumentFragme
 
 /** Same renderer as parseTemplate, with source annotations for canvas text selection. */
 export function renderSelectableTemplate(template: string, data: SpoolData, showMissing = false): DocumentFragment {
-  const { text, sources } = expandTemplate(template, data, true, showMissing)
+  const { text, sources } = expandTemplate(template, data, true, showMissing ? 'mark' : undefined)
   const frag = document.createDocumentFragment()
   if (text.length > MAX_MARKUP_CHARS) {
     // Match the regular renderer's bounded plain-text fallback exactly.

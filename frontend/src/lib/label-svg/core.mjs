@@ -154,7 +154,7 @@ function textSvg(element, data, fonts, preview = false) {
   };
   const family = element.fontFamily ?? 'Space Grotesk', weight = element.fontWeight ?? 400;
   const defaultFont = face(family, weight);
-  const { text, sources } = expandTemplate(template, data, true);
+  const { text, sources, hasMissing } = expandTemplate(template, data, true, preview ? 'detect' : undefined);
   if (text.length > 12000) throw new Error('Label text limit exceeded');
   const mask = text.split('').map((c, i) => sources[i].literal ? '\uFFFC' : c).join('');
   const runs = [];
@@ -194,7 +194,7 @@ function textSvg(element, data, fonts, preview = false) {
   const top = element.y + (element.verticalAlign === 'middle' ? (element.h - height) / 2 : element.verticalAlign === 'bottom' ? element.h - height : 0);
   const parts = [];
   let lineTop = top;
-  layout.runs.forEach((line, index) => {
+  if (!hasMissing) layout.runs.forEach((line, index) => {
     const { width, height: rowHeight, ascent } = layout.metrics[index];
     const x = element.x + (element.align === 'center' ? (element.w - width) / 2 : element.align === 'right' ? element.w - width : 0);
     const y = lineTop + ascent;
@@ -237,7 +237,7 @@ function textSvg(element, data, fonts, preview = false) {
   const metrics = { ...layout };
   delete metrics.runs;
   const svg = parts.join('');
-  return { svg: layout.error ? `<svg x="${element.x}" y="${element.y}" width="${element.w}" height="${element.h}" viewBox="${element.x} ${element.y} ${element.w} ${element.h}" overflow="hidden">${svg}</svg>` : svg,
+  return { hasMissing, svg: layout.error ? `<svg x="${element.x}" y="${element.y}" width="${element.w}" height="${element.h}" viewBox="${element.x} ${element.y} ${element.w} ${element.h}" overflow="hidden">${svg}</svg>` : svg,
     layout: { id: element.id, x: element.x, y: element.y, ...metrics, text: runs.map(run => run.text).join('') } };
 }
 
@@ -359,7 +359,9 @@ export function renderLabel(preset, data, assets, fonts, dpi, baseUrl, { thermal
     if (element.type === 'text') {
       const result = textSvg(element, data, fonts, preview);
       if (zeroArea && result.layout.text.trim()) throw new Error(`Invalid geometry for element ${element.id}`);
-      parts.push(result.svg); text.push(result.layout);
+      // The editor displays affected text boxes in HTML so placeholders can occupy space inline.
+      if (!result.hasMissing) parts.push(result.svg);
+      text.push(result.layout);
     } else if (element.type === 'image' || element.type === 'manufacturerLogo') {
       if (element.type === 'manufacturerLogo' && !assets.logo) continue;
       parts.push(imageSvg(element, assets[element.type === 'image' ? element.assetId : 'logo']));

@@ -54,14 +54,6 @@ export function renderEditableText(node: HTMLElement, element: Extract<LabelDesi
     messages.add(marker.title)
   }
   if (messages.size === 0) return false
-  const badge = document.createElement('span')
-  badge.dataset.labelMissingSummary = ''
-  badge.contentEditable = 'false'
-  badge.textContent = '?'
-  badge.title = [...messages].join('\n')
-  badge.setAttribute('role', 'img')
-  badge.setAttribute('aria-label', badge.title)
-  node.setAttribute('aria-description', badge.title)
-  node.appendChild(badge)
+  node.setAttribute('aria-description', [...messages].join('\n'))
   return true
 }
