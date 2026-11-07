@@ -173,7 +173,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
             field?.setAttribute('data-field-token-active', '')
             const group = field?.closest<HTMLElement>('[data-field-group]')?.dataset.fieldGroup
             const tab = group && options.root.querySelector<HTMLButtonElement>(`[data-field-group-tab="${group}"]`)
-            if (tab && tab.getAttribute('aria-selected') !== 'true') tab.click()
+            if (tab && tab.getAttribute('aria-selected') !== 'true' && !field?.closest('#freeform-field-dock[data-searching]')) tab.click()
             const caption = document.createElement('span')
             caption.dataset.templateTokenCaption = ''
             caption.dataset.labelEditorChrome = ''

@@ -162,6 +162,28 @@ describe('built-in field picker compatibility', () => {
     document.querySelector<HTMLButtonElement>('[data-field-token="{filament.name}"]')!.click()
     expect(popup.showPopover).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ['PLA Blue', 3, 'PLA\n{filament.extruder_temp_range_c|unit}\n Blue'],
+    ['**PLA**', 5, '**PLA\n{filament.extruder_temp_range_c|unit}**'],
+  ])('puts a temperature on its own line in %s and still allows adding its unit', async (template, caret, expected) => {
+    await renderDock()
+    const controller = createFreeformEditorController()
+    binding = bindFreeformEditorDom({ controller })
+    await binding.ready
+    const field = document.querySelector<HTMLButtonElement>('[data-field-token="{filament.extruder_temp_range_c}"]')!
+    expect(field.textContent).toBe('Extruder temperature')
+    expect(field.hasAttribute('title')).toBe(false)
+    const popover = document.querySelector<HTMLElement>('#freeform-field-unit-popup')!
+    popover.showPopover = vi.fn()
+    popover.hidePopover = vi.fn()
+    controller.updateSelected({ template })
+    controller.setTemplateSelection(caret)
+    field.click()
+    popover.querySelector<HTMLButtonElement>('[data-field-new-line]')!.click()
+    popover.querySelector<HTMLButtonElement>('[data-field-unit-choice]')!.click()
+    expect(controller.getSelectedElement()).toMatchObject({ template: expected })
+  })
   it('groups every expanded filament and spool choice by function', async () => {
     await renderDock()
     const filament = document.querySelector('#freeform-field-panel-filament')!

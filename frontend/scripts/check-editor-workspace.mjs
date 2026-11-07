@@ -29,6 +29,10 @@ try {
     if (path.endsWith('/me')) data = { id: 1, email: 'layout@example.test', display_name: 'Layout check', language: 'en', roles: ['user'], permissions: [] }
     if (/\/filaments\/\d+$/.test(path)) data = { ...filament, id: Number(path.split('/').at(-1)) }
     if (/\/spools\/\d+$/.test(path)) data = { id: Number(path.split('/').at(-1)), filament_id: 10, filament, custom_fields: {} }
+    if (/\/me\/label-presets(?:\/migrate)?$/.test(path)) data = [{
+      id: 42, preset_type: 'spool', name: 'My label',
+      data: { version: 2, design: { version: 2, label: { widthMm: 50, heightMm: 30, marginMm: 2, border: false }, elements: [] } },
+    }]
     if (path.endsWith('/events/stream')) return route.fulfill({ contentType: 'text/event-stream', body: ': ready\n\n' })
     if (path.endsWith('/label-logo')) return route.fulfill({ contentType: 'image/png', body: logo })
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) })
@@ -36,10 +40,14 @@ try {
   let cases = 0
   for (const path of ['/spools/101/print', '/filaments/10/print', '/spools/print?ids=101,102', '/filaments/print?ids=10,11']) {
     console.log(`Checking ${path}`)
+    let wasmRequests = 0
+    const countWasm = request => { if (request.resourceType() === 'fetch' && new URL(request.url()).pathname.endsWith('.wasm')) wasmRequests++ }
+    page.on('request', countWasm)
     await page.setViewportSize({ width: 1600, height: 900 })
     await page.goto(new URL(path, process.argv[2] || 'http://127.0.0.1:4321').href)
     if (!path.includes('?ids=')) {
       await page.locator('#label-preview .label-designation').waitFor({ state: 'attached' })
+      assert.equal(await page.locator('#freeform-current-label-size').isVisible(), false)
       await page.locator('#tab-btn-designer').click()
     }
     await page.locator('#freeform-canvas-host [data-label-svg-raster]').first().waitFor().catch(async error => {
@@ -48,6 +56,8 @@ try {
     })
     assert.equal(await page.locator('#freeform-canvas-host [data-label-output-error]').count(), 0)
     assert.match(await page.locator('#freeform-canvas-host [data-label-svg-raster]').first().getAttribute('src'), /^blob:/, 'Interactive label uses SVG artwork')
+    assert.equal(wasmRequests, 0, 'Opening the designer does not load the print rasterizer')
+    page.off('request', countWasm)
     if (path.includes('?ids=')) {
       const surface = page.locator('#freeform-canvas-host .label-preview').first()
       assert.equal(await page.evaluate(() => typeof window.QRCode), 'undefined')
@@ -61,6 +71,13 @@ try {
     await page.locator('#preview-zoom-input').press('Tab')
     const surface = page.locator('#freeform-canvas-host .label-preview').first()
     if (path === '/spools/101/print') {
+      const preset = page.locator('#freeform-preset-list')
+      assert.equal(await preset.locator('option').first().textContent(), 'My label (50 × 30 mm)')
+      assert.equal(await page.locator('#freeform-current-label-size').textContent(), '60 × 40 mm')
+      await preset.press('Space')
+      await page.waitForFunction(() => document.querySelector('#freeform-preset-list').matches(':open'))
+      assert.equal(await preset.locator('option .freeform-preset-option-size').first().isVisible(), true)
+      await page.keyboard.press('Escape')
       await surface.locator('[data-label-element-id="text"]').click()
       await page.locator('#freeform-json-expand').click()
       const json = page.locator('#freeform-element-json')
@@ -73,16 +90,37 @@ try {
         assert.equal(await surface.locator('[data-label-svg-raster]').count(), 1)
         assert.equal(await surface.locator('[data-label-element-id="qr"][data-label-output-error]').count(), 0)
         assert.equal(await surface.getAttribute('data-label-output-error'), null)
-        if (failed) assert.match(await page.locator('#freeform-text-fit-warning').textContent(), /enlarge|Scale font to fit/i)
+        if (failed) {
+          assert.match(await page.locator('#freeform-text-fit-warning').textContent(), /enlarge|Scale font to fit/i)
+          assert.match(await page.locator('#freeform-output-warning').textContent(), /Text does not fit/)
+          await page.locator('#freeform-json-section [popovertarget="freeform-json-section"]').click()
+          await page.locator('#freeform-select-overflow').click()
+          assert.equal(await surface.locator('[data-label-element-id="text"]:focus').count(), 1)
+          const dialog = page.waitForEvent('dialog').then(async error => { await error.dismiss(); return error.message() })
+          await page.locator('#btn-export-png').click()
+          const error = await dialog
+          assert.match(error, /Text does not fit/)
+          assert.doesNotMatch(error, /images and logos/)
+          await page.locator('#freeform-select-overflow').click()
+          await page.locator('#freeform-json-expand').click()
+        }
       }
       await json.fill(JSON.stringify(original))
       await page.locator('#freeform-json-apply').click()
+      await page.locator('#freeform-output-warning').waitFor({ state: 'hidden' })
       await page.locator('#freeform-json-section [popovertarget="freeform-json-section"]').click()
       console.log('Temperature insertion, box-local overflow guidance and recovery passed')
       if (await page.locator('#freeform-field-dock').getAttribute('data-open') !== 'true') await page.locator('#freeform-field-dock-toggle').click()
       await page.locator('#freeform-field-tab-filament').click()
+      const search = page.locator('#freeform-field-search')
+      await search.fill('material')
+      assert.equal(await page.locator('[data-field-group-tab][aria-selected="true"]').count(), 0)
+      assert.deepEqual(await page.locator('[data-field-result-heading]:visible').allTextContents(), ['Filament', 'Spool'])
+      await search.clear()
+      assert.equal(await page.locator('#freeform-field-tab-filament').getAttribute('aria-selected'), 'true')
       await surface.locator('[data-label-element-id="text"]').dblclick()
       const temperature = page.locator('[data-field-token="{filament.extruder_temp_range_c}"]')
+      assert.equal(await temperature.textContent(), 'Extruder temperature')
       await temperature.click({ position: { x: 6, y: 6 } })
       const popup = page.locator('#freeform-field-unit-popup')
       await popup.waitFor({ state: 'visible' })
@@ -149,6 +187,7 @@ try {
       for (let pass = 0; pass < 2; pass++) {
         await page.locator('#tab-btn-sheets').click()
         await page.locator('.label-sheet-page').first().waitFor()
+        assert.equal(await page.locator('#freeform-current-label-size').isVisible(), false)
         await page.locator('#tab-btn-designer').click()
         await page.waitForFunction(id => document.querySelector('#freeform-canvas-host .label-wrapper')?.id === id, representative)
         await page.locator('#freeform-canvas-host [data-label-element-id="text"]').first().click()
@@ -244,7 +283,7 @@ try {
     await page.locator('#tab-btn-print').click()
     await page.setViewportSize({ width: 390, height: 900 })
     await page.locator('#btn-print').waitFor()
-    assert.ok(await page.locator('.action-buttons .fm-btn').evaluateAll(buttons => buttons.length > 0 && buttons.every(button => {
+    assert.ok(await page.locator('.action-buttons .fm-btn:visible').evaluateAll(buttons => buttons.length > 0 && buttons.every(button => {
       const bounds = button.getBoundingClientRect()
       return bounds.width >= 44 && bounds.height >= 44
     })), `${path}: mobile output actions remain touch-sized`)

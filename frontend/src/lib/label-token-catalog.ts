@@ -4,6 +4,7 @@ export { getLabelTokenUnit } from './label-token-units'
 export interface LabelTokenChoice {
   token: string
   label: string
+  labelKey?: string
   section: string
 }
 
@@ -34,8 +35,8 @@ export const FILAMENT_TOKENS: readonly LabelTokenChoice[] = [
   { token: '{filament.spool_width_mm}', label: 'spool_width', section: 'packaging' },
   { token: '{filament.spool_material}', label: 'spool_material', section: 'packaging' },
   { token: '{filament.shop_url}', label: 'shop_url', section: 'identity' },
-  { token: '{filament.extruder_temp_range_c}', label: 'extruder_temp_range_c', section: 'temperatures' },
-  { token: '{filament.bed_temp_range_c}', label: 'bed_temp_range_c', section: 'temperatures' },
+  { token: '{filament.extruder_temp_range_c}', label: 'Extruder temperature', labelKey: 'labelDesigner.extruderTemperature', section: 'temperatures' },
+  { token: '{filament.bed_temp_range_c}', label: 'Bed temperature', labelKey: 'labelDesigner.bedTemperature', section: 'temperatures' },
   { token: '{filament.manufacturer_sku}', label: 'manufacturer_sku', section: 'identity' },
   { token: '{filament.datasheet_url}', label: 'datasheet_url', section: 'identity' },
   { token: '{filament.image_url}', label: 'image_url', section: 'identity' },

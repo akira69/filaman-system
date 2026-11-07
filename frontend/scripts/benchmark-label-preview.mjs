@@ -101,7 +101,7 @@ try {
             await element.querySelector('[data-label-svg-raster]').decode();
             return { processMs: processed - start, readyMs: performance.now() - start };
           };
-          window.labelBenchmark = { fixture, element, design, options, render, clearSvgDesignerLabel, renderSvgElementOutput, rasterize,
+          window.labelBenchmark = { fixture, element, design, options, render, renderDesignerLabel, clearSvgDesignerLabel, renderSvgElementOutput, rasterize,
             counters: () => ({ fetches, decodes, activeUrls: urls.size }), reset: () => { fetches = 0; decodes = 0; } };
         }, { fixture, logoUrl });
         const timing = await page.evaluate(async samples => {
@@ -115,7 +115,10 @@ try {
           }
           const boxes = [...bench.element.querySelectorAll('[data-label-element-id]')].map(node => ({ id: node.dataset.labelElementId,
             x: node.style.left, y: node.style.top, w: node.style.width, h: node.style.height }));
-          return { firstRender, measurements, boxes, counters: bench.counters() };
+          const rasterizerBytes = performance.getEntriesByType('resource')
+            .filter(entry => entry.initiatorType === 'fetch' && new URL(entry.name).pathname.endsWith('.wasm'))
+            .reduce((total, entry) => total + entry.decodedBodySize, 0);
+          return { firstRender, measurements, boxes, counters: bench.counters(), rasterizerBytes };
         }, samples);
         const cdp = await page.context().newCDPSession(page);
         await cdp.send('HeapProfiler.collectGarbage');
@@ -147,9 +150,37 @@ try {
           bench.clearSvgDesignerLabel(bench.element);
           return { output, disposedUrls: bench.counters().activeUrls };
         });
+        const batch = fixture.name === 'small-artwork' ? await page.evaluate(async () => {
+          const bench = window.labelBenchmark;
+          const roots = Array.from({ length: 20 }, () => document.createElement('div'));
+          document.querySelector('main').append(...roots);
+          const start = performance.now();
+          const { widthMm, heightMm } = bench.fixture;
+          const width = Math.round(widthMm * 600 / 25.4), height = Math.round(heightMm * 600 / 25.4);
+          const hashes = [];
+          try {
+            for (let i = 0; i < roots.length; i += 6) {
+              await Promise.all(roots.slice(i, i + 6).map((element, index) => bench.renderDesignerLabel({
+                ...bench.options, element, data: { ...bench.options.data, id: 295 + i + index },
+                interactive: false, vectorPreview: true,
+              })));
+            }
+            const prepared = performance.now();
+            const pngs = [];
+            for (const root of roots) pngs.push((await bench.renderSvgElementOutput(root, width, height, false)).png);
+            const finished = performance.now();
+            for (const png of pngs) {
+              hashes.push(Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', png)), x => x.toString(16).padStart(2, '0')).join(''));
+            }
+            return { prepareMs: prepared - start, totalMs: finished - start, hashes };
+          } finally {
+            roots.forEach(root => { bench.clearSvgDesignerLabel(root); root.remove(); });
+            if (bench.counters().activeUrls) throw new Error('Batch preview URL leak');
+          }
+        }) : null;
         assert.equal(output.disposedUrls, 0, `${revision.name}: preview URL leak`);
         for (const sample of timing.measurements) assert.ok(Number.isFinite(sample.processMs) && Number.isFinite(sample.readyMs));
-        runs.push({ revision: revision.name, round: round + 1, fixture: fixture.name, ...timing, warmHeap, retainedHeap, ...output });
+        runs.push({ revision: revision.name, round: round + 1, fixture: fixture.name, ...timing, warmHeap, retainedHeap, batch, ...output });
         console.log(`${revision.name} round ${round + 1}: ${fixture.name}`);
       } finally { await page.close(); }
     }
@@ -160,7 +191,12 @@ try {
     for (const name of Object.keys(revisions)) {
       const selected = runs.filter(run => run.revision === name && run.fixture === fixture.name);
       const values = selected.flatMap(run => run.measurements);
-      row[name] = { samples: values.length, processMedianMs: percentile(values.map(x => x.processMs), 0.5), processP95Ms: percentile(values.map(x => x.processMs), 0.95),
+      row[name] = { samples: values.length,
+        firstReadyMedianMs: percentile(selected.map(run => run.firstRender.readyMs), 0.5),
+        previewRasterizerBytes: percentile(selected.map(run => run.rasterizerBytes), 0.5),
+        batch20PrepareMedianMs: fixture.name === 'small-artwork' ? percentile(selected.map(run => run.batch.prepareMs), 0.5) : null,
+        batch20TotalMedianMs: fixture.name === 'small-artwork' ? percentile(selected.map(run => run.batch.totalMs), 0.5) : null,
+        processMedianMs: percentile(values.map(x => x.processMs), 0.5), processP95Ms: percentile(values.map(x => x.processMs), 0.95),
         readyMedianMs: percentile(values.map(x => x.readyMs), 0.5), readyP95Ms: percentile(values.map(x => x.readyMs), 0.95),
         artworkDecodes: selected.reduce((n, run) => n + run.counters.decodes, 0),
         export300MedianMs: percentile(selected.flatMap(run => run.output.filter(output => output.dpi === 300 && !output.thermal).flatMap(output => output.durations)), 0.5),
@@ -172,6 +208,7 @@ try {
       assert.deepEqual(run.boxes, reference.boxes, `${fixture.name}: editor geometry changed`);
       const hashes = outputs => outputs.map(({ durations: _durations, ...output }) => output);
       assert.deepEqual(hashes(run.output), hashes(reference.output), `${fixture.name}: strict SVG/PNG/mono1 output changed`);
+      assert.deepEqual(run.batch?.hashes, reference.batch?.hashes, `${fixture.name}: batch PNG output changed`);
     }
     row.processSpeedup = row.baseline.processMedianMs / row.candidate.processMedianMs;
     row.readySpeedup = row.baseline.readyMedianMs / row.candidate.readyMedianMs;
@@ -182,6 +219,8 @@ try {
     dependencyLockGitBlob: execFileSync('git', ['hash-object', 'frontend/package-lock.json'], { cwd: repository, encoding: 'utf8' }).trim() },
     methodology: { rounds, samplesPerRound: samples, warmupRenders: 8, retentionRenders: 150, exportSamplesPerFormat: 5, order: 'alternating baseline/candidate per round',
       processMs: 'renderDesignerLabel promise; includes artwork preparation, excludes subsequent preview image.decode() and paint', readyMs: 'includes image.decode(); excludes presentation/vsync',
+      firstReadyMs: 'first preview in a fresh browser context after renderer JS imports', rasterizerBytes: 'decoded Wasm response body bytes fetched before print or export',
+      batch20: 'warm renderer, 20 labels in chunks of six, followed by 600 DPI PNG capture; excludes ZIP packing and saving',
       memory: 'Chrome Runtime.getHeapUsage after forced GC; JavaScript heap only, not total process/GPU/native peak RAM',
       scope: 'Vite serves immutable Git archives; both revisions share installed dependencies; synthetic data only' },
     checks: { strictOutputComparisons: runs.filter(run => run.revision === 'candidate').reduce((n, run) => n + run.output.length, 0),

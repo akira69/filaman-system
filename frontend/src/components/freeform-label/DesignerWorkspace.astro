@@ -67,6 +67,7 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
           <slot />
         </div>
         <ElementInspector />
+        <output id="freeform-current-label-size" class="freeform-current-label-size" aria-label="Current label size" data-i18n-aria-label="labelDesigner.currentLabelSize"></output>
         <FieldDock />
       </div>
      </div>
@@ -130,12 +131,15 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
   .freeform-canvas-row :global(.freeform-text-toolbar) { align-self: center; grid-column: 1 / -1; grid-row: 1; justify-self: center; max-width: 100%; min-width: 0; width: max-content; }
   .freeform-canvas-row .freeform-canvas-host, .freeform-canvas-row :global(.freeform-element-inspector) { grid-row: 2; }
   .freeform-canvas-row .freeform-canvas-host { grid-column: 2; justify-self: safe center; }
+  .freeform-current-label-size { color: var(--text-muted); font-size: 0.75rem; grid-column: 1; grid-row: 2; justify-self: end; margin-inline-end: 8px; text-align: end; }
+  .freeform-designer-workspace:not(.is-active) .freeform-current-label-size { display: none; }
   .freeform-canvas-row :global(.freeform-element-inspector) { grid-column: 3; justify-self: start; margin-left: 8px; }
   .freeform-canvas-row :global(.freeform-field-dock) { grid-column: 1 / -1; grid-row: 3; justify-self: center; }
   .freeform-canvas-row.is-geometry-below { grid-template-columns: minmax(0, 1fr); justify-items: center; }
-  .freeform-canvas-row.is-geometry-below .freeform-canvas-host { grid-column: 1; }
-  .freeform-canvas-row.is-geometry-below :global(.freeform-element-inspector) { grid-column: 1; grid-row: 3; justify-self: center; margin-left: 0; }
-  .freeform-canvas-row.is-geometry-below :global(.freeform-field-dock) { grid-column: 1; grid-row: 4; }
+  .freeform-canvas-row.is-geometry-below .freeform-current-label-size { justify-self: center; margin: 0 0 6px; text-align: center; }
+  .freeform-canvas-row.is-geometry-below .freeform-canvas-host { grid-column: 1; grid-row: 3; }
+  .freeform-canvas-row.is-geometry-below :global(.freeform-element-inspector) { grid-column: 1; grid-row: 4; justify-self: center; margin-left: 0; }
+  .freeform-canvas-row.is-geometry-below :global(.freeform-field-dock) { grid-column: 1; grid-row: 5; }
   .freeform-designer-workspace.is-active :global(.is-designer-output-only) { left: -100000px; pointer-events: none; position: fixed; top: 0; }
   .freeform-canvas-host { display: block; flex: none; outline: none; position: relative; }
   .freeform-canvas-host:focus-visible, .freeform-canvas-host :global([data-label-element-id]:focus-visible) { outline: 2px solid var(--accent); outline-offset: 4px; }
@@ -176,7 +180,8 @@ const arrangeTools: Array<{ action: string; icon: DesignerIconName; label: strin
   .freeform-designer-workspace[data-editor-editable='false'] :global(.freeform-element-inspector),
   .freeform-designer-workspace[data-editor-editable='false'] :global(.freeform-field-dock) { display: none; }
   .freeform-designer-workspace[data-editor-editable='false'] .freeform-canvas-region { display: block; padding: 12px; position: static; }
-  .freeform-designer-workspace.is-active[data-editor-editable='false'] .freeform-canvas-row { display: flex; justify-content: safe center; }
+  .freeform-designer-workspace.is-active[data-editor-editable='false'] .freeform-canvas-row { align-items: safe center; display: flex; flex-direction: column; }
+  .freeform-designer-workspace[data-editor-editable='false'] .freeform-current-label-size { margin: 0 0 6px; order: -1; }
   .freeform-designer-workspace.is-active[data-editor-editable='false'] .freeform-mobile-notice:not([hidden]) { display: block; }
   @media (prefers-reduced-motion: reduce) { .freeform-designer-workspace.is-active .freeform-canvas-stage { transition: none; } }
 </style>

@@ -23,14 +23,32 @@ it('searches functional groups and restores independent collapse states without 
     expect(groups.filter(group => !group.hidden).map(group => group.dataset.tokenSection)).toEqual(['temperatures', 'drying'])
     expect(groups.filter(group => !group.hidden).every(group => group.open)).toBe(true)
     expect(document.activeElement).toBe(search)
+    search.value = 'material'
+    search.dispatchEvent(new Event('input'))
+    const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-field-group-tab]')]
+    const panels = [...document.querySelectorAll<HTMLElement>('[data-field-group]')]
+    expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'false'])
+    expect(panels.map(panel => panel.hidden)).toEqual([false, false])
+    expect(panels.map(panel => panel.getAttribute('role'))).toEqual(['region', 'region'])
+    expect(panels.map(panel => panel.querySelector('[data-field-result-heading]:not([hidden])')?.textContent)).toEqual(['Filament', 'Spool'])
     search.value = 'unmatched token'
     search.dispatchEvent(new Event('input'))
     expect(groups.every(group => group.hidden)).toBe(true)
+    expect(document.querySelector<HTMLElement>('#freeform-field-no-results')?.hidden).toBe(false)
     search.value = ''
     search.dispatchEvent(new Event('input'))
     expect(groups.every(group => !group.hidden)).toBe(true)
     expect(groups[0].open).toBe(false)
     expect(groups.slice(1).every(group => group.open)).toBe(true)
+    expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual(['true', 'false'])
+    expect(panels.map(panel => panel.hidden)).toEqual([false, true])
+
+    search.value = 'material'
+    search.dispatchEvent(new Event('input'))
+    tabs[1].click()
+    expect(search.value).toBe('')
+    expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual(['false', 'true'])
+    expect(panels.map(panel => panel.hidden)).toEqual([true, false])
   } finally { binding.destroy() }
 })
 

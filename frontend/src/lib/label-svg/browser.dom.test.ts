@@ -7,11 +7,15 @@ import { renderSvgElementOutput, redrawSvgGesture, bindSvgClone, prepareSvgPrint
 import type { LabelDesignV2 } from '../freeform-label/types'
 import { renderStandardLabel, API_DEFAULT_LABEL_SETTINGS } from '../label-standard'
 import { getTemplateSelectionRange } from '../freeform-label/template-selection'
+import { LabelOutputAssetError } from '../label-output-readiness'
 
+const readRasterizer = vi.hoisted(() => vi.fn<() => Promise<Uint8Array>>())
 vi.mock('./runtime.mjs', async importOriginal => {
   const module = await importOriginal<typeof import('./runtime.mjs')>()
-  return { createSvgRuntime: () => module.createSvgRuntime((path: string) => readFile(`node_modules/${path}`)) }
+  return { createSvgRuntime: (_readAsset: unknown, raster: boolean) => module.createSvgRuntime((path: string) =>
+    path.endsWith('.wasm') ? readRasterizer() : readFile(`node_modules/${path}`), raster) }
 })
+readRasterizer.mockImplementation(() => readFile('node_modules/@resvg/resvg-wasm/index_bg.wasm'))
 let previewId = 0
 beforeEach(() => {
   vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:label-preview-${++previewId}`)
@@ -32,6 +36,18 @@ function design(): LabelDesignV2 {
 }
 function root() { const node = document.createElement('div'); document.body.append(node); return node }
 
+it('keeps a rasterizer load failure out of preview and makes the whole output retryable', async () => {
+  const element = root(), value = design()
+  readRasterizer.mockRejectedValueOnce(new Error('Network unavailable'))
+  await renderDesignerLabel({ element, design: value, data, interactive: true })
+  expect(readRasterizer).not.toHaveBeenCalled()
+  expect(element.querySelector('[data-label-svg-raster]')).not.toBeNull()
+  await expect(renderSvgElementOutput(element, 480, 360, false)).rejects.toBeInstanceOf(LabelOutputAssetError)
+  expect(element.hasAttribute('data-label-output-error')).toBe(false)
+  await expect(renderSvgElementOutput(element, 480, 360, false)).resolves.toMatchObject({ width: 480, height: 360 })
+  expect(readRasterizer).toHaveBeenCalledTimes(2)
+})
+
 it.each([[40, 30], [300, 200]])('uses vector artwork for a %s × %s mm interactive preview without encoding a PNG', async (widthMm, heightMm) => {
   const element = root(), value = design()
   Object.assign(value.label, { widthMm, heightMm })
@@ -43,6 +59,20 @@ it.each([[40, 30], [300, 200]])('uses vector artwork for a %s × %s mm interacti
   expect(blob.type).toBe('image/svg+xml')
   expect(await blob.text()).toContain('<svg')
   expect(render).not.toHaveBeenCalled()
+})
+
+it('defers batch rasterization until final output and keeps the sheet copy printable', async () => {
+  const element = root()
+  const raster = vi.spyOn(Resvg.prototype, 'render')
+  await renderDesignerLabel({ element, design: design(), data, vectorPreview: true })
+  expect(element.querySelector<HTMLImageElement>('[data-label-svg-raster]')!.src).toMatch(/^blob:/)
+  expect(element.querySelector('[data-label-editor-chrome]')).toBeNull()
+  expect(raster).not.toHaveBeenCalled()
+  const clone = element.cloneNode(true) as HTMLElement
+  bindSvgClone(element, clone)
+  await prepareSvgPrintImages([clone], 600)
+  expect(clone.querySelector<HTMLImageElement>('[data-label-svg-raster]')!.src).toMatch(/^data:image\/png;/)
+  expect(raster).toHaveBeenCalledOnce()
 })
 
 it('releases replaced SVG URLs and replaces sheet copies with print-grade PNGs', async () => {
