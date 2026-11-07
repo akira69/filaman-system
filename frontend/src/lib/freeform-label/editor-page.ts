@@ -182,7 +182,6 @@ export async function initFreeformLabelDesignerEditor(
           button.type = 'button'
           button.className = 'freeform-token-chip'
           button.dataset.fieldToken = token
-          button.title = token
           button.textContent = label
           button.disabled = !editorEditable
           return button

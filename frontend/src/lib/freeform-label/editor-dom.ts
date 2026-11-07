@@ -73,7 +73,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
   const outputReason = query<HTMLElement>('#freeform-output-reason')
   const selectOverflow = query<HTMLButtonElement>('#freeform-select-overflow')
   const overflowSelector = '[data-label-element-type="text"][data-label-output-error]'
-  if (workspace) cleanups.push(bindDesignerTooltips(workspace))
+  if (workspace) cleanups.push(bindDesignerTooltips(workspace, options.getPreviewData))
   const fieldDrawer = bindFieldDrawer(root)
   let interactionRoot: HTMLElement | null = null
   let interactionGeneration = 0

@@ -167,7 +167,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
         const active = chip && index === activeTokenIndex
         token.toggleAttribute('data-template-token-active', active)
         if (chip) {
-          token.contentEditable = 'false'; token.draggable = false; token.title = source
+          token.contentEditable = 'false'; token.draggable = false
           if (active) {
             const field = [...options.root.querySelectorAll<HTMLElement>('[data-field-token]')]
               .find(candidate => candidate.dataset.fieldToken === source)
@@ -184,7 +184,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
             captionTokens.push({ token, caption })
           }
         }
-        else { token.removeAttribute('contenteditable'); token.removeAttribute('draggable'); token.removeAttribute('title') }
+        else { token.removeAttribute('contenteditable'); token.removeAttribute('draggable') }
       }
       const focused = document.activeElement
       if (editing && (focused === document.body || node.contains(focused)) && canvasRange && activeTokenIndex === null

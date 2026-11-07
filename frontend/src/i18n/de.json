@@ -1743,6 +1743,7 @@
     "textModifiers": "Textmodifikatoren",
     "fieldGroups": "Feldgruppen",
     "searchFields": "Felder suchen",
+    "missingTokenData": "Keine Daten für Token {token}",
     "noMatchingFields": "Keine passenden Felder",
     "currentLabelSize": "Aktuelle Etikettengröße",
     "includeUnit": "Einheit hinzufügen",

@@ -101,8 +101,8 @@ function hitTargets(options: RenderDesignerLabelOptions, input: SvgInput, output
   if (!options.interactive) return nodes
   const boxes: SvgBox[] = output?.boxes ?? input.preset.design.elements.map(e => ({ ...e, hidden: false }))
   for (const box of boxes) {
-    if (box.hidden) continue
     const element = input.preset.design.elements.find(e => e.id === box.id)!
+    if (box.hidden && element.type !== 'text') continue
     const node = document.createElement('div')
     node.dataset.labelElementId = element.id
     node.dataset.labelElementType = element.type
@@ -117,7 +117,8 @@ function hitTargets(options: RenderDesignerLabelOptions, input: SvgInput, output
     if (element.type === 'text') {
       // Temporary editing surface only; shared pixels remain the output.
       const text = output?.text.find((row: { id: string }) => row.id === element.id)
-      renderEditableText(node, { ...element, fontSizeMm: text?.size ?? element.fontSizeMm }, input.data)
+      const missing = renderEditableText(node, { ...element, fontSizeMm: text?.size ?? element.fontSizeMm }, input.data, true)
+      if (box.hidden && !missing) continue
       const content = node.firstElementChild as HTMLElement | null
       if (content) content.style.visibility = 'hidden'
       showElementWarning(node, text?.error)

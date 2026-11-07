@@ -1742,6 +1742,7 @@
     "textModifiers": "Text modifiers",
     "fieldGroups": "Field groups",
     "searchFields": "Search fields",
+    "missingTokenData": "No data in token {token}",
     "noMatchingFields": "No matching fields",
     "currentLabelSize": "Current label size",
     "includeUnit": "Include unit",

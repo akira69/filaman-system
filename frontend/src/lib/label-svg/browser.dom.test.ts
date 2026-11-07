@@ -152,6 +152,30 @@ it('keeps field selection on the editing overlay and omits it from printable out
   expect(output.svg.slice(output.svg.indexOf('>'))).toBe(svg.slice(svg.indexOf('>')))
 })
 
+it('shows selectable missing data markers without changing rendered output', async () => {
+  const element = root(), value = design()
+  const text = value.elements.find(e => e.type === 'text' && e.id === 'info')!
+  if (text.type !== 'text') throw new Error('Expected text fixture')
+  text.template = 'A**{filament.bed_temp_range_c|unit}**{extra.zero}[if={extra.empty}]{extra.hidden}[/if]Z'
+  value.elements = [text]
+  const previewData = { ...data, extra: { zero: '0', empty: '' } }
+  await renderDesignerLabel({ element, design: value, data: previewData, interactive: true })
+  const marker = element.querySelector<HTMLElement>('[data-template-missing]')!
+  expect(marker?.textContent).toBe('?')
+  expect(marker.hasAttribute('data-template-atomic')).toBe(true)
+  expect(marker.title).toBe('No data in token {filament.bed_temp_range_c|unit}')
+  expect(element.querySelectorAll('[data-template-missing]')).toHaveLength(1)
+  expect(element.querySelector('[data-label-missing-summary]')?.getAttribute('title')).toBe(marker.title)
+  expect(element.querySelector('[data-label-output-error]')).toBeNull()
+  const output = await renderSvgElementOutput(element, 480, 360, false)
+  text.template = 'A0Z'
+  await renderDesignerLabel({ element, design: value, data: previewData, interactive: true })
+  expect(element.querySelector('[data-label-missing-summary]')).toBeNull()
+  const clean = await renderSvgElementOutput(element, 480, 360, false)
+  expect(output.svg).toBe(clean.svg)
+  expect(output.png).toEqual(clean.png)
+})
+
 it.each(['spools', 'filaments'] as const)('renders cached embedded batch logos for %s through preview and export', async entityPath => {
   const element = root()
   const logoUrl = 'data:image/png;base64,' + (await readFile('public/logo-qr.png')).toString('base64')

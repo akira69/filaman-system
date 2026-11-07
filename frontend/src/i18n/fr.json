@@ -1742,6 +1742,7 @@
     "textModifiers": "Modificateurs de texte",
     "fieldGroups": "Groupes de champs",
     "searchFields": "Rechercher des champs",
+    "missingTokenData": "Aucune donnée pour le jeton {token}",
     "noMatchingFields": "Aucun champ correspondant",
     "currentLabelSize": "Taille actuelle de l’étiquette",
     "includeUnit": "Inclure l’unité",

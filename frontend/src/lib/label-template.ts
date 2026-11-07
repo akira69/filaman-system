@@ -183,6 +183,7 @@ interface TemplateCharacterSource {
   end: number
   atomic?: boolean
   literal?: boolean
+  missing?: string
 }
 
 function splitDateModifier(token: string): { key: string; dateOnly: boolean; format?: string } {
@@ -248,8 +249,15 @@ export function renderTemplateText(template: string, data: SpoolData): string {
   return expandTemplate(template, data, false).text.slice(0, MAX_MARKUP_CHARS)
 }
 
+export function previewLabelToken(token: string, data: SpoolData): string {
+  const value = renderTemplateText(token, data).trim()
+  return parseColorSwatchToken(token.slice(1, -1)) === null
+    ? value
+    : value.match(SWATCH_MARKER_RE)?.[3].replaceAll(',', ', ') ?? value
+}
+
 /** Track UTF-16 offsets alongside expansion, before markup hides its delimiters. */
-export function expandTemplate(template: string, data: SpoolData, selectable: boolean): {
+export function expandTemplate(template: string, data: SpoolData, selectable: boolean, showMissing = false): {
   text: string
   sources?: TemplateCharacterSource[]
 } {
@@ -268,8 +276,11 @@ export function expandTemplate(template: string, data: SpoolData, selectable: bo
       const resolved = swatch ?? resolveToken(token, data)
       if (!field.token) {
         if (resolved !== '?' && resolved !== '') yield* parts(field.innerStart, field.innerEnd)
-      } else {
-        if (resolved !== '?') yield { text: resolved, start: field.start, end: field.end, atomic: true, literal: swatch === null }
+      } else if (showMissing && (resolved === '?' || !resolved.trim())) {
+        yield { text: '?', start: field.start, end: field.end, atomic: true, literal: true,
+          missing: boundedTemplate.slice(field.start, field.end) }
+      } else if (resolved !== '?') {
+        yield { text: resolved, start: field.start, end: field.end, atomic: true, literal: swatch === null }
       }
     }
     yield { text: boundedTemplate.slice(last, to), start: last, end: to }
@@ -291,9 +302,10 @@ export function expandTemplate(template: string, data: SpoolData, selectable: bo
   for (const part of parts()) {
     for (let offset = 0; offset < part.text.length; offset++) {
       const character = part.text[offset]
-      const source = selectable && (caps ?? output).text.length < limit
+      const source: TemplateCharacterSource | undefined = selectable && (caps ?? output).text.length < limit
         ? { start: part.atomic ? part.start : part.start + offset, end: part.atomic ? part.end : part.start + offset + 1, atomic: part.atomic, literal: part.literal }
         : undefined
+      if (source && part.missing) source.missing = part.missing
       if (character === '^' && !part.literal && !caret) {
         caret = true
         caretSource = source
@@ -354,6 +366,7 @@ function applyMarkup(text: string, frag: DocumentFragment | HTMLElement, data: S
         el.dataset.templateStart = String(source.start)
         el.dataset.templateEnd = String(sources[sourceOffset + offset + end - 1].end)
         if (source.atomic) el.dataset.templateAtomic = 'true'
+        if (source.missing) el.dataset.templateMissing = source.missing
         if (raw[cursor] !== '\n') {
           el.dataset.templateLeaf = 'true'
           el.textContent = raw.slice(cursor, end)
@@ -484,8 +497,8 @@ export function parseTemplate(template: string, data: SpoolData): DocumentFragme
 }
 
 /** Same renderer as parseTemplate, with source annotations for canvas text selection. */
-export function renderSelectableTemplate(template: string, data: SpoolData): DocumentFragment {
-  const { text, sources } = expandTemplate(template, data, true)
+export function renderSelectableTemplate(template: string, data: SpoolData, showMissing = false): DocumentFragment {
+  const { text, sources } = expandTemplate(template, data, true, showMissing)
   const frag = document.createDocumentFragment()
   if (text.length > MAX_MARKUP_CHARS) {
     // Match the regular renderer's bounded plain-text fallback exactly.
@@ -502,6 +515,7 @@ export function renderSelectableTemplate(template: string, data: SpoolData): Doc
       span.dataset.templateEnd = String(sources![end - 1].end)
       span.dataset.templateLeaf = 'true'
       if (source.atomic) span.dataset.templateAtomic = 'true'
+      if (source.missing) span.dataset.templateMissing = source.missing
       span.textContent = text.slice(i, end)
       frag.append(span)
       i = end

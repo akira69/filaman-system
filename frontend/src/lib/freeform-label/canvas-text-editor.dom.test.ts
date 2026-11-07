@@ -98,7 +98,7 @@ describe('canvas text editing', () => {
     const e = editor('Hi {filament.color}')
     expect(e.node.contentEditable).toBe('true')
     const chip = e.node.querySelector<HTMLElement>('[data-template-token-chip]')!
-    expect(chip.title).toBe('{filament.color}')
+    expect(chip.hasAttribute('title')).toBe(false)
     expect(e.node.querySelector<HTMLElement>('[data-template-atomic]')!.contentEditable).toBe('false')
     e.select(e.node.firstChild!.firstChild!, 1)
     e.input('insertText', 'ey')
