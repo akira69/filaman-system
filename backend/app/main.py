@@ -29,7 +29,7 @@ from app.core.seeds import run_all_seeds
 from app.core.shared_health import shared_display_store, shared_health_store
 from app.models.plugin import InstalledPlugin
 from app.plugins.manager import plugin_manager
-from app.services.plugin_service import PLUGINS_DIR
+from app.services.plugin_service import PLUGINS_DIR, is_integration_slug
 
 setup_logging()
 logger = __import__("logging").getLogger(__name__)
@@ -691,6 +691,11 @@ app.mount("/uploads", _StaticFiles(directory=str(_uploads_dir)), name="uploads")
 logger.info("Serving uploads from '%s'", _uploads_dir)
 
 async def serve_plugin_view(plugin_slug: str, db: DBSession):
+    if plugin_slug in ("", "index.html"):
+        return FileResponse(os.path.join(static_files_path, "plugin-view/index.html"))
+    plugin_slug = plugin_slug.removesuffix("/")
+    if not is_integration_slug(plugin_slug):
+        raise HTTPException(status_code=404, detail="Plugin is unavailable")
     active = await db.scalar(
         select(InstalledPlugin.id).where(
             InstalledPlugin.plugin_type == "integration",
@@ -700,7 +705,7 @@ async def serve_plugin_view(plugin_slug: str, db: DBSession):
     )
     if active is None:
         raise HTTPException(status_code=404, detail="Plugin is unavailable")
-    return FileResponse(os.path.join(static_files_path, "plugin-view/detail/index.html"))
+    return FileResponse(os.path.join(static_files_path, "plugin-view/_shell/index.html"))
 
 
 if not settings.debug:
@@ -829,7 +834,9 @@ if not settings.debug:
                 os.path.join(static_files_path, "filaments/detail/edit/index.html")
             )
 
-        app.add_api_route("/plugin-view/{plugin_slug}", serve_plugin_view, methods=["GET"])
+        app.add_api_route(
+            "/plugin-view/{plugin_slug:path}", serve_plugin_view, methods=["GET", "HEAD"]
+        )
 
         @app.get("/admin/oidc")
         async def serve_admin_oidc():

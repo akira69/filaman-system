@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
@@ -18,8 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.plugin import InstalledPlugin
 from app.core.config import settings
+from app.core.file_lock import FileLockBusy, exclusive_file_lock
 
 logger = logging.getLogger(__name__)
+
+
+def is_integration_slug(slug: str) -> bool:
+    return len(slug) <= 487 and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug) is not None
 
 
 def _resolve_plugins_dir() -> Path:
@@ -104,6 +110,38 @@ class PluginInstallError(Exception):
         self.code = code
 
 
+def validate_integration_shell(manifest: dict, plugin_dir: Path) -> None:
+    page_url = manifest.get("page_url")
+    mount = manifest.get("mount_prefix")
+    has_shell = isinstance(page_url, str) and page_url.startswith("/plugin-view/")
+    claims_mount = isinstance(mount, str) and (
+        mount in ("/plugins", "/plugin-view") or mount.startswith(("/plugins/", "/plugin-view/"))
+    )
+    if not has_shell and not claims_mount:
+        return
+
+    slug = page_url.removeprefix("/plugin-view/") if has_shell else ""
+    if (
+        manifest.get("plugin_type") != "integration"
+        or not is_integration_slug(slug)
+        or mount != f"/plugins/{slug}"
+        or not (plugin_dir / "router.py").is_file()
+    ):
+        raise PluginInstallError(
+            "Integration shell requires /plugin-view/<slug>, /plugins/<slug>, and router.py",
+            "invalid_integration_shell",
+        )
+
+
+@contextmanager
+def _plugin_install_lock():
+    try:
+        with exclusive_file_lock(PLUGINS_DIR / ".install.lock"):
+            yield
+    except FileLockBusy as exc:
+        raise PluginInstallError("Another plugin install is running", "install_busy") from exc
+
+
 class PluginInstallService:
     """Service fuer Plugin-Installation, -Validierung und -Deinstallation."""
 
@@ -140,7 +178,7 @@ class PluginInstallService:
         self._validate_zip(zip_data)
 
         # 3. In temp-Verzeichnis entpacken
-        with tempfile.TemporaryDirectory(prefix="filaman_plugin_") as tmpdir:
+        with _plugin_install_lock(), tempfile.TemporaryDirectory(prefix="filaman_plugin_") as tmpdir:
             plugin_dir = self._extract_zip(zip_data, tmpdir)
 
             # 4. Manifest lesen (frueher, um plugin_type zu kennen)
@@ -159,6 +197,19 @@ class PluginInstallService:
 
             # 8. Upgrade oder Neuinstallation pruefen
             plugin_key = manifest["plugin_key"]
+            page_url = manifest.get("page_url")
+            if isinstance(page_url, str) and page_url.startswith("/plugin-view/"):
+                owner = await self.db.scalar(
+                    select(InstalledPlugin.plugin_key).where(
+                        InstalledPlugin.page_url == page_url,
+                        InstalledPlugin.plugin_key != plugin_key,
+                    ).limit(1)
+                )
+                if owner is not None:
+                    raise PluginInstallError(
+                        f"Integration shell URL is already used by '{owner}'",
+                        "integration_shell_conflict",
+                    )
             existing = await self._find_existing(plugin_key)
             is_upgrade = existing is not None
 
@@ -405,6 +456,8 @@ class PluginInstallService:
                 "invalid_plugin_type",
             )
         manifest["plugin_type"] = plugin_type
+
+        validate_integration_shell(manifest, plugin_dir)
 
         # plugin_key validieren
         plugin_key = manifest["plugin_key"]

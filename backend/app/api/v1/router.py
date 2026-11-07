@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.routing import APIRoute, APIWebSocketRoute
+from sqlalchemy import select
 
 from app.api.deps import DBSession
-from app.services.plugin_service import PluginInstallService
+from app.models.plugin import InstalledPlugin
+from app.services.plugin_service import validate_integration_shell
 
 from app.services.spoolman_projection import adapt_installed_spoolman
 
@@ -79,13 +82,19 @@ api_router.include_router(filamentdb_router)
 _deferred_plugin_routers: list[tuple] = []
 
 
-def _integration_dependencies(plugin_key: str, plugin_type: str):
+def _integration_dependencies(plugin_key: str, plugin_type: str, router: APIRouter):
     if plugin_type != "integration":
         return []
 
+    if any(not isinstance(route, (APIRoute, APIWebSocketRoute)) for route in router.routes):
+        raise ValueError("Integration routes must use FastAPI route decorators")
+
     async def require_active(db: DBSession) -> None:
-        plugin = await PluginInstallService(db).get_plugin(plugin_key)
-        if plugin is None or not plugin.is_active:
+        active = await db.scalar(select(InstalledPlugin.id).where(
+            InstalledPlugin.plugin_key == plugin_key,
+            InstalledPlugin.is_active.is_(True),
+        ))
+        if active is None:
             raise HTTPException(status_code=404, detail="Plugin is unavailable")
 
     return [Depends(require_active)]
@@ -124,6 +133,7 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
         if manifest.get("plugin_type") not in ("import", "integration"):
             return False
 
+        validate_integration_shell(manifest, plugin_dir)
         mount_prefix = manifest.get("mount_prefix")
 
         if str(PLUGINS_DIR) not in sys.path:
@@ -150,6 +160,7 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
         # Mount-Prefix bestimmen: eigener mount_prefix oder Standard /api/v1
         router_mount_prefix = mount_prefix if mount_prefix else "/api/v1"
 
+        dependencies = _integration_dependencies(plugin_key, manifest["plugin_type"], plugin_router)
         # Alte Routes dieses Plugins entfernen (bei Update/Reinstall),
         # damit die neuen nicht von verwaisten alten Routen ueberschattet werden.
         if plugin_router.prefix:
@@ -157,19 +168,19 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
             app.router.routes = [
                 route
                 for route in app.router.routes
-                if not (hasattr(route, "path") and route.path.startswith(full_prefix))
+                if not (hasattr(route, "path") and (route.path == full_prefix or route.path.startswith(full_prefix + "/")))
             ]
         elif mount_prefix:
             # Plugin hat eigenen mount_prefix — alte Routen unter diesem Prefix entfernen
             app.router.routes = [
                 route
                 for route in app.router.routes
-                if not (hasattr(route, "path") and route.path.startswith(mount_prefix))
+                if not (hasattr(route, "path") and (route.path == mount_prefix or route.path.startswith(mount_prefix + "/")))
             ]
 
         app.include_router(
             plugin_router, prefix=router_mount_prefix,
-            dependencies=_integration_dependencies(plugin_key, manifest["plugin_type"]),
+            dependencies=dependencies,
         )
 
         # Optional: admin_router fuer Plugin-spezifische Admin-Endpoints.
@@ -183,7 +194,7 @@ def mount_plugin_router_on_app(app, plugin_key: str) -> bool:
                     for route in app.router.routes
                     if not (
                         hasattr(route, "path")
-                        and route.path.startswith(admin_full_prefix)
+                        and (route.path == admin_full_prefix or route.path.startswith(admin_full_prefix + "/"))
                     )
                 ]
             app.include_router(plugin_admin_router, prefix="/api/v1")
@@ -278,6 +289,7 @@ def _mount_plugin_routers() -> None:
             if manifest.get("plugin_type") not in ("import", "integration"):
                 continue
 
+            validate_integration_shell(manifest, plugin_dir)
             plugin_key = manifest.get("plugin_key", plugin_dir.name)
             mount_prefix = manifest.get("mount_prefix")
 
@@ -293,7 +305,7 @@ def _mount_plugin_routers() -> None:
 
             plugin_admin_router = getattr(module, "admin_router", None)
 
-            dependencies = _integration_dependencies(plugin_key, manifest["plugin_type"])
+            dependencies = _integration_dependencies(plugin_key, manifest["plugin_type"], plugin_router)
             if mount_prefix:
                 # Plugin definiert eigenen Mount-Punkt — deferred mount auf app
                 _deferred_plugin_routers.append(

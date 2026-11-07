@@ -188,10 +188,6 @@ async def plugin_nav(
     db: DBSession,
     _principal: PrincipalDep,
 ):
-    cached = response_cache.get("plugin_nav")
-    if cached is not None:
-        return cached
-
     result = await db.execute(
         select(InstalledPlugin)
         .where(InstalledPlugin.is_active.is_(True))
@@ -200,12 +196,7 @@ async def plugin_nav(
         .where(InstalledPlugin.page_url != "")
         .order_by(InstalledPlugin.name)
     )
-    items = result.scalars().all()
-
-    # Cache the serialized list (ORM objects can't be pickled after session closes)
-    serialized = [PluginNavItem.model_validate(p) for p in items]
-    response_cache.set("plugin_nav", serialized, ttl=600)
-    return serialized
+    return [PluginNavItem.model_validate(plugin) for plugin in result.scalars()]
 
 
 # ------------------------------------------------------------------ #
@@ -567,7 +558,6 @@ async def install_from_registry(
 
     # Caches invalidieren (Plugin-Status hat sich geaendert)
     _invalidate_version_cache()
-    response_cache.delete("plugin_nav")
 
     action = "aktualisiert" if is_upgrade else "installiert"
     return PluginInstallResponse(
@@ -678,7 +668,6 @@ async def install_plugin(
 
     # Caches invalidieren (Plugin-Status hat sich geaendert)
     _invalidate_version_cache()
-    response_cache.delete("plugin_nav")
 
     action = "aktualisiert" if is_upgrade else "installiert"
     return PluginInstallResponse(
@@ -776,7 +765,6 @@ async def uninstall_plugin(
 
     # Caches invalidieren (Plugin entfernt)
     _invalidate_version_cache()
-    response_cache.delete("plugin_nav")
 
 
 class PluginToggleResponse(BaseModel):
@@ -879,7 +867,6 @@ async def toggle_plugin_active(
                     if started:
                         affected += 1
 
-    response_cache.delete("plugin_nav")
     return PluginToggleResponse(
         plugin=PluginResponse.model_validate(plugin),
         affected_printers=affected,

@@ -2,13 +2,12 @@
 import Layout from '../../layouts/Layout.astro'
 
 export function getStaticPaths() {
-  return [{ params: { slug: 'detail' } }]
+  // The build-only slug cannot collide with a valid integration slug.
+  return [{ params: { slug: '_shell' } }]
 }
 ---
 
 <Layout title="FilaMan - Plugin" noPadding>
-  {/* iframe src is built client-side so we can read theme + locale from
-      localStorage / the live data-theme attribute set by Layout.astro */}
   <iframe
     id="plugin-iframe"
     title="Plugin"
