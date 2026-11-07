@@ -197,6 +197,9 @@ class PluginInstallService:
 
             # 8. Upgrade oder Neuinstallation pruefen
             plugin_key = manifest["plugin_key"]
+            # Install callers have only permission reads pending. Start with a
+            # fresh snapshot after taking the file lock, without holding row locks.
+            await self.db.rollback()
             page_url = manifest.get("page_url")
             if isinstance(page_url, str) and page_url.startswith("/plugin-view/"):
                 owner = await self.db.scalar(

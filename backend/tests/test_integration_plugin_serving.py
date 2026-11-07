@@ -171,7 +171,8 @@ async def test_two_plugins_cannot_claim_one_shell_url(db_session, admin_user, tm
             archive.writestr("router.py", "from fastapi import APIRouter\nrouter = APIRouter()\n")
         return stream.getvalue()
 
-    await service.install_from_zip(package("first_example"), installed_by=admin_user.id)
+    installer_id = admin_user.id
+    await service.install_from_zip(package("first_example"), installed_by=installer_id)
     with pytest.raises(plugin_service.PluginInstallError) as error:
         await service.install_from_zip(package("second_example"))
     assert error.value.code == "integration_shell_conflict"
@@ -183,5 +184,5 @@ async def test_two_plugins_cannot_claim_one_shell_url(db_session, admin_user, tm
     with pytest.raises(plugin_service.PluginInstallError) as error:
         await service.install_from_zip(package("shell_mount", page_url=None, prefix="/plugin-view"))
     assert error.value.code == "invalid_integration_shell"
-    _, upgraded = await service.install_from_zip(package("first_example"), installed_by=admin_user.id)
+    _, upgraded = await service.install_from_zip(package("first_example"), installed_by=installer_id)
     assert upgraded
