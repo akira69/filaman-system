@@ -115,6 +115,7 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
   const activateToken = (token: HTMLElement) => {
     const node = selectedNode()
     if (!node?.contains(token)) return false
+    node.focus({ preventScroll: true })
     canvasRange = { start: Number(token.dataset.templateStart), end: Number(token.dataset.templateEnd) }
     options.setTemplateRange?.(canvasRange)
     activeTokenIndex = [...node.querySelectorAll('[data-template-atomic]')].indexOf(token)
@@ -508,6 +509,13 @@ export function bindCanvasTextEditor(options: CanvasTextEditorOptions) {
     handleKeydown(event: KeyboardEvent): boolean {
       if (!editingId) return false
       if ((event.metaKey || event.ctrlKey) && ['z', 'y'].includes(event.key.toLowerCase())) return false
+      if (activeTokenIndex !== null && canvasRange && !event.isComposing && !compositionRange
+        && (event.key === 'Delete' || event.key === 'Backspace')) {
+        // Token highlighting clears the native selection, so a delete input event may never fire.
+        event.preventDefault()
+        edit('', canvasRange)
+        return true
+      }
       const horizontalArrow = ['ArrowLeft', 'ArrowRight'].includes(event.key)
         && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
       if (activeTokenIndex !== null && horizontalArrow) {

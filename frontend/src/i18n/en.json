@@ -1715,7 +1715,6 @@
     "savedPresets": "Saved presets",
     "loadPreset": "Load a preset",
     "selectTextBox": "Select text box",
-    "insertOnNewLine": "Insert on new line",
     "extruderTemperature": "Extruder temperature",
     "bedTemperature": "Bed temperature",
     "presetName": "Preset name",

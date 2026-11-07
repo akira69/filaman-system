@@ -1715,7 +1715,6 @@
     "savedPresets": "Préréglages enregistrés",
     "loadPreset": "Charger un préréglage",
     "selectTextBox": "Sélectionner la zone de texte",
-    "insertOnNewLine": "Insérer sur une nouvelle ligne",
     "extruderTemperature": "Température de la buse",
     "bedTemperature": "Température du plateau",
     "presetName": "Nom du préréglage",

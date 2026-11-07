@@ -8,18 +8,6 @@ export type { TemplateTextModifier } from './text-modifiers'
 export interface TemplateSourceRange { start: number; end: number }
 export interface FormattedTemplateRange extends TemplateSourceRange { template: string }
 
-export function fieldLineBreaks(template: string, { start, end }: TemplateSourceRange) {
-  const visible = template.split('')
-  for (const range of syntaxRanges(template)) {
-    if (range.token) continue
-    visible.fill('', range.start, range.innerStart)
-    visible.fill('', range.innerEnd, range.end)
-  }
-  const before = visible.slice(0, start).join('').split(/\n|\\n/).at(-1)?.trim()
-  const after = visible.slice(end).join('').split(/\n|\\n/, 1)[0]?.trim()
-  return { leading: before ? '\n' : '', trailing: after ? '\n' : '' }
-}
-
 const dateModifierSuffix = /\|date(?::[^{}]*)?\s*\}$/i
 
 const sourceSelector = '[data-template-start][data-template-end]'

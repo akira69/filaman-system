@@ -299,6 +299,16 @@ describe('canvas text editing', () => {
     expect(e.selected.template).toBe('Hi !')
   })
 
+  it.each(['Delete', 'Backspace'])('removes the entire clicked token on %s without a native deletion event', key => {
+    const e = editor('Hi {filament.extruder_temp_range_c|unit}!')
+    e.node.querySelector<HTMLElement>('[data-template-token-chip]')!.click()
+    expect(document.getSelection()?.rangeCount).toBe(0)
+    const event = new KeyboardEvent('keydown', { key, cancelable: true })
+    expect(e.binding.handleKeydown(event)).toBe(true)
+    expect(e.selected.template).toBe('Hi !')
+    expect(event.defaultPrevented).toBe(true)
+  })
+
   it.each([
     ['deleteWordBackward', 'Hello world', 11, 6, 11, 'Hello '],
     ['deleteWordForward', 'Hello world', 0, 0, 5, ' world'],

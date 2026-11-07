@@ -1716,7 +1716,6 @@
     "savedPresets": "Gespeicherte Vorlagen",
     "loadPreset": "Vorlage laden",
     "selectTextBox": "Textfeld auswählen",
-    "insertOnNewLine": "In neuer Zeile einfügen",
     "extruderTemperature": "Extrudertemperatur",
     "bedTemperature": "Betttemperatur",
     "presetName": "Vorlagenname",

@@ -7,7 +7,6 @@ import { bindDesignerTooltips } from './designer-tooltips'
 import { bindImageCropEditor } from './image-crop-editor'
 import { bindLabelInteractions, type InteractFactory, type LabelInteractionController } from './interaction-adapter'
 import { formatDesignerNumber } from './number-format'
-import { fieldLineBreaks } from './template-selection'
 import QRCode from 'qrcode'
 import { buildQrUrl } from '../qr-code'
 import {
@@ -656,34 +655,21 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
 
   const unitPopup = query<HTMLElement>('#freeform-field-unit-popup')
   const unitChoice = query<HTMLButtonElement>('[data-field-unit-choice]')
-  const fieldNewLine = query<HTMLButtonElement>('[data-field-new-line]')
-  let unitInsertion: { id: string; template: string; start: number; end: number; token: string; breaks: ReturnType<typeof fieldLineBreaks> } | undefined
+  let unitInsertion: { id: string; template: string; start: number; end: number; token: string } | undefined
   const hideUnitPopup = () => { if (unitPopup?.isConnected) unitPopup.hidePopover?.(); unitInsertion = undefined }
   listen(query('[data-field-unit-dismiss]'), 'click', hideUnitPopup)
-  const replaceInsertedField = (withUnit: boolean) => {
+  listen(unitChoice, 'click', () => {
     const selected = controller.getSelectedElement(), insertion = unitInsertion
-    if (withUnit) hideUnitPopup()
+    hideUnitPopup()
     if (!editable || !insertion || selected?.type !== 'text' || selected.id !== insertion.id || selected.template !== insertion.template) return
-    const before = selected.template.slice(0, insertion.start), after = selected.template.slice(insertion.end)
-    const replacement = withUnit ? insertion.token.slice(0, -1) + '|unit}' : insertion.breaks.leading + insertion.token + insertion.breaks.trailing
-    const template = before + replacement + after
+    const replacement = insertion.token.slice(0, -1) + '|unit}'
+    const template = selected.template.slice(0, insertion.start) + replacement + selected.template.slice(insertion.end)
     if (template.length > 8000) return
     const end = insertion.start + replacement.length
     if (!textEditor.insertField(replacement, { start: insertion.start, end: insertion.end })) {
       mutate(() => controller.updateSelected({ template }, { start: end, end }))
     }
-    if (!withUnit && fieldNewLine) {
-      const edited = controller.getSelectedElement()
-      const tokenEnd = controller.getTemplateSelection().end - insertion.breaks.trailing.length
-      const start = tokenEnd - insertion.token.length
-      if (edited?.type !== 'text' || edited.template.slice(start, tokenEnd) !== insertion.token) return hideUnitPopup()
-      unitInsertion = { ...insertion, template: edited.template, start, end: tokenEnd, breaks: { leading: '', trailing: '' } }
-      unitChoice?.focus({ preventScroll: true })
-      fieldNewLine.hidden = true
-    }
-  }
-  listen(unitChoice, 'click', () => replaceInsertedField(true))
-  listen(fieldNewLine, 'click', () => replaceInsertedField(false))
+  })
   cleanups.push(hideUnitPopup)
 
   listen<MouseEvent>(root as ParentNode & EventTarget, 'click', event => {
@@ -700,9 +686,7 @@ export function bindFreeformEditorDom(options: BindFreeformEditorDomOptions) {
     if (!unit || !unitPopup || !unitChoice || selected?.type !== 'text') return
     const end = controller.getTemplateSelection().end, start = end - token.length
     if (selected.template.slice(start, end) !== token) return
-    const breaks = fieldLineBreaks(selected.template, { start, end })
-    unitInsertion = { id: selected.id, template: selected.template, start, end, token, breaks }
-    if (fieldNewLine) fieldNewLine.hidden = !breaks.leading && !breaks.trailing
+    unitInsertion = { id: selected.id, template: selected.template, start, end, token }
     unitChoice.textContent = unit
     unitChoice.setAttribute('aria-label', `${translate('labelDesigner.includeUnit', 'Include unit')} ${unit}`)
     unitPopup.showPopover?.()

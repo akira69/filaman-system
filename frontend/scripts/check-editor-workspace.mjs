@@ -79,6 +79,18 @@ try {
       assert.equal(await preset.locator('option .freeform-preset-option-size').first().isVisible(), true)
       await page.keyboard.press('Escape')
       await surface.locator('[data-label-element-id="text"]').click()
+      const token = surface.locator('[data-template-token-chip]').first()
+      for (const key of ['Delete', 'Backspace']) {
+        await page.locator('#freeform-field-search').focus()
+        await token.click()
+        assert.equal(await token.getAttribute('data-template-token-active'), '')
+        assert.equal(await surface.locator('[data-label-element-id="text"]:focus').count(), 1)
+        await page.keyboard.press(key)
+        await token.waitFor({ state: 'detached', timeout: 3000 })
+        assert.equal(await surface.locator('[data-label-element-id="text"]').count(), 1)
+        await page.keyboard.press('ControlOrMeta+z')
+        await token.waitFor({ state: 'visible' })
+      }
       await page.locator('#freeform-json-expand').click()
       const json = page.locator('#freeform-element-json')
       const original = JSON.parse(await json.inputValue())
