@@ -1,16 +1,19 @@
 import wasmUrl from '@resvg/resvg-wasm/index_bg.wasm?url'
 import { createSvgRuntime } from './runtime.mjs'
-import { renderSvgLabelPng } from './core.mjs'
-import type { SvgInput, SvgOutput, SvgRuntime, SvgAsset, SvgBox } from './types'
+import { renderSvgLabelLayout, renderSvgLabelPng } from './core.mjs'
+import type { SvgInput, SvgOutput, SvgLayoutOutput, SvgRuntime, SvgBox } from './types'
+import { loadPreparedImage, clearPreparedImages } from './images'
 import type { RenderDesignerLabelOptions } from '../label-designer'
 import type { LabelDesignV2 } from '../freeform-label/types'
 import { normalizeLabelDesign } from '../freeform-label/normalize'
 import { renderEditableText } from '../freeform-label/editable-text'
 import { LabelOutputAssetError } from '../label-output-readiness'
-import { assertLabelRasterBudget, LabelRasterBudgetError, MAX_BATCH_RASTER_PIXELS } from '../label-export'
+import { assertLabelRasterBudget, LabelRasterBudgetError, MAX_BATCH_RASTER_PIXELS, LABEL_EXPORT_CSS_DPI } from '../label-export'
 
 const fontUrls = import.meta.glob<string>('/node_modules/@fontsource/*/files/*-latin-*-normal.woff2', { query: '?url', import: 'default', eager: true })
 const contexts = new WeakMap<HTMLElement, Context>()
+const previewUrls = new WeakMap<HTMLElement, string>()
+const MAX_BATCH_VECTOR_ARTWORK_BYTES = 512 * 1024
 interface Context {
   owner: HTMLElement
   input: SvgInput
@@ -25,6 +28,8 @@ export function clearSvgDesignerLabel(root: HTMLElement) {
   const state = contexts.get(root)
   if (state?.frame !== undefined) cancelAnimationFrame(state.frame)
   contexts.delete(root)
+  releasePreviewUrl(root)
+  if (state) clearPreparedImages()
   if (root.hasAttribute('data-label-svg')) {
     root.style.padding = ''
     root.style.overflow = ''
@@ -40,50 +45,39 @@ export const pngDataUrl = (bytes: Uint8Array) => {
   return 'data:image/png;base64,' + btoa(binary)
 }
 
-async function runtime() {
+function runtime(raster: boolean) {
   return createSvgRuntime(async (path: string) => {
     const url = path.endsWith('.wasm') ? wasmUrl : fontUrls['/node_modules/' + path]
     if (!url) throw new Error('Label font is unavailable')
     const response = await fetch(url)
     if (!response.ok) throw new Error('Label runtime could not load')
     return new Uint8Array(await response.arrayBuffer())
-  })
+  }, raster)
 }
 
-async function loadImage(source: string): Promise<SvgAsset> {
-  const url = new URL(source, location.href)
-  if (url.protocol === 'data:') {
-    // Batch logo caches contain FileReader PNG/JPEG URLs; bound them before decoding.
-    if (!/^data:image\/(png|jpeg);base64,/i.test(source) || source.length > 7 * 1024 * 1024) throw new Error('Unsupported label image')
-  } else if (url.origin !== location.origin || !['http:', 'https:', 'blob:'].includes(url.protocol)) throw new Error('Label image must be same-origin')
-  const response = await fetch(url, { credentials: 'same-origin' })
-  if (!response.ok) throw new Error('Label image could not load')
-  const blob = await response.blob()
-  if (!['image/png', 'image/jpeg'].includes(blob.type) || blob.size > 5 * 1024 * 1024) throw new Error('Unsupported label image')
-  const bitmap = await createImageBitmap(blob)
-  try {
-    if (bitmap.width * bitmap.height > 12000000) throw new Error('Label image exceeds pixel budget')
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(String(reader.result))
-      reader.onerror = () => reject(new Error('Label image could not load'))
-      reader.readAsDataURL(blob)
-    })
-    return { dataUrl, width: bitmap.width, height: bitmap.height }
-  } finally { bitmap.close() }
+function releasePreviewUrl(root: HTMLElement) {
+  const url = previewUrls.get(root)
+  if (url) URL.revokeObjectURL(url)
+  previewUrls.delete(root)
 }
 
-function rasterNode(output: SvgOutput) {
+function previewNode(root: HTMLElement, output: SvgLayoutOutput | SvgOutput) {
   const image = document.createElement('img')
   image.dataset.labelSvgRaster = ''
-  image.src = pngDataUrl(output.png)
+  releasePreviewUrl(root)
+  if ('png' in output) image.src = pngDataUrl(output.png)
+  else {
+    const url = URL.createObjectURL(new Blob([output.svg], { type: 'image/svg+xml' }))
+    previewUrls.set(root, url)
+    image.src = url
+  }
   image.alt = ''
   image.draggable = false
   Object.assign(image.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', pointerEvents: 'none' })
   return image
 }
 
-function showTextFitWarning(node: HTMLElement, error?: string) {
+function showElementWarning(node: HTMLElement, error?: string) {
   node.querySelector('[data-label-fit-warning]')?.remove()
   node.style.outline = error ? '1px solid #b91c1c' : ''
   if (!error) {
@@ -103,7 +97,7 @@ function showTextFitWarning(node: HTMLElement, error?: string) {
   node.append(warning)
 }
 
-function hitTargets(options: RenderDesignerLabelOptions, input: SvgInput, output?: SvgOutput) {
+function hitTargets(options: RenderDesignerLabelOptions, input: SvgInput, output?: SvgLayoutOutput) {
   const nodes: HTMLElement[] = []
   if (!options.interactive) return nodes
   const boxes: SvgBox[] = output?.boxes ?? input.preset.design.elements.map(e => ({ ...e, hidden: false }))
@@ -127,10 +121,11 @@ function hitTargets(options: RenderDesignerLabelOptions, input: SvgInput, output
       renderEditableText(node, { ...element, fontSizeMm: text?.size ?? element.fontSizeMm }, input.data)
       const content = node.firstElementChild as HTMLElement | null
       if (content) content.style.visibility = 'hidden'
-      showTextFitWarning(node, text?.error)
+      showElementWarning(node, text?.error)
     }
     const qr = output?.qrs.find((row: { id: string }) => row.id === element.id)
     if (qr) node.dataset.qrModuleCount = String(qr.modules)
+    if (qr) showElementWarning(node, qr.error)
     nodes.push(node)
   }
   const guide = document.createElement('div')
@@ -142,29 +137,49 @@ function hitTargets(options: RenderDesignerLabelOptions, input: SvgInput, output
   return nodes
 }
 
+function batchVectorArtworkFits({ assets, preset }: SvgInput) {
+  // SVG embeds the full data URL at every use, even for shared assets.
+  let bytes = 0
+  for (const element of preset.design.elements) {
+    if (element.type === 'image') bytes += assets[element.assetId]?.dataUrl.length ?? 0
+    else if (element.type === 'manufacturerLogo') bytes += assets.logo?.dataUrl.length ?? 0
+    else if (element.type === 'qr' && element.mode === 'colorLogo') bytes += assets.qrLogo?.dataUrl.length ?? 0
+    if (bytes > MAX_BATCH_VECTOR_ARTWORK_BYTES) return false
+  }
+  return true
+}
+
 export async function renderSvgDesignerLabel(options: RenderDesignerLabelOptions): Promise<void> {
   if (options.isStale?.()) return
   const root = options.element, design = normalizeLabelDesign(options.design)
+  const previewDpi = options.interactive ? LABEL_EXPORT_CSS_DPI : 300
   const input: SvgInput = { preset: { version: 2, design }, data: structuredClone(options.data), assets: {},
     origin: location.origin, entityPath: options.entityPath === 'filaments' ? 'filaments' : 'spools',
-    pixelWidth: Math.round(design.label.widthMm * 300 / 25.4), pixelHeight: Math.round(design.label.heightMm * 300 / 25.4), thermal: false }
+    pixelWidth: Math.round(design.label.widthMm * previewDpi / 25.4), pixelHeight: Math.round(design.label.heightMm * previewDpi / 25.4), thermal: false }
   const state: Context = { owner: root, input, invalid: true, pending: Promise.resolve() }
   contexts.set(root, state)
   const current = () => contexts.get(root) === state && !options.isStale?.()
   state.pending = (async () => {
-    let output: SvgOutput | undefined, error: unknown
+    let output: SvgLayoutOutput | SvgOutput | undefined, error: unknown
     try {
       const assetIds = [...new Set(design.elements.filter(e => e.type === 'image').map(e => e.assetId))]
       await Promise.all(assetIds.map(async id => {
         const url = await options.resolveAssetUrl?.(id)
+        if (!current()) return
         if (!url) throw new Error('Label image is unavailable')
-        input.assets[id] = await loadImage(url)
+        input.assets[id] = await loadPreparedImage(url)
       }))
-      if (options.logoUrl && design.elements.some(e => e.type === 'manufacturerLogo')) input.assets.logo = await loadImage(options.logoUrl)
-      if (!input.thermal && design.elements.some(e => e.type === 'qr' && e.mode === 'colorLogo')) input.assets.qrLogo = await loadImage('/logo-qr.png')
-      state.runtime = await runtime()
       if (!current()) return
-      output = renderSvgLabelPng({ ...input, preview: !!options.interactive }, state.runtime)
+      if (options.logoUrl && design.elements.some(e => e.type === 'manufacturerLogo')) input.assets.logo = await loadPreparedImage(options.logoUrl)
+      if (!current()) return
+      if (!input.thermal && design.elements.some(e => e.type === 'qr' && e.mode === 'colorLogo')) input.assets.qrLogo = await loadPreparedImage('/logo-qr.png')
+      if (!current()) return
+      const vector = options.interactive || (options.vectorPreview && batchVectorArtworkFits(input))
+      state.runtime = await runtime(!vector)
+      if (!current()) return
+      output = vector
+        ? renderSvgLabelLayout({ ...input, preview: options.interactive }, state.runtime)
+        : renderSvgLabelPng(input, state.runtime)
     } catch (caught) { error = caught }
     if (!current() || root.querySelector('[data-label-composing]')) return
     Object.assign(root.style, { width: design.label.widthMm + 'mm', height: design.label.heightMm + 'mm',
@@ -175,6 +190,7 @@ export async function renderSvgDesignerLabel(options: RenderDesignerLabelOptions
     root.dataset.labelSvg = ''
     root.toggleAttribute('data-label-interactive', !!options.interactive)
     if (!output) {
+      releasePreviewUrl(root)
       root.dataset.labelOutputError = error instanceof Error ? error.message : 'Label could not be rendered'
       const message = document.createElement('div')
       message.setAttribute('role', 'alert')
@@ -184,8 +200,8 @@ export async function renderSvgDesignerLabel(options: RenderDesignerLabelOptions
       return
     }
     root.removeAttribute('data-label-output-error')
-    root.replaceChildren(rasterNode(output), ...hitTargets(options, input, output))
-    state.invalid = output.text.some(row => row.error)
+    root.replaceChildren(previewNode(root, output), ...hitTargets(options, input, output))
+    state.invalid = output.text.some(row => row.error) || output.qrs.some(row => row.error)
   })()
   await state.pending
 }
@@ -194,8 +210,14 @@ export async function renderSvgElementOutput(element: HTMLElement, pixelWidth: n
   const state = contexts.get(element)
   if (!state) throw new LabelOutputAssetError('Shared label context is unavailable')
   await state.pending
-  if (contexts.get(element) !== state || contexts.get(state.owner) !== state || state.invalid || !state.runtime || state.owner.querySelector('[data-label-composing]')) throw new LabelOutputAssetError(element.dataset.labelOutputError || state.owner.querySelector<HTMLElement>('[data-label-output-error]')?.dataset.labelOutputError || 'Label changed or could not be rendered')
-  return renderSvgLabelPng({ ...state.input, pixelWidth, pixelHeight, thermal }, state.runtime)
+  const design = state.input.preset.design
+  const current = () => contexts.get(element) === state && contexts.get(state.owner) === state
+    && state.input.preset.design === design && !!state.runtime && !state.invalid && !state.owner.querySelector('[data-label-composing]')
+  const rasterRuntime = current() ? await runtime(true).catch(() => {
+    throw new LabelOutputAssetError('The print renderer could not load. Try printing or exporting again.')
+  }) : null
+  if (!rasterRuntime || !current()) throw new LabelOutputAssetError(element.dataset.labelOutputError || state.owner.querySelector<HTMLElement>('[data-label-output-error]')?.dataset.labelOutputError || 'Label changed or could not be rendered')
+  return renderSvgLabelPng({ ...state.input, pixelWidth, pixelHeight, thermal }, rasterRuntime)
 }
 
 /** A sheet preview is a snapshot, not a new layout or independently editable design. */
@@ -233,6 +255,7 @@ export async function prepareSvgPrintImages(roots: HTMLElement[], dpi: number) {
     const image = label.querySelector<HTMLImageElement>('[data-label-svg-raster]')
     if (!image) throw new LabelOutputAssetError('Shared label raster is unavailable')
     image.src = url
+    releasePreviewUrl(label)
   }
 }
 
@@ -247,13 +270,15 @@ export function redrawSvgGesture(root: HTMLElement, design: LabelDesignV2) {
     state.frame = undefined
     if (contexts.get(root) !== state) return
     try {
-      const output = renderSvgLabelPng({ ...state.input, preview: true }, state.runtime)
-      root.querySelector('[data-label-svg-raster]')?.replaceWith(rasterNode(output))
+      const input = state.input
+      const output = renderSvgLabelLayout({ ...input, preview: true }, state.runtime)
+      root.querySelector('[data-label-svg-raster]')?.replaceWith(previewNode(root, output))
       root.removeAttribute('data-label-output-error')
-      for (const node of root.querySelectorAll<HTMLElement>('[data-label-svg-target][data-label-element-type="text"]')) {
-        showTextFitWarning(node, output.text.find(row => row.id === node.dataset.labelElementId)?.error)
+      for (const node of root.querySelectorAll<HTMLElement>('[data-label-svg-target]')) {
+        showElementWarning(node, output.text.find(row => row.id === node.dataset.labelElementId)?.error
+          ?? output.qrs.find(row => row.id === node.dataset.labelElementId)?.error)
       }
-      state.invalid = output.text.some(row => row.error)
+      state.invalid = output.text.some(row => row.error) || output.qrs.some(row => row.error)
     } catch (error) {
       root.dataset.labelOutputError = error instanceof Error ? error.message : 'Label could not be rendered'
     }

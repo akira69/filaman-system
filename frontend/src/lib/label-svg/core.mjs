@@ -60,12 +60,17 @@ function lineMetrics(groups, size, defaultFont, role, measurements) {
     if (run.style?.background && groups[i + 1]?.style?.background !== run.style.background) width += 0.6;
   });
   const faces = [{ font: defaultFont }, ...groups];
-  const ascent = Math.max(...faces.map(run => run.font.ascent / run.font.unitsPerEm * (run.style?.factor ?? 1))) * size;
-  const descent = Math.max(...faces.map(run => -run.font.descent / run.font.unitsPerEm * (run.style?.factor ?? 1))) * size;
-  const factor = Math.max(1, ...groups.map(run => run.style?.factor ?? 1));
   // Match the editor's explicit CSS line-height, including fonts with tall em metrics.
-  const height = size * (role === 'info' ? 1.4 : role === 'title' && factor === 1 ? 1 : 1.15) * factor;
-  return { width, height, ascent: (height - ascent - descent) / 2 + ascent };
+  const lineHeight = role === 'info' ? 1.4 : role === 'title' ? 1 : 1.15;
+  const metrics = faces.map(run => {
+    const em = size * (run.style?.factor ?? 1);
+    const ascent = run.font.ascent / run.font.unitsPerEm * em;
+    const descent = -run.font.descent / run.font.unitsPerEm * em;
+    const leading = (em * lineHeight - ascent - descent) / 2;
+    return { ascent: ascent + leading, descent: descent + leading };
+  });
+  const ascent = Math.max(...metrics.map(run => run.ascent));
+  return { width, height: ascent + Math.max(...metrics.map(run => run.descent)), ascent };
 }
 
 function layoutRuns(runs, element, defaultFont, preview = false) {
@@ -113,7 +118,7 @@ function layoutRuns(runs, element, defaultFont, preview = false) {
     }
     return [...lines, line];
   });
-  const fits = (lines, size) => (element.legacyTextRole === 'title' && !element.wrap || lines.reduce((sum, line) => sum + metrics(line, size).height, 0) <= element.h)
+  const fits = (lines, size) => (element.legacyTextRole === 'title' && !element.wrap || lines.reduce((sum, line) => sum + metrics(line, size).height, 0) <= element.h + 1e-9)
     && lines.every(line => metrics(line, size).width <= element.w);
   let size = element.fontSizeMm;
   let lines = wrap(size);
@@ -263,9 +268,17 @@ function imageSvg(element, asset) {
   return `<svg x="${x}" y="${y}" width="${drawnW}" height="${drawnH}" viewBox="${crop.x * asset.width} ${crop.y * asset.height} ${crop.w * asset.width} ${crop.h * asset.height}" overflow="hidden"><image width="${asset.width}" height="${asset.height}" href="${asset.dataUrl}"/></svg>`;
 }
 
+const qrMatrices = new Map();
+
 function qrSvg(element, url, sx, sy, thermal, assets, fonts) {
   const level = thermal ? 'M' : 'H';
-  const matrix = QRCode.create(url, { errorCorrectionLevel: level }).modules;
+  const key = `${level}:${url}`;
+  let matrix = qrMatrices.get(key);
+  if (!matrix) {
+    matrix = QRCode.create(url, { errorCorrectionLevel: level }).modules;
+    if (qrMatrices.size === 8) qrMatrices.delete(qrMatrices.keys().next().value);
+    qrMatrices.set(key, matrix);
+  }
   if (!thermal) {
     const step = element.w / matrix.size, quiet = 4 * step;
     const parts = [`<rect x="${element.x - quiet}" y="${element.y - quiet}" width="${element.w + 2 * quiet}" height="${element.w + 2 * quiet}" fill="#fff"/>`];
@@ -335,7 +348,7 @@ export function renderLabel(preset, data, assets, fonts, dpi, baseUrl, { thermal
   const width = pixelWidth ?? Math.round(label.widthMm * dpi / 25.4), height = pixelHeight ?? Math.round(label.heightMm * dpi / 25.4);
   if (![width, height].every(v => Number.isInteger(v) && v > 0) || width * height > 8000000) throw new Error('Invalid pixel dimensions or pixel budget exceeded');
   const sx = width / label.widthMm, sy = height / label.heightMm;
-  const parts = [], text = [], qrs = [];
+  const parts = [], text = [], qrs = [], qrBounds = [];
   const flowed = flowElements(elements, data, assets, fonts, preview);
   const sorted = flowed.elements.sort((a, b) => Number(a.type === 'qr') - Number(b.type === 'qr') || (a.z ?? 0) - (b.z ?? 0));
   for (const element of sorted) {
@@ -359,7 +372,17 @@ export function renderLabel(preset, data, assets, fonts, dpi, baseUrl, { thermal
         || result.x + result.edge - 4 * result.dots > width || result.y + result.edge - 4 * result.dots > height)) {
         throw new Error('Thermal QR box must fit inside the label');
       }
-      parts.push(result.svg); qrs.push({ id: element.id, ...result, svg: undefined });
+      parts.push(result.svg); qrs.push({ id: element.id, ...result, svg: undefined, error: /** @type {string | undefined} */ (undefined) });
+      const code = thermal
+        ? { x: (result.x + 4 * result.dots) / sx, y: (result.y + 4 * result.dots) / sy,
+          w: result.modules * result.dots / sx, h: result.modules * result.dots / sy }
+        : { x: element.x, y: element.y, w: element.w, h: element.w };
+      const quietX = thermal ? 4 * result.dots / sx : 4 * element.w / result.modules;
+      const quietY = thermal ? 4 * result.dots / sy : quietX;
+      const clearance = { x: code.x - quietX, y: code.y - quietY,
+        w: code.w + 2 * quietX, h: code.h + 2 * quietY };
+      // Check the two white rectangles actually painted in thermal output.
+      qrBounds.push({ code, clearances: thermal ? [clearance, element] : [clearance] });
     } else if (element.type === 'swatch') {
       parts.push(bandsSvg(element.x, element.y, element.w, element.h, getFilamentSwatchColors(data['filament.color_hexes'], data['filament.color_hex']), getFilamentSwatchMode(data['filament.multi_color_style']), element.radiusMm ?? 0, 0.12));
     } else if (element.type === 'shape' && ['rectangle', 'square', 'circle', 'line'].includes(element.shape)) {
@@ -376,6 +399,18 @@ export function renderLabel(preset, data, assets, fonts, dpi, baseUrl, { thermal
       else if (element.shape === 'circle') parts.push(`<ellipse cx="${element.x + element.w / 2}" cy="${element.y + element.h / 2}" rx="${w / 2}" ry="${h / 2}" ${style}/>`);
       else parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${Math.max(0, radius - stroke / 2)}" ${style}/>`);
     } else throw new Error(`Unsupported label element: ${element.type}`);
+  }
+  // Converting aligned printer dots to millimeters can introduce roundoff at touching edges.
+  const tolerance = 1e-9;
+  const overlaps = (a, b) => a.x + tolerance < b.x + b.w && a.x + a.w > b.x + tolerance
+    && a.y + tolerance < b.y + b.h && a.y + a.h > b.y + tolerance;
+  for (let i = 0; i < qrs.length; i++) for (let j = i + 1; j < qrs.length; j++) {
+    const first = qrBounds[i], second = qrBounds[j];
+    if (!first.clearances.some(box => overlaps(box, second.code))
+      && !second.clearances.some(box => overlaps(box, first.code))) continue;
+    const error = `QR codes ${qrs[i].id} and ${qrs[j].id} overlap their clearances. Move QR codes farther apart.`;
+    if (!preview) throw new Error(error);
+    qrs[i].error = qrs[j].error = error;
   }
   if (label.border) {
     const margin = label.marginMm ?? 0;
@@ -418,13 +453,18 @@ export function rasterize(svg, threshold = 200) {
 }
 
 /** @param {import('./types').SvgInput} input */
+export function renderSvgLabelLayout(input, runtime) {
+  return renderLabel(input.preset, input.data, input.assets, runtime.fonts, undefined, input.origin, input);
+}
+
+/** @param {import('./types').SvgInput} input */
 export function renderSvgLabelPng(input, runtime) {
-  const result = renderLabel(input.preset, input.data, input.assets, runtime.fonts, undefined, input.origin, input);
+  const result = renderSvgLabelLayout(input, runtime);
   return { ...result, png: rasterizePng(result.svg) };
 }
 
 /** @param {import('./types').SvgInput} input */
 export function renderSvgLabel(input, runtime, threshold = 200) {
-  const result = renderLabel(input.preset, input.data, input.assets, runtime.fonts, undefined, input.origin, input);
+  const result = renderSvgLabelLayout(input, runtime);
   return { ...result, ...rasterize(result.svg, threshold) };
 }
