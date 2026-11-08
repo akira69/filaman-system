@@ -4,7 +4,7 @@ import { Resvg } from '@resvg/resvg-wasm'
 import QRCode from 'qrcode'
 import { renderSvgLabel, renderSvgLabelLayout, rasterize, rasterizePng, layoutText } from './core.mjs'
 import { createSvgRuntime } from './runtime.mjs'
-import type { SvgInput, SvgRuntime } from './types'
+import type { SvgBox, SvgInput, SvgRuntime } from './types'
 import { fixtures, data } from '../../../tests/label-rendering/fixtures.mjs'
 import { LABEL_FONT_FAMILIES } from '../freeform-label/types'
 import { prepareSvgApiInput } from './prepare-api'
@@ -123,6 +123,59 @@ it('accepts an exact-fit row when CSS half-leading adds floating-point roundoff'
   const result = layoutText('Temperature', { w: 100, h: 6.3, fontSizeMm: 4.5, legacyTextRole: 'info' }, runtime.fonts['Roboto Condensed:700'])
   expect(result.size).toBe(4.5)
   expect(result.height).toBeCloseTo(6.3)
+})
+
+it('keeps printable preview artwork when a missing badge would exceed the text limit', () => {
+  const value = input()
+  value.data = { ...value.data, extra: { long: 'A' + ' '.repeat(11999) } }
+  value.preset.design.elements = [{ id: 'text', type: 'text', x: 1, y: 1, w: 30, h: 10, z: 0,
+    template: '{extra.long}{lot_number}', fontSizeMm: 2, wrap: true }] as SvgInput['preset']['design']['elements']
+  const printed = renderSvgLabelLayout(value, runtime)
+  const preview = renderSvgLabelLayout({ ...value, preview: true }, runtime)
+  expect(preview.svg).toBe(printed.svg)
+})
+
+it('reserves the missing title row in preview and checks fit using the collapsed print layout', () => {
+  const value = input()
+  value.preset.design.elements = [
+    { id: 'title', type: 'text', x: 1, y: 1.5, w: 30, h: 4, z: 0, template: '{lot_number}', fontSizeMm: 4,
+      legacyTextRole: 'title', legacyTitleMarginMm: 0.5 },
+    { id: 'info', type: 'text', x: 1, y: 6, w: 30, h: 3, z: 1, template: 'A\nB', fontSizeMm: 2,
+      wrap: true, legacyTextRole: 'info' },
+  ] as SvgInput['preset']['design']['elements']
+  const output = renderSvgLabelLayout(value, runtime)
+  expect(output.boxes.find((box: SvgBox) => box.id === 'title')?.hidden).toBe(true)
+  expect(output.boxes.find((box: SvgBox) => box.id === 'info')?.y).toBe(1)
+
+  const preview = renderSvgLabelLayout({ ...value, preview: true }, runtime)
+  const title = preview.text.find(row => row.id === 'title')
+  expect(title?.missingBadges).toHaveLength(1)
+  expect(preview.boxes.find((box: SvgBox) => box.id === 'info')?.y).toBe(6)
+  expect(preview.text.find(row => row.id === 'info')?.error).toBeUndefined()
+})
+
+it('keeps the printable preview when reserving a missing title would leave an invalid box', () => {
+  const value = input()
+  Object.assign(value.preset.design.label, { widthMm: 60, heightMm: 20 })
+  value.preset.design.elements = [
+    { id: 'empty', type: 'text', x: 1, y: 1.5, w: 50, h: 10, z: 0, template: '{lot_number}', fontSizeMm: 10,
+      legacyTextRole: 'title', legacyTitleMarginMm: 0.5 },
+    { id: 'large', type: 'text', x: 1, y: 12.5, w: 50, h: 4, z: 1, template: '[size=200]Short[/size]', fontSizeMm: 4,
+      legacyTextRole: 'title', legacyTitleMarginMm: 0.5 },
+    { id: 'info', type: 'text', x: 1, y: 16, w: 50, h: 3, z: 2, template: 'Manufacturer', fontSizeMm: 2,
+      legacyTextRole: 'info' },
+  ] as SvgInput['preset']['design']['elements']
+  const printed = renderSvgLabelLayout(value, runtime)
+  const preview = renderSvgLabelLayout({ ...value, preview: true }, runtime)
+  expect(preview.svg).toBe(printed.svg)
+})
+
+it.each(LABEL_FONT_FAMILIES)('prints unit symbols with %s', fontFamily => {
+  const value = input()
+  value.preset.design.elements = [{ id: 'units', type: 'text', x: 1, y: 1, w: 38, h: 20,
+    fontFamily, fontSizeMm: 2, wrap: true, template: '{filament.extruder_temp_range_c|unit}\n{filament.density|unit}\n{filament.max_volumetric_speed_mm3_s|unit}', z: 0 }] as SvgInput['preset']['design']['elements']
+  value.data = { ...value.data, 'filament.extruder_temp_range_c': '220-260', 'filament.density': '1.24', 'filament.max_volumetric_speed_mm3_s': '12' }
+  expect(render(value).text[0].lines).toEqual(['220-260 °C', '1.24 g/cm³', '12 mm³/s'])
 })
 
 it('reuses QR encoding for geometry changes while distinguishing content and correction levels', () => {
