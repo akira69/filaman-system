@@ -193,11 +193,11 @@ async def test_startup_collects_display_state_before_opening_driver_routes(monke
     publish_health = Mock()
 
     def get_display_state():
-        publish_health.assert_called_once_with(health)
+        publish_health.assert_called_once_with(health, replace=True)
         return {}
 
     display_state = AsyncMock(side_effect=get_display_state)
-    published = Mock()
+    published = Mock(side_effect=lambda: display_state.assert_awaited_once())
     monkeypatch.setattr(main, "_is_primary", False)
     monkeypatch.setattr(main.plugin_manager, "start_all", AsyncMock())
     monkeypatch.setattr(main.plugin_manager, "get_health", Mock(return_value=health))
@@ -206,12 +206,40 @@ async def test_startup_collects_display_state_before_opening_driver_routes(monke
 
     @asynccontextmanager
     async def private_socket(_app):
-        display_state.assert_awaited_once()
         yield published
 
     monkeypatch.setattr(main, "serve_primary_socket", private_socket)
     async with AsyncExitStack() as listeners:
         monkeypatch.setattr(main, "_primary_socket", listeners)
-        await main._start_primary_drivers(main.app, initial=True)
+        await main._start_primary_drivers(main.app)
+
+    display_state.assert_awaited_once()
+    published.assert_called_once()
+
+
+async def test_slow_display_snapshot_does_not_block_primary_publication(monkeypatch):
+    published = Mock()
+    health_snapshot = Mock()
+    display_snapshot = Mock()
+
+    async def slow_display():
+        await asyncio.Future()
+
+    @asynccontextmanager
+    async def private_socket(_app):
+        yield published
+
+    monkeypatch.setattr(main, "_is_primary", False)
+    monkeypatch.setattr(main, "serve_primary_socket", private_socket)
+    monkeypatch.setattr(main.plugin_manager, "start_all", AsyncMock())
+    monkeypatch.setattr(main.plugin_manager, "get_health", lambda: {})
+    monkeypatch.setattr(main.plugin_manager, "get_display_states", slow_display)
+    monkeypatch.setattr(main.shared_health_store, "publish", health_snapshot)
+    monkeypatch.setattr(main.shared_display_store, "publish", display_snapshot)
+
+    async with AsyncExitStack() as listeners:
+        monkeypatch.setattr(main, "_primary_socket", listeners)
+        await asyncio.wait_for(main._start_primary_drivers(main.app), 2)
 
     published.assert_called_once()
+    display_snapshot.assert_called_once_with({}, replace=True)

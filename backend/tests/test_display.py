@@ -1,6 +1,5 @@
 """Display API: merge of FilaMan slot assignments and optional driver live state."""
 
-import os
 
 import pytest
 
@@ -843,12 +842,10 @@ class _HealthOnlyDriver:
 
 
 @pytest.fixture
-def display_store(monkeypatch):
-    """A private shared-memory block, so tests never touch a running instance."""
-    store = SharedStateStore(name=f"filaman_display_test_{os.getpid()}", size=65536)
+def display_store(tmp_path, monkeypatch):
+    store = SharedStateStore(lambda: tmp_path / "display.json")
     monkeypatch.setattr(display_api, "shared_display_store", store)
-    yield store
-    store.cleanup()
+    return store
 
 
 @pytest.fixture

@@ -36,7 +36,7 @@ async def _driver_state(printer: Printer) -> dict[str, Any] | None:
 
     Drivers live in the primary Gunicorn worker only, so on every other one
     ``plugin_manager.drivers`` is empty and asking it would blank the board.
-    The primary publishes what it sees into shared memory and the secondaries
+    The primary publishes what it sees as a snapshot and the secondaries
     serve that, the same trick the Printers page uses for driver health.
 
     A driver that does not implement ``get_display_state()`` still has

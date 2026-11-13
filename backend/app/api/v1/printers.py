@@ -920,11 +920,11 @@ async def driver_health(
                     )
 
         health = driver.health()
-        # Primary worker: update shared memory so secondaries stay in sync
+        # Primary worker: update the snapshot so secondaries stay in sync
         shared_health_store.publish({printer_id: health})
         return health
 
-    # No local driver – check shared memory from primary worker
+    # No local driver – check the snapshot from the primary worker
     shared = shared_health_store.read(printer_id)
     if shared is not None:
         return shared

@@ -203,16 +203,14 @@ async def _watchdog_health_check() -> None:
 
     health = plugin_manager.get_health()
 
-    # Publish current health to shared memory so secondary workers
+    # Publish current health so secondary workers
     # can return accurate status to the frontend.
-    if health:
-        shared_health_store.publish(health)
+    shared_health_store.publish(health, replace=True)
 
     # Same for the Display API: a board whose polls never land on the primary
     # would otherwise show nothing at all.
     display_states = await plugin_manager.get_display_states()
-    if display_states:
-        shared_display_store.publish(display_states)
+    shared_display_store.publish(display_states, replace=True)
 
     # Deaktivierte Plugins ermitteln
     async with async_session_maker() as db:
@@ -349,26 +347,28 @@ def _release_primary_lock() -> None:
         _lock_fd = None
 
 
-async def _start_primary_drivers(app: FastAPI, *, initial: bool = False) -> None:
+async def _start_primary_drivers(app: FastAPI) -> None:
     global _is_primary
     async with AsyncExitStack() as rollback:
         rollback.callback(_release_primary_lock)
+        rollback.callback(shared_health_store.cleanup)
+        rollback.callback(shared_display_store.cleanup)
         rollback.push_async_callback(plugin_manager.stop_all)
         await plugin_manager.start_all()
-        if initial:
-            # Take the first snapshot before any forwarded request can change drivers.
-            initial_health = plugin_manager.get_health()
-            if initial_health:
-                shared_health_store.publish(initial_health)
-            initial_display = await plugin_manager.get_display_states()
-            if initial_display:
-                shared_display_store.publish(initial_display)
-
         if worker_is_draining():
             return
 
         rollback.push_async_callback(_primary_socket.aclose)
         publish = await _primary_socket.enter_async_context(serve_primary_socket(app))
+        # Replace any snapshots from a worker that was killed before cleanup.
+        shared_health_store.publish(plugin_manager.get_health(), replace=True)
+        try:
+            async with asyncio.timeout(0.5):
+                display = await plugin_manager.get_display_states()
+        except TimeoutError:
+            logger.warning("Display snapshot timed out during driver takeover")
+            display = {}
+        shared_display_store.publish(display, replace=True)
         if worker_is_draining():
             return
 
@@ -421,7 +421,7 @@ async def lifespan(app: FastAPI):
     if _is_primary:
         async with async_session_maker() as db:
             await run_all_seeds(db)
-        await _start_primary_drivers(app, initial=True)
+        await _start_primary_drivers(app)
 
     # Start the driver watchdog in every worker (handles health checks
     # for the primary and automatic takeover for secondary workers).
@@ -441,17 +441,12 @@ async def lifespan(app: FastAPI):
     if _is_primary:
         await _primary_socket.aclose()
         await plugin_manager.stop_all()
-        # Clean up shared memory (primary is the owner of both blocks)
         shared_health_store.cleanup()
         shared_display_store.cleanup()
         # Release the file lock (OS also releases automatically on exit).
         # We intentionally do NOT delete the lock file so that secondary
         # workers can still attempt flock() on it during takeover.
         _release_primary_lock()
-    else:
-        # Secondary workers just close their handles (don't unlink)
-        shared_health_store.close()
-        shared_display_store.close()
     logger.info("FilaMan backend stopped")
 
 
