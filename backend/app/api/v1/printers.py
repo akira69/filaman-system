@@ -1,5 +1,6 @@
-import logging
+import asyncio
 import inspect
+import logging
 from typing import Any, Literal
 
 import httpx
@@ -20,7 +21,7 @@ from app.models import (
     Filament,
     FilamentColor,
 )
-from app.core.primary_socket import primary_socket_path
+from app.core.primary_socket import PRIMARY_WORKER_DRAINING, primary_socket_path
 from app.core.shared_health import shared_display_store, shared_health_store
 from app.plugins.manager import plugin_manager
 
@@ -69,15 +70,39 @@ async def _proxy_to_primary(
     }
     body = {"json": json_body} if files is None else {"files": files}
     try:
-        transport = httpx.AsyncHTTPTransport(uds=str(primary_socket_path()))
-        async with httpx.AsyncClient(transport=transport, timeout=timeout) as client:
-            response = await client.request(
-                method,
-                f"http://localhost{path}",
-                params=request.query_params,
-                headers=headers,
-                **body,
-            )
+        socket_path = str(primary_socket_path())
+        for attempt in range(11):
+            if attempt:
+                await asyncio.sleep(0.2)
+            transport = httpx.AsyncHTTPTransport(uds=socket_path)
+            request_timeout = httpx.Timeout(timeout, connect=min(timeout, 0.2)) if attempt else timeout
+            try:
+                async with httpx.AsyncClient(transport=transport, timeout=request_timeout) as client:
+                    response = await client.request(
+                        method,
+                        f"http://localhost{path}",
+                        params=request.query_params,
+                        headers=headers,
+                        **body,
+                    )
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                # After an explicit rejection, the replacement may not be listening yet.
+                if attempt:
+                    continue
+                raise
+
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = None
+            detail = payload.get("detail") if isinstance(payload, dict) else None
+            # Only the private listener's pre-dispatch rejection permits a replay.
+            if not (
+                response.status_code == 503
+                and isinstance(detail, dict)
+                and detail.get("code") == PRIMARY_WORKER_DRAINING
+            ):
+                break
     except (OSError, httpx.TransportError) as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -90,14 +115,9 @@ async def _proxy_to_primary(
     if method == "DELETE" and response.status_code == status.HTTP_204_NO_CONTENT:
         return None
 
-    try:
-        payload = response.json()
-    except ValueError:
-        payload = None
-
     if response.status_code >= 400:
         if isinstance(payload, dict) and "detail" in payload:
-            raise HTTPException(status_code=response.status_code, detail=payload["detail"])
+            raise HTTPException(status_code=response.status_code, detail=detail)
         raise HTTPException(
             status_code=response.status_code,
             detail={"code": "proxy_failed", "message": response.text},

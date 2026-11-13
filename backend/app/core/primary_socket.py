@@ -24,6 +24,7 @@ from app.core.worker_reload import worker_is_draining, worker_is_gunicorn
 _runtime_key = blake2s(os.fsencode(Path(tempfile.gettempdir()).resolve()), digest_size=8).hexdigest()
 _runtime_dir = Path("/tmp") / f"filaman-{os.getuid()}-{_runtime_key}"
 _startup_directory = Path.cwd()
+PRIMARY_WORKER_DRAINING = "primary_worker_draining"
 
 
 @lru_cache(maxsize=1)
@@ -61,7 +62,7 @@ async def serve_primary_socket(app: ASGIApp) -> AsyncIterator[Callable[[], None]
     async def dispatch(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and worker_is_draining():
             response = JSONResponse(
-                {"detail": {"code": "primary_worker_required", "message": "Primary worker is draining. Please retry."}},
+                {"detail": {"code": PRIMARY_WORKER_DRAINING, "message": "Primary worker is draining. Please retry."}},
                 status_code=503,
             )
             await response(scope, receive, send)

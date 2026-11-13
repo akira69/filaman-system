@@ -17,6 +17,7 @@ import logging
 from typing import Any, AsyncGenerator
 
 from app.core.cache import response_cache
+from app.core.worker_reload import worker_is_draining
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +56,19 @@ class EventBus:
         queue: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
         self._subscribers.append(queue)
         try:
-            while True:
-                data = await queue.get()
+            while queue in self._subscribers and not worker_is_draining():
+                try:
+                    # An idle subscription must wake up so Uvicorn can drain it.
+                    async with asyncio.timeout(0.25):
+                        data = await queue.get()
+                except TimeoutError:
+                    continue
+                if worker_is_draining():
+                    return
                 yield data
         finally:
-            self._subscribers.remove(queue)
+            if queue in self._subscribers:
+                self._subscribers.remove(queue)
 
 
 event_bus = EventBus()
