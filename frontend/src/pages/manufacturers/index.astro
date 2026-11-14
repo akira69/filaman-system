@@ -262,14 +262,15 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
       mfrHeaderFilters?.setOptions('materials', materialOptions)
     }
 
-    async function loadManufacturers() {
+    async function loadManufacturers(reset = true) {
       try {
         const data = await cachedFetchAllPages<ManufacturerRow>(CACHE_KEYS.MANUFACTURERS, '/api/v1/manufacturers')
+        if (panelSignal.aborted) return
         manufacturers = data.items
         updateHeaderFilterOptions(manufacturers)
-        renderManufacturers()
+        renderManufacturers(reset)
       } catch (error) {
-        if (isAbortError(error)) return
+        if (panelSignal.aborted || isAbortError(error)) return
         manufacturerList.pause()
         console.error('Failed to load manufacturers:', error)
         document.getElementById('manufacturers-table')!.innerHTML = `
@@ -284,10 +285,10 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
       document.getElementById('manufacturers-table')!, 'manufacturers.manufacturerCount', renderManufacturerRows, undefined, panelSignal,
     )
 
-    function renderManufacturers() {
+    function renderManufacturers(reset = true) {
       updateFilterResets()
       localStorage.setItem('filaman-filters-manufacturers', JSON.stringify({ columns: columnFilters }))
-      void manufacturerList.load(inventoryLocalPages(() => sortManufacturers(filterManufacturers(manufacturers))), true)
+      void manufacturerList.load(inventoryLocalPages(() => sortManufacturers(filterManufacturers(manufacturers))), reset)
     }
 
     function renderManufacturerRows(items: ManufacturerRow[], append: boolean) {
@@ -537,7 +538,7 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
 
     setupSortableHeaders()
     if (sortKey && sortDirection) updateSortIndicators()
-    loadManufacturers()
+    loadManufacturers(false)
 
     // Live-Update via SSE: Hersteller automatisch neu laden
     let _mfrReloadTimer: ReturnType<typeof setTimeout> | null = null

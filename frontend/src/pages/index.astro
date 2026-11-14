@@ -159,7 +159,7 @@ import FormDialog from '../components/FormDialog.astro'
     import { getAbortSignal, isAbortError } from '../lib/abort'
     import { hasPermission, type User } from '../lib/auth'
     import { api, fetchAllPages } from '../lib/api'
-    import { bindFormDialog } from '../lib/form-dialog'
+    import { bindFormDialog, type AppDialogs } from '../lib/form-dialog'
     import { escapeHtml } from '../lib/extra-fields'
     import { mountPanel } from '../lib/panel-navigation'
 
@@ -179,19 +179,16 @@ import FormDialog from '../components/FormDialog.astro'
       manufacturers_with_spools: { id: number; name: string; spool_count: number }[]
       low_stock_spools: { spool_id: number; filament_designation: string; filament_type: string; manufacturer_name: string; remaining_weight_g: number }[]
     }
-    interface DashboardWindow {
-      openSpoolModal: () => Promise<void>
-      closeSpoolModal: () => void
-      archiveSpool: (id: number) => Promise<void>
-      archiveAll: (ids: number[]) => Promise<void>
-      __fmConfirm: (message: string, options?: { okLabel?: string; isDanger?: boolean }) => Promise<boolean>
-      __fmAlert?: (message: string) => Promise<boolean>
-    }
-    const dashboardWindow = window as unknown as DashboardWindow
+    const dialogs = window as unknown as AppDialogs
 
     let archivePending = false
     let drilldownRequest: AbortController | undefined
     const spoolElement = document.getElementById('spool-modal') as HTMLDialogElement
+    const title = spoolElement.querySelector<HTMLElement>('#modal-title')!
+    const content = spoolElement.querySelector<HTMLElement>('#modal-content')!
+    const footer = spoolElement.querySelector<HTMLElement>('#modal-footer')!
+    const bulkBtn = spoolElement.querySelector<HTMLButtonElement>('#btn-archive-all')!
+    const problemButton = document.querySelector<HTMLButtonElement>('#problem-spools')!
     const spoolDialog = bindFormDialog(spoolElement, {
       canClose: () => !archivePending,
       onClose: () => drilldownRequest?.abort(),
@@ -201,7 +198,15 @@ import FormDialog from '../components/FormDialog.astro'
     const changelogDialog = bindFormDialog(changelogElement)
     spoolElement.addEventListener('click', event => { if (event.target === spoolElement) spoolDialog.close() })
     changelogElement.addEventListener('click', event => { if (event.target === changelogElement) changelogDialog.close() })
-    document.getElementById('problem-spools')!.addEventListener('click', () => dashboardWindow.openSpoolModal())
+    problemButton.addEventListener('click', () => { void openSpoolModal() })
+    content.addEventListener('click', event => {
+      if (!(event.target instanceof Element)) return
+      const row = event.target.closest('button[data-archive-spool]')?.closest<HTMLElement>('[data-spool-id]')
+      if (row) void archiveSpools(Number(row.dataset.spoolId))
+    })
+    bulkBtn.addEventListener('click', () => {
+      void archiveSpools([...content.querySelectorAll<HTMLElement>('[data-spool-id]')].map(row => Number(row.dataset.spoolId)))
+    })
 
     let filamentCounts: Record<'all' | 'active' | 'used', number> | undefined
 
@@ -341,12 +346,8 @@ import FormDialog from '../components/FormDialog.astro'
     }
 
     // Modal functions
-    dashboardWindow.openSpoolModal = async function() {
+    async function openSpoolModal() {
       if (spoolElement.open || panelSignal.aborted) return
-      const title = document.getElementById('modal-title') as HTMLElement
-      const content = document.getElementById('modal-content') as HTMLElement
-      const footer = document.getElementById('modal-footer') as HTMLElement
-      const bulkBtn = document.getElementById('btn-archive-all') as HTMLButtonElement
 
       title.textContent = t('dashboard.lowAndEmptySpools')
       content.textContent = t('common.loading')
@@ -388,7 +389,7 @@ import FormDialog from '../components/FormDialog.astro'
                   <td style="text-align: right; font-family: monospace;">${s.remaining_weight_g.toFixed(0)} g</td>
                   ${canArchive ? `
                   <td style="text-align: right;">
-                    <button class="fm-btn fm-btn-outline" style="padding: 4px 10px; font-size: 0.75rem;" onclick="archiveSpool(${s.id})">
+                    <button type="button" class="fm-btn fm-btn-outline" style="padding: 4px 10px; font-size: 0.75rem;" data-archive-spool>
                       ${t('dashboard.archive')}
                     </button>
                   </td>` : ''}
@@ -403,29 +404,27 @@ import FormDialog from '../components/FormDialog.astro'
         if (canArchive) {
           footer.classList.remove('hidden')
           bulkBtn.textContent = t('dashboard.archiveAll') || 'Archive All'
-          bulkBtn.onclick = () => dashboardWindow.archiveAll(
-            [...content.querySelectorAll<HTMLElement>('[data-spool-id]')].map(row => Number(row.dataset.spoolId)),
-          )
         }
       }
     }
 
     async function archiveSpools(ids: number | number[]) {
-      if (archivePending || !canArchive || !spoolElement.open) return
+      if (panelSignal.aborted || archivePending || !canArchive || !spoolElement.open) return
       const bulk = Array.isArray(ids)
+      if (bulk && !ids.length) return
       const row = bulk ? null : spoolElement.querySelector(`tr[data-spool-id="${ids}"]`)
-      const btn = bulk ? document.getElementById('btn-archive-all') : row?.querySelector('button')
-      const controls = [...spoolElement.querySelectorAll('button'), document.getElementById('problem-spools') as HTMLButtonElement]
+      const btn = bulk ? bulkBtn : row?.querySelector('button')
+      const controls = [...spoolElement.querySelectorAll('button'), problemButton]
       archivePending = true
       spoolElement.setAttribute('aria-busy', 'true')
       controls.forEach(button => { button.disabled = true })
       let succeeded = false
 
       try {
-        if (!(await dashboardWindow.__fmConfirm(t(bulk ? 'dashboard.confirmArchiveAll' : 'dashboard.confirmArchiveOne'), {
+        if (!(await dialogs.__fmConfirm(t(bulk ? 'dashboard.confirmArchiveAll' : 'dashboard.confirmArchiveOne'), {
           okLabel: t('dashboard.archive'),
           isDanger: false
-        }))) return
+        })) || panelSignal.aborted) return
         if (btn) btn.textContent = bulk ? t('dashboard.archiving') : '...'
 
         const response = await fetch(bulk ? '/api/v1/spools/bulk/status' : `/api/v1/spools/${ids}/status`, {
@@ -441,23 +440,23 @@ import FormDialog from '../components/FormDialog.astro'
 
         if (panelSignal.aborted) return
         if (!response.ok) {
-          await dashboardWindow.__fmAlert?.(t('dashboard.archiveError'))
+          await dialogs.__fmAlert?.(t('dashboard.archiveError'))
           return
         }
         succeeded = true
         if (!bulk) {
           row?.remove()
-          const tbody = document.querySelector('#modal-content tbody')
+          const tbody = content.querySelector('tbody')
           if (tbody && tbody.children.length === 0) {
-            document.getElementById('modal-content')!.innerHTML = `<p style="color: var(--text-muted); text-align: center; padding: 20px;">${t('dashboard.noData')}</p>`
-            document.getElementById('modal-footer')!.classList.add('hidden')
+            content.innerHTML = `<p style="color: var(--text-muted); text-align: center; padding: 20px;">${t('dashboard.noData')}</p>`
+            footer.classList.add('hidden')
           }
         }
         void loadDashboardData()
       } catch (err) {
         if (panelSignal.aborted || isAbortError(err)) return
         console.error('Failed to archive spools:', err)
-        await dashboardWindow.__fmAlert?.(t('dashboard.archiveError'))
+        await dialogs.__fmAlert?.(t('dashboard.archiveError'))
       } finally {
         archivePending = false
         spoolElement.setAttribute('aria-busy', 'false')
@@ -466,11 +465,6 @@ import FormDialog from '../components/FormDialog.astro'
         if (bulk && succeeded) spoolDialog.close()
       }
     }
-    dashboardWindow.archiveSpool = id => archiveSpools(id)
-    dashboardWindow.archiveAll = ids => archiveSpools(ids)
-
-    ;dashboardWindow.closeSpoolModal = () => spoolDialog.close()
-
     let locationRequestId = 0
     let renderedLocationId = 0
     let lastLocationMarkup = ''

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
-import { VERSION } from '../src/version.js'
 
 const origin = new URL(process.argv[2] || 'http://127.0.0.1:4321').origin
 const browser = await chromium.launch({ executablePath: process.env.CHROME_EXECUTABLE_PATH })
@@ -11,19 +10,22 @@ try {
   const requests = []
   const problemSpools = []
   let sessionExpired = false
+  let authFailure
   let showOtherPlugin = true
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => {
     if (message.text().startsWith('Could not initialize panel:')) errors.push(message.text())
   })
-  await page.addInitScript(({ version, forceFallback }) => {
-    localStorage.setItem('changelog-seen-version', version)
+  await page.addInitScript(forceFallback => {
     localStorage.setItem('lang', 'de')
     localStorage.setItem('theme', 'dark')
     if (forceFallback) Object.defineProperty(document, 'startViewTransition', { value: undefined })
-  }, { version: VERSION, forceFallback: process.env.FORCE_ASTRO_SWAP === '1' })
+  }, process.env.FORCE_ASTRO_SWAP === '1')
 
-  const user = { id: 1, display_name: 'Preview', language: 'de', is_superadmin: true, permissions: [], roles: [] }
+  const user = { id: 1, display_name: 'Preview', language: 'de', is_superadmin: false, permissions: [], roles: [] }
+  const inventory = Array.from({ length: 150 }, (_, i) => ({
+    id: i + 1, name: `Item ${String(i).padStart(3, '0')}`, hex_code: '112233', usage_count: 0,
+  }))
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())
     if (url.origin !== origin) return route.abort()
@@ -31,10 +33,20 @@ try {
     if (url.pathname === '/api/v1/plugin-nav' && requests.filter(path => path === url.pathname).length === 1) {
       return route.fulfill({ status: 503 })
     }
+    if (url.pathname === '/api/v1/admin/system/version-check' && page.url() === origin + '/') {
+      return route.fulfill({ status: 503 })
+    }
     if (url.pathname.startsWith('/plugin-page/')) return route.fulfill({ contentType: 'text/html', body: '<title>Example plugin</title>' })
     if (url.pathname === '/plugins/native-example/') return route.fulfill({ contentType: 'text/html', body: '<title>Native plugin</title>' })
     if (!/^\/(api|auth)\//.test(url.pathname)) return route.continue()
-    if (sessionExpired && url.pathname === '/api/v1/me') return route.fulfill({ status: 401 })
+    if (url.pathname === '/api/v1/me') {
+      if (sessionExpired) return route.fulfill({ status: 401 })
+      if (authFailure) {
+        const failure = authFailure
+        authFailure = undefined
+        return failure === 'reset' ? route.abort('connectionreset') : route.fulfill({ status: 503 })
+      }
+    }
     if (url.pathname === '/api/v1/spools' && url.searchParams.get('low_or_empty') === 'true') {
       problemSpools.push(url)
       return route.fulfill({ json: {
@@ -47,6 +59,9 @@ try {
       '/auth/me': user,
       '/api/v1/me/preferences': { dashboard_hidden_widgets: [] },
       '/api/v1/app-settings/public-info': { currency: 'EUR' },
+      '/api/v1/admin/system/version-check': { update_available: true, latest_version: '9.0.0' },
+      '/api/v1/manufacturers': { items: inventory, total: inventory.length },
+      '/api/v1/colors': { items: inventory, total: inventory.length },
       '/api/v1/plugin-nav': [
         { name: 'Example', page_url: '/plugin-page/example' },
         ...(showOtherPlugin ? [{ name: 'Other', page_url: '/plugin-page/other' }] : []),
@@ -73,9 +88,14 @@ try {
   })
 
   const sidebar = page.locator('.fm-sidebar')
+  const dismissChangelog = async () => {
+    if (await page.locator('#fm-changelog-overlay').evaluate(dialog => dialog.open)) {
+      await page.locator('#fm-changelog-close').click()
+    }
+  }
   const clickNav = async path => {
     const before = await page.locator('main').elementHandle()
-    await sidebar.locator(`a[href="${path}"]:visible`).click()
+    await sidebar.locator(`a[href="${path}"]:visible:not(#sidebar-version-update)`).click()
     const target = new URL(path, origin)
     await page.waitForURL(url => url.pathname.replace(/\/$/, '') === target.pathname.replace(/\/$/, '') && url.search === target.search)
     await sidebar.locator(`a[href="${path}"].active`).waitFor()
@@ -90,13 +110,45 @@ try {
   await page.goto(origin)
   await sidebar.waitFor()
   await page.waitForFunction(() => document.getElementById('stat-total-spools')?.textContent === '2')
+  await dismissChangelog()
   assert.equal(requests.some(path => path === '/api/v1/spools' || path === '/api/v1/filaments'), false)
   await page.locator('#problem-spools').click()
   await page.locator('#spool-modal a[href="/spools/3"]').first().waitFor()
   assert.equal(problemSpools.length, 1)
   await page.locator('#spool-modal [data-dialog-close]').click()
   await page.evaluate(() => { window.sidebarBefore = document.querySelector('.fm-sidebar') })
+  const updateBadge = sidebar.locator('#sidebar-version-update')
+  assert.equal(await updateBadge.isVisible(), false)
   await clickNav('/spools')
+  await updateBadge.waitFor()
+  assert.equal(await updateBadge.getAttribute('target'), '_blank')
+  assert.equal(await page.evaluate(() => typeof window.archiveSpool), 'undefined')
+  await page.evaluate(() => localStorage.removeItem('changelog-seen-version'))
+  for (const [failure, path] of [['reset', '/'], ['server', '/printers']]) {
+    const summaryRequests = requests.filter(url => url === '/api/v1/dashboard/stats').length
+    authFailure = failure
+    await sidebar.locator(`a[href="${path}"]`).click()
+    await page.waitForURL(origin + path)
+    await page.locator('#session-check-retry').waitFor()
+    assert.equal(await page.locator('main').isVisible(), false)
+    if (path === '/') {
+      await page.locator('.astro-route-announcer').waitFor({ state: 'attached' })
+      assert.equal(requests.filter(url => url === '/api/v1/dashboard/stats').length, summaryRequests)
+      assert.equal(await page.locator('#fm-changelog-overlay').evaluate(dialog => dialog.open), false)
+    }
+    await page.locator('#session-check-retry button').click()
+    await page.locator('main').waitFor()
+    assert.equal(await page.evaluate(() => window.sidebarBefore === document.querySelector('.fm-sidebar')), true)
+    if (path === '/') {
+      await page.waitForFunction(() => document.getElementById('stat-total-spools')?.textContent === '2')
+      await dismissChangelog()
+    }
+  }
+  user.is_superadmin = true
+  await clickNav('/spools')
+  await updateBadge.and(sidebar.locator('a[href="/admin"]')).waitFor()
+  assert.equal(await updateBadge.getAttribute('target'), null)
+  assert.equal(await updateBadge.getAttribute('rel'), null)
   const search = page.locator('#filter-search')
   const searchFor = async term => {
     const request = page.waitForRequest(req => new URL(req.url()).searchParams.get('search') === term)
@@ -112,7 +164,7 @@ try {
   assert.equal(await page.evaluate(() => window.sidebarBefore === document.querySelector('.fm-sidebar')), true)
   await searchFor('red')
   await page.goBack()
-  await page.waitForURL(origin + '/')
+  await page.waitForURL(origin + '/printers')
   await page.goForward()
   await page.waitForURL(/\/spools/)
   await sidebar.locator('a[href="/spools"].active').waitFor()
@@ -132,7 +184,18 @@ try {
     }
   }
 
-  await clickNav('/filaments/colors')
+  for (const [path, table] of [['/manufacturers', 'manufacturers'], ['/filaments/colors', 'colors']]) {
+    await clickNav(path)
+    const rows = page.locator(`#${table}-table tr`)
+    await rows.nth(49).waitFor({ state: 'attached' })
+    await page.evaluate(() => window.scrollTo(0, 800))
+    await page.waitForFunction(() => window.scrollY === 800)
+    await clickNav('/settings')
+    await page.goBack()
+    await page.waitForURL(url => url.pathname.replace(/\/$/, '') === path)
+    await rows.nth(49).waitFor({ state: 'attached' })
+    assert.equal(await page.evaluate(() => window.scrollY), 800, path)
+  }
   await clickNav('/display')
   await page.locator('#ams-printers .ams-note').waitFor()
   await clickNav('/plugin-view?p=example')

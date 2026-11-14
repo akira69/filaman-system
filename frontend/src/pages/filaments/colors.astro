@@ -100,7 +100,7 @@ import Layout from '../../layouts/Layout.astro'
       return match ? decodeURIComponent(match[1]) : ''
     }
     
-    async function loadColors() {
+    async function loadColors(reset = true) {
       try {
         const data = await fetchAllPages<ColorRecord>('/api/v1/colors')
         if (panelSignal.aborted) return
@@ -113,9 +113,9 @@ import Layout from '../../layouts/Layout.astro'
         colorHeaderFilters?.setOptions('usage_count', [...new Set<number>(colors.map(color => color.usage_count))]
           .sort((left, right) => left - right)
           .map(value => ({ value: String(value), label: String(value) })))
-        renderColors()
+        renderColors(reset)
       } catch (error) {
-        if (isAbortError(error)) return
+        if (panelSignal.aborted || isAbortError(error)) return
         colorList.pause()
         console.error('Failed to load colors:', error)
         document.getElementById('colors-table')!.innerHTML = `
@@ -130,7 +130,7 @@ import Layout from '../../layouts/Layout.astro'
       document.getElementById('colors-table')!, 'colors.colorCount', renderColorRows, undefined, panelSignal,
     )
 
-    function renderColors() {
+    function renderColors(reset = true) {
       updateFilterReset()
       const visibleColors = colors.filter(color => Object.entries(columnFilters).every(([key, filter]) => {
         const value = key === 'name' ? String(color.id) : isSortKey(key) ? color[key] : undefined
@@ -147,7 +147,7 @@ import Layout from '../../layouts/Layout.astro'
         })
       }
       
-      void colorList.load(inventoryLocalPages(() => visibleColors), true)
+      void colorList.load(inventoryLocalPages(() => visibleColors), reset)
     }
 
     function renderColorRows(items: ColorRecord[], append: boolean) {
@@ -389,7 +389,7 @@ import Layout from '../../layouts/Layout.astro'
     })
     
     setupTableControls()
-    loadColors()
+    loadColors(false)
 
     // Live-Update via SSE: Farben automatisch neu laden
     let _colorsReloadTimer: ReturnType<typeof setTimeout> | null = null
