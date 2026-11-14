@@ -10,14 +10,16 @@ import * as escape from './extra-fields'
 import * as i18n from './i18n'
 import * as actions from './table-actions'
 
-const plugin = { plugin_key: 'example', name: 'Example plugin', icon_url: '/api/v1/plugin-icons/example?v=1.0.0', page_url: '/plugin-page/example', description: '', version: '1.0', plugin_type: 'integration', author: '<b>Author</b>', is_active: true, installed_by: 1, installed_at: '2026-01-01' }
+const plugin = { plugin_key: 'example', name: 'Example plugin', icon_url: '/api/v1/plugin-icons/example?v=1.0.0', page_url: '/plugin-page/example', description: 'Connects printers. Shows print jobs and syncs spool usage.', version: '1.0', plugin_type: 'integration', author: '<b>Author</b>', is_active: true, installed_by: 1, installed_at: '2026-01-01' }
 let updates: unknown[] = []
+let installed = [plugin]
 let installError: Response | Promise<Response> | undefined
+let installResults: (Response | Promise<Response>)[]
 let nextAvailability: Promise<Response> | undefined
 let affectedPrinters: Promise<Response> | undefined
 const calls: { path: string; init?: RequestInit }[] = []
 const alert = vi.fn(async () => true)
-const confirm = vi.fn(async () => true)
+const confirm = vi.fn<(message: string, options?: unknown) => Promise<boolean>>(async () => true)
 async function boot() {
   const dependencies = { ...api, ...abort, ...nav, ...icons, ...escape, ...i18n, ...dialog, ...actions, initI18n: async () => {} }
   await bootAstroPage('admin/system', dependencies)
@@ -26,7 +28,9 @@ async function boot() {
 beforeEach(() => {
   calls.length = 0
   updates = []
+  installed = [plugin]
   installError = undefined
+  installResults = []
   nextAvailability = undefined
   affectedPrinters = undefined
   i18n.setLang('en')
@@ -43,8 +47,8 @@ beforeEach(() => {
       nextAvailability = undefined
       return response ?? Response.json(updates)
     }
-    if (path.endsWith('/install-from-registry')) return installError || Response.json({ plugin, message: 'Installed successfully' })
-    return Response.json([plugin])
+    if (path.endsWith('/install-from-registry')) return installResults.shift() ?? installError ?? Response.json({ plugin, message: 'Installed successfully' })
+    return Response.json(installed)
   }))
 })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren() })
@@ -55,6 +59,78 @@ it('reports successful update checks inline without an Error dialog or mutation'
   expect(alert).not.toHaveBeenCalled()
   expect(calls.every(call => !call.init?.method || call.init.method === 'GET')).toBe(true)
   expect(document.querySelector('#plugin-message')!.getAttribute('role')).toBe('status')
+  expect(document.querySelector<HTMLButtonElement>('#btn-update-all')?.hidden).toBe(true)
+  expect(document.querySelector('#btn-check-updates svg[aria-hidden="true"]')).not.toBeNull()
+})
+
+it('asks once for Update All, installs sequentially, and leaves a failed update available', async () => {
+  const second = { ...plugin, plugin_key: 'second', name: 'Second plugin' }
+  installed = [plugin, second]
+  updates = installed.map(p => ({
+    ...p, version: '2.0.0', publisher: 'Example author', release_id: p.plugin_key, update_available: true,
+  }))
+  const postedKeys = () => calls.filter(call => call.init?.method === 'POST').map(call => JSON.parse(String(call.init?.body)).plugin_key)
+  let finish!: (response: Response) => void
+  installResults = [
+    new Promise(resolve => { finish = resolve }),
+    Response.json({ detail: 'Download unavailable' }, { status: 502 }),
+  ]
+  await boot()
+  const all = document.querySelector<HTMLButtonElement>('#btn-update-all')!
+  expect(all.hidden).toBe(true)
+  document.querySelector<HTMLButtonElement>('#btn-check-updates')!.click()
+  await vi.waitFor(() => expect(all.hidden).toBe(false))
+  confirm.mockResolvedValueOnce(false)
+  all.click()
+  await vi.waitFor(() => expect(all.disabled).toBe(false))
+  expect(postedKeys()).toEqual([])
+
+  confirm.mockClear()
+  all.click()
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('Second plugin v2.0.0'), expect.objectContaining({ okLabel: 'Update All' }))
+  expect(confirm.mock.calls[0][0]).toContain('Example plugin v2.0.0')
+  await vi.waitFor(() => expect(postedKeys()).toEqual(['example']))
+  expect(document.querySelector<HTMLButtonElement>('.btn-update[data-key="second"]')!.disabled).toBe(true)
+  installed = [{ ...plugin, version: '2.0.0' }, second]
+  finish(Response.json({ plugin: installed[0], message: 'Updated successfully' }))
+  await vi.waitFor(() => expect(document.querySelector('#plugins-table [role="alert"]')?.textContent).toBe('Download unavailable'))
+  expect(postedKeys()).toEqual(['example', 'second'])
+  expect(all.hidden).toBe(true)
+  expect(document.querySelector<HTMLButtonElement>('.btn-update[data-key="second"]')!.disabled).toBe(false)
+  expect(document.querySelector('.btn-update[data-key="example"]')).toBeNull()
+})
+
+it('confirms each plugin separately and prevents a second update from overlapping the first', async () => {
+  const second = { ...plugin, plugin_key: 'second', name: 'Second plugin' }
+  installed = [plugin, second]
+  updates = installed.map(p => ({
+    ...p, version: '2.0.0', publisher: 'Example author', release_id: p.plugin_key, update_available: true,
+  }))
+  let finish!: (response: Response) => void
+  installError = new Promise(resolve => { finish = resolve })
+  await boot()
+  document.querySelector<HTMLButtonElement>('#btn-check-updates')!.click()
+  const first = await vi.waitFor(() => {
+    const button = document.querySelector<HTMLButtonElement>('.btn-update[data-key="example"]')
+    expect(button).not.toBeNull()
+    return button!
+  })
+  first.click()
+  const secondButton = () => document.querySelector<HTMLButtonElement>('.btn-update[data-key="second"]')!
+  expect(confirm).toHaveBeenCalledWith('Update Example plugin to v2.0.0 from Example author?', expect.anything())
+  expect(secondButton().disabled).toBe(true)
+  expect(document.querySelector<HTMLButtonElement>('#btn-browse-plugins')!.disabled).toBe(true)
+  secondButton().click()
+  await vi.waitFor(() => expect(calls.filter(call => call.init?.method === 'POST')).toHaveLength(1))
+  expect(confirm).toHaveBeenCalledTimes(1)
+
+  installed = [{ ...plugin, version: '2.0.0' }, second]
+  installError = Response.json({ plugin: { ...second, version: '2.0.0' }, message: 'Updated successfully' })
+  finish(Response.json({ plugin: installed[0], message: 'Updated successfully' }))
+  await vi.waitFor(() => expect(secondButton().disabled).toBe(false))
+  secondButton().click()
+  expect(confirm).toHaveBeenLastCalledWith('Update Second plugin to v2.0.0 from Example author?', expect.anything())
+  await vi.waitFor(() => expect(calls.filter(call => call.init?.method === 'POST').map(call => JSON.parse(String(call.init?.body)).plugin_key)).toEqual(['example', 'second']))
 })
 it.each([
   [Response.json({ detail: 'Dependency requires a newer FilaMan version' }, { status: 422 }), 'Dependency requires a newer FilaMan version'],
@@ -67,24 +143,26 @@ it.each([
   document.querySelector<HTMLButtonElement>('#btn-check-updates')!.click()
   await vi.waitFor(() => expect(document.querySelector('.btn-update')).not.toBeNull())
   document.querySelector<HTMLButtonElement>('.btn-update')!.click()
-  await vi.waitFor(() => expect(document.querySelector('#plugin-message')?.textContent).toBe(message))
+  const row = document.querySelector('.btn-update')!.closest('tr')!
+  await vi.waitFor(() => expect(row.querySelector('[role="alert"]')?.textContent).toBe(message))
   const button = document.querySelector<HTMLButtonElement>('.btn-update')!
   expect(button.disabled).toBe(false)
   expect(button.textContent).toContain('2.0')
-  expect(document.querySelector('#plugin-message')!.getAttribute('role')).toBe('alert')
+  expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+  expect(document.querySelector('#plugin-message')!.getAttribute('role')).toBe('status')
   const write = calls.find(call => call.init?.method === 'POST')!
   expect(write.path).toBe('/api/v1/admin/system/plugins/install-from-registry')
   expect(JSON.parse(String(write.init!.body))).toEqual({ plugin_key: 'example', version: '2.0.0', release_id: 'example-release' })
   expect((write.init!.headers as Record<string, string>)['X-CSRF-Token']).toBe('test-csrf')
 })
-it('offers a named icon link to the plugin page beside the row actions', async () => {
+it('offers a named link to the plugin page beside the row actions', async () => {
   await boot()
   const open = document.querySelector<HTMLAnchorElement>('#plugins-table .plugin-actions a')!
   expect(open.getAttribute('href')).toBe('/plugin-view?p=example')
   expect(open.getAttribute('aria-label')).toBe('Open Example plugin')
   expect(open.title).toBe('Open Example plugin')
   expect(open.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
-  expect(open.textContent?.trim()).toBe('')
+  expect(open.textContent?.trim()).toBe('Open')
 })
 it('opens native details with plugin metadata rendered as text', async () => {
   await boot()
@@ -182,7 +260,7 @@ it('keeps a delayed deactivation from interrupting catalog confirmation', async 
   await vi.waitFor(() => expect(calls.some(call => call.init?.method === 'POST')).toBe(true))
 })
 
-it.each(['browse', 'table'])('refreshes a stale release from the %s without retrying it', async surface => {
+it.each(['browse', 'installed list'])('refreshes a stale release from the %s without retrying it', async surface => {
   const release = {
     plugin_key: 'example', name: 'Example', version: '2.0.0', description: 'Example', publisher: 'Example author',
     repository_url: 'https://github.com/example/plugin', min_filaman_version: '2.0.3',
@@ -214,7 +292,7 @@ it.each(['browse', 'table'])('refreshes a stale release from the %s without retr
   updates = [{ ...release, version: '3.0.0', release_id: 'new-release' }]
   rejectInstall(Response.json({ detail: { code: 'catalog_release_unavailable' } }, { status: 409 }))
   await vi.waitFor(() => expect(document.querySelector(selector)?.textContent).toContain('3.0.0'))
-  expect(document.querySelector(browse ? '#error-details' : '#plugin-message')?.textContent).toBe(i18n.t('admin.pluginCatalogChanged'))
+  expect(document.querySelector(browse ? '#error-details' : '#plugins-table [role="alert"]')?.textContent).toBe(i18n.t('admin.pluginCatalogChanged'))
   expect(previous.isConnected).toBe(false)
   if (browse) {
     expect(document.querySelector<HTMLButtonElement>('#install-submit')!.hidden).toBe(true)
@@ -223,7 +301,7 @@ it.each(['browse', 'table'])('refreshes a stale release from the %s without retr
     finishOlderCheck!(Response.json([release]))
     await vi.waitFor(() => expect(check.disabled).toBe(false))
     expect(document.querySelector(selector)?.textContent).toContain('3.0.0')
-    expect(document.querySelector('#plugin-message')?.textContent).toBe(i18n.t('admin.pluginCatalogChanged'))
+    expect(document.querySelector('#plugins-table [role="alert"]')?.textContent).toBe(i18n.t('admin.pluginCatalogChanged'))
   }
   expect(calls.filter(call => call.init?.method === 'POST')).toHaveLength(1)
 })
