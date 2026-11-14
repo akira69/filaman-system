@@ -255,16 +255,18 @@ const { title, panel, noPadding = false, embedded = false } = Astro.props
       await initI18n()
 
       const colorLibraryLink = document.getElementById('sidebar-color-library')!
-      const colorLibraryToggle = document.querySelector<HTMLInputElement>('#show-color-library')
       const colorLibraryKey = 'sidebar-color-library'
       function syncColorLibraryShortcut() {
         const shown = localStorage.getItem(colorLibraryKey) !== 'false'
         colorLibraryLink.hidden = !shown
+        const colorLibraryToggle = document.querySelector<HTMLInputElement>('#show-color-library')
         if (colorLibraryToggle) colorLibraryToggle.checked = shown
       }
       syncColorLibraryShortcut()
-      colorLibraryToggle?.addEventListener('change', () => {
-        localStorage.setItem(colorLibraryKey, String(colorLibraryToggle.checked))
+      document.addEventListener('change', event => {
+        const toggle = event.target
+        if (!(toggle instanceof HTMLInputElement) || toggle.id !== 'show-color-library') return
+        localStorage.setItem(colorLibraryKey, String(toggle.checked))
         syncColorLibraryShortcut()
       })
       window.addEventListener('storage', event => {
@@ -431,6 +433,7 @@ const { title, panel, noPadding = false, embedded = false } = Astro.props
       const logoutBtn = document.getElementById('logout-btn')!
       const adminNav = document.getElementById('admin-nav')!
       let sidebarAccess: string | undefined
+      let pluginNavContent = ''
 
       async function checkAuth() {
         const main = document.querySelector<HTMLElement>('main')!
@@ -468,9 +471,12 @@ const { title, panel, noPadding = false, embedded = false } = Astro.props
           const access = JSON.stringify([user.id, user.is_superadmin, [...user.permissions].sort()])
           if (sidebarAccess !== access) {
             sidebarAccess = access
-            void loadPluginNav(access)
+            pluginNavContent = ''
+            pluginNav.replaceChildren()
+            pluginNav.classList.add('invisible')
             checkSystemVersion(user)
           }
+          void loadPluginNav(signal)
 
           // Auth succeeded — reveal page content
           document.getElementById('fm-page')!.style.visibility = 'visible'
@@ -536,14 +542,16 @@ const { title, panel, noPadding = false, embedded = false } = Astro.props
       /* ── Plugin navigation ───────────────────────────────────── */
       const pluginNav = document.getElementById('plugin-nav')!
 
-      async function loadPluginNav(access: string) {
-        pluginNav.replaceChildren()
-        pluginNav.classList.add('invisible')
+      async function loadPluginNav(signal: AbortSignal) {
         try {
-          const resp = await fetch('/api/v1/plugin-nav', { credentials: 'include' })
-          if (!resp.ok) throw new Error(`Plugin navigation returned ${resp.status}`)
+          const resp = await fetch('/api/v1/plugin-nav', { credentials: 'include', signal })
+          if (!resp.ok) return
           const plugins: { plugin_key: string; name: string; page_url: string; icon_url?: string | null }[] = await resp.json()
-          if (access !== sidebarAccess) return
+          const content = JSON.stringify(plugins)
+          if (signal.aborted || content === pluginNavContent) return
+          pluginNavContent = content
+          pluginNav.replaceChildren()
+          pluginNav.classList.add('invisible')
           if (!plugins.length) return
 
           const hr = document.createElement('hr')
@@ -574,10 +582,7 @@ const { title, panel, noPadding = false, embedded = false } = Astro.props
           // Re-run active-highlighting now that plugin links are in the DOM,
           // so the longest-prefix match wins across all nav items (including plugins).
           highlightActiveNav()
-        } catch {
-          // Retry on the next authenticated navigation.
-          if (access === sidebarAccess) sidebarAccess = undefined
-        }
+        } catch { /* Plugin navigation is optional and retried on the next panel. */ }
       }
 
       logoutBtn.addEventListener('click', async () => {
@@ -715,6 +720,7 @@ const { title, panel, noPadding = false, embedded = false } = Astro.props
           if (!main) return
           setSidebarCollapsed(mobileSidebar.matches || html.classList.contains('sidebar-collapsed'), false)
           highlightActiveNav()
+          syncColorLibraryShortcut()
           translatePage()
           void checkAuth().then(authorized => {
             if (authorized && main.isConnected) main.focus({ preventScroll: true })

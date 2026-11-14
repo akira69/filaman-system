@@ -11,6 +11,7 @@ try {
   const requests = []
   const problemSpools = []
   let sessionExpired = false
+  let showOtherPlugin = true
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => {
     if (message.text().startsWith('Could not initialize panel:')) errors.push(message.text())
@@ -48,7 +49,7 @@ try {
       '/api/v1/app-settings/public-info': { currency: 'EUR' },
       '/api/v1/plugin-nav': [
         { name: 'Example', page_url: '/plugin-page/example' },
-        { name: 'Other', page_url: '/plugin-page/other' },
+        ...(showOtherPlugin ? [{ name: 'Other', page_url: '/plugin-page/other' }] : []),
         { name: 'Native', page_url: '/plugin-view/native-example' },
         { name: 'FilamentDB', page_url: '/admin/system/filamentdb-import' },
       ],
@@ -110,18 +111,38 @@ try {
   await page.locator('.astro-route-announcer').waitFor({ state: 'attached' })
   assert.equal(await page.evaluate(() => window.sidebarBefore === document.querySelector('.fm-sidebar')), true)
   await searchFor('red')
+  await page.goBack()
+  await page.waitForURL(origin + '/')
+  await page.goForward()
+  await page.waitForURL(/\/spools/)
+  await sidebar.locator('a[href="/spools"].active').waitFor()
+  await page.waitForFunction(() => document.querySelector('#filter-search')?.value === 'red')
   for (const path of ['/manufacturers', '/locations', '/printers', '/settings', '/admin', '/admin/system/filamentdb-import']) {
     await clickNav(path)
+    if (path === '/settings') {
+      const toggle = page.locator('#show-color-library')
+      const track = page.locator('.fm-toggle:has(#show-color-library)')
+      await track.click()
+      assert.equal(await toggle.isChecked(), false)
+      assert.equal(await sidebar.locator('#sidebar-color-library').getAttribute('hidden'), '')
+      assert.equal(await page.evaluate(() => localStorage.getItem('sidebar-color-library')), 'false')
+      await track.click()
+      assert.equal(await toggle.isChecked(), true)
+      await sidebar.locator('#sidebar-color-library').waitFor()
+    }
   }
 
+  await clickNav('/filaments/colors')
   await clickNav('/display')
   await page.locator('#ams-printers .ams-note').waitFor()
   await clickNav('/plugin-view?p=example')
   await page.locator('#plugin-frame[src="/plugin-page/example"]').waitFor()
   await clickNav('/plugin-view?p=other')
   await page.locator('#plugin-frame[src="/plugin-page/other"]').waitFor()
+  showOtherPlugin = false
   await clickNav('/plugin-view/native-example')
   await page.locator('#plugin-iframe[src^="/plugins/native-example/"]').waitFor()
+  await sidebar.locator('a[href="/plugin-view?p=other"]').waitFor({ state: 'detached' })
   const displayRequests = requests.filter(path => path === '/api/v1/display').length
   await page.setViewportSize({ width: 390, height: 850 })
   await page.locator('#sidebar-toggle[aria-expanded="false"]').click()
@@ -130,7 +151,7 @@ try {
   assert.equal(await page.evaluate(() => window.sidebarBefore === document.querySelector('.fm-sidebar')), true)
   await page.locator('#sidebar-toggle[aria-expanded="false"]').waitFor()
   assert.equal(await page.locator('main').evaluate(main => main.inert), false)
-  assert.equal(requests.filter(path => path === '/api/v1/plugin-nav').length, 2)
+  assert.ok(requests.filter(path => path === '/api/v1/plugin-nav').length > 2)
   await page.waitForTimeout(5100)
   assert.equal(requests.filter(path => path === '/api/v1/display').length, displayRequests)
   await page.locator('#sidebar-toggle[aria-expanded="false"]').click()

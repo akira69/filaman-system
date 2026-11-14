@@ -45,6 +45,7 @@ export function initInventoryScroll<T extends { id: number }>(
   let source: Source<T> | undefined
   let drawRows = render
   const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+  const historyIndex = history.state?.index
   const restored: { nextPage: number, top: number, windowTop: number, search?: string } | undefined =
     navigation?.type === 'back_forward' || history.state?.index !== undefined ? history.state?.inventoryScroll : undefined
   const main = tbody.closest('main')
@@ -58,7 +59,7 @@ export function initInventoryScroll<T extends { id: number }>(
   let generation = 0
   button.addEventListener('click', () => { void loadMore() })
   function saveScroll() {
-    if (!main) return
+    if (!main || history.state?.index !== historyIndex) return
     history.replaceState({
       ...history.state,
       inventoryScroll: { nextPage, top: main.scrollTop, windowTop: window.scrollY, search: search?.value },
@@ -68,6 +69,11 @@ export function initInventoryScroll<T extends { id: number }>(
   document.addEventListener('astro:before-preparation', event => {
     if (event.navigationType !== 'traverse') saveScroll()
   }, { signal })
+  if (historyIndex !== undefined) {
+    main?.addEventListener('scrollend', saveScroll, { signal })
+    window.addEventListener('scrollend', saveScroll, { signal })
+    search?.addEventListener('change', saveScroll, { signal })
+  }
   signal?.addEventListener('abort', () => { pause(); observer.disconnect() }, { once: true })
 
   function updateControls() {
@@ -81,6 +87,7 @@ export function initInventoryScroll<T extends { id: number }>(
     button.setAttribute('aria-disabled', String(loading))
     status.textContent = loading ? t('common.loading') : failed ? t('common.errorLoadingData') : ''
     if (hasMore && !loading && !failed) observer.observe(more)
+    if (historyIndex !== undefined) saveScroll()
   }
 
   function pause() {

@@ -2079,8 +2079,15 @@ import Layout from '../layouts/Layout.astro'
     document.getElementById('ams-kiosk')?.addEventListener('click', () => {
       const on = !document.body.classList.contains('ams-kiosk')
       setKiosk(on)
-      if (on) document.documentElement.requestFullscreen?.().catch(() => {})
-      else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+      if (on) {
+        void document.documentElement.requestFullscreen?.().then(() => {
+          if (panelSignal.aborted && document.fullscreenElement === document.documentElement) {
+            return document.exitFullscreen()
+          }
+        }).catch(() => {})
+      } else if (document.fullscreenElement) {
+        void document.exitFullscreen?.().catch(() => {})
+      }
     })
     document.addEventListener('fullscreenchange', () => {
       if (!document.fullscreenElement && document.body.classList.contains('ams-kiosk')) setKiosk(false)

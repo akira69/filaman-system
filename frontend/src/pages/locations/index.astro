@@ -241,15 +241,16 @@ import Layout from '../../layouts/Layout.astro'
             
             if (!response.ok) {
               const data = await response.json()
+              if (panelSignal.aborted) return
               await dialogs.__fmAlert(data.message || t('locations.failedDelete'))
               return
             }
             
             // Invalidate cache after successful delete
             invalidateCachePrefix(CACHE_KEYS.LOCATIONS)
-            loadLocations()
+            if (!panelSignal.aborted) loadLocations()
           } catch {
-            await dialogs.__fmAlert(t('locations.failedDelete'))
+            if (!panelSignal.aborted) await dialogs.__fmAlert(t('locations.failedDelete'))
           }
         })
       })
