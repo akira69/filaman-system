@@ -26,7 +26,7 @@ class EventBus:
     """Simple in-process pub/sub using asyncio.Queue per subscriber."""
 
     def __init__(self) -> None:
-        self._subscribers: list[asyncio.Queue[str]] = []
+        self._subscribers: set[asyncio.Queue[str]] = set()
 
     async def publish(self, event: dict[str, Any]) -> None:
         """Broadcast event to all connected SSE clients."""
@@ -54,7 +54,7 @@ class EventBus:
     async def subscribe(self) -> AsyncGenerator[str, None]:
         """Yield SSE-formatted messages for one client connection."""
         queue: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
-        self._subscribers.append(queue)
+        self._subscribers.add(queue)
         try:
             while queue in self._subscribers and not worker_is_draining():
                 try:
@@ -67,8 +67,7 @@ class EventBus:
                     return
                 yield data
         finally:
-            if queue in self._subscribers:
-                self._subscribers.remove(queue)
+            self._subscribers.discard(queue)
 
 
 event_bus = EventBus()

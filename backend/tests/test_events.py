@@ -25,3 +25,24 @@ async def test_idle_event_stream_closes_when_worker_drains(monkeypatch):
         finally:
             await stream.aclose()
         assert not event_bus._subscribers
+
+
+async def test_slow_event_subscriber_is_closed_without_affecting_others():
+    from app.core.event_bus import EventBus
+
+    bus = EventBus()
+    slow = bus.subscribe()
+    fast = bus.subscribe()
+    fast_next = asyncio.create_task(anext(fast))
+    slow_next = asyncio.create_task(anext(slow))
+    await asyncio.sleep(0)
+    await bus.publish({"event": "first"})
+    assert await slow_next == await fast_next
+
+    for index in range(65):
+        await bus.publish({"event": "update", "index": index})
+        assert '"index":' in await anext(fast)
+
+    with pytest.raises(StopAsyncIteration):
+        await anext(slow)
+    await fast.aclose()

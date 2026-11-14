@@ -663,3 +663,26 @@ async def test_primary_proxy_stops_on_transport_failure(monkeypatch, private_soc
         await printers._proxy_to_primary(request, "POST", "/driver/action")
     assert error.value.detail["code"] == "primary_proxy_failed"
     assert len(received) == (2 if rejected_first else 1)
+
+
+async def test_primary_proxy_exhaustion_preserves_definite_rejection(monkeypatch, private_socket_path):
+    attempts = 0
+
+    def handle(request):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(503, json={"detail": {
+                "code": "primary_worker_draining", "message": "Primary worker is draining. Please retry.",
+            }})
+        raise httpx.ConnectError("Replacement socket is not ready", request=request)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", lambda **kwargs: httpx.MockTransport(handle))
+    monkeypatch.setattr(printers.asyncio, "sleep", AsyncMock())
+    request = Request({"type": "http", "headers": [], "query_string": b""})
+    with pytest.raises(HTTPException) as error:
+        await printers._proxy_to_primary(request, "POST", "/driver/action")
+
+    assert error.value.status_code == 503
+    assert error.value.detail["code"] == "primary_worker_draining"
+    assert attempts == 11
