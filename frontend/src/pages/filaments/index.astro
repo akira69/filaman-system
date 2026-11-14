@@ -10,12 +10,19 @@ const { compactPicker = false } = Astro.props
 
 <Layout title="FilaMan - Filaments" embedded={compactPicker}>
   <style>
-    :global(#fm-page:has([data-filament-picker])) { grid-template-columns: minmax(0, 1fr); }
-    :global(#fm-page:has([data-filament-picker]) > .fm-main) { padding: 0; }
+    :global(#fm-page:has([data-filament-picker])) { grid-template-columns: minmax(0, 1fr); background: transparent; }
+    :global(html:has([data-filament-picker])), :global(body:has([data-filament-picker])) { background: transparent; }
+    :global(#fm-page:has([data-filament-picker]) > .fm-main) { padding: 4px 4px 8px; }
+    :global(#fm-page:has([data-filament-picker]) :is(.filter-bar, .fm-inventory-toolbar)) { margin-block-end: 6px; }
+    :global(body:has([data-filament-picker]) > .fm-header-filter-panel) { min-width: min(300px, calc(100vw - 16px)); }
     :global(#fm-page:has([data-filament-picker]) :is(.fm-sidebar, .fm-sidebar-backdrop, .fm-list-toolbar, #bulk-action-bar)) { display: none !important; }
     :global([data-filament-picker]:not([data-manufacturer-hidden]) .fm-picker-manufacturer) { display: none; }
     :global(.fm-picker-manufacturer) { color: var(--text-muted); font-size: 0.85rem; }
-    #picker-selection-count { color: var(--text-muted); font-size: 0.85rem; margin-block: 0 8px; }
+    #picker-selection-count { color: var(--text-muted); font-size: 0.8125rem; margin-block: 0 4px; }
+    @media (hover: hover) and (min-width: 36rem) {
+      :global(.fm-inventory-table[data-filament-picker][data-compact] .fm-table th[draggable="true"]) { cursor: grab; }
+      :global(.fm-inventory-table[data-filament-picker][data-compact] .fm-table th[draggable="true"]:active) { cursor: grabbing; }
+    }
     .spool-selection-only[hidden] { display: none; }
     :global(.filament-spool-select) {
       display: inline-flex;
@@ -948,6 +955,7 @@ const { compactPicker = false } = Astro.props
     const filReorder = initColumnReorder({
       tableSelector: '.fm-table',
       storageKey: `filaman-column-order-${storageScope}`,
+      allowCompactReorder: compactPicker ? () => matchMedia('(hover: hover) and (min-width: 36rem)').matches : undefined,
     })
     const filResize = initColumnResize({
       tableSelector: '.fm-table',

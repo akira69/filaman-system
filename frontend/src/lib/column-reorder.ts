@@ -30,6 +30,8 @@ export interface ColumnReorderOptions {
   storageKey: string
   /** Optional callback fired after columns are reordered */
   onReorder?: (order: string[]) => void
+  /** Compact picker layouts can allow reordering when their viewport is wide enough. */
+  allowCompactReorder?: () => boolean
 }
 
 export interface ColumnReorder {
@@ -202,7 +204,8 @@ export function initColumnReorder(opts: ColumnReorderOptions): ColumnReorder {
 
     const ths = Array.from(headerRow.querySelectorAll('th')) as HTMLElement[]
     let draggedKey: string | null = null
-    const isCompact = () => table.parentElement?.matches('.fm-inventory-table[data-compact]')
+    const reorderBlocked = () => table.parentElement?.matches('.fm-inventory-table[data-compact]')
+      && !opts.allowCompactReorder?.()
 
     ths.forEach(th => {
       const key = getColKey(th)
@@ -211,7 +214,7 @@ export function initColumnReorder(opts: ColumnReorderOptions): ColumnReorder {
       th.draggable = true
 
       const onDragStart = (e: DragEvent) => {
-        if (isCompact()) {
+        if (reorderBlocked()) {
           e.preventDefault()
           return
         }
@@ -261,7 +264,7 @@ export function initColumnReorder(opts: ColumnReorderOptions): ColumnReorder {
 
         th.classList.remove('col-drop-before', 'col-drop-after')
 
-        if (isCompact() || !fromKey || !toKey || fromKey === toKey) return
+        if (reorderBlocked() || !fromKey || !toKey || fromKey === toKey) return
 
         const fromIdx = currentOrder.indexOf(fromKey)
         const toIdx = currentOrder.indexOf(toKey)
