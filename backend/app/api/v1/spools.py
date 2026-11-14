@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -9,13 +9,12 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DBSession, PrincipalDep, RequirePermission
 from app.api.v1.printers import (
-    pick_bambuddy_driver,
     _is_primary_worker,
     _proxy_to_primary,
+    pick_bambuddy_driver,
 )
-from app.core.cache import response_cache
-from app.core.db_utils import get_next_available_id, get_next_available_ids
 from app.api.v1.schemas import PaginatedResponse
+from app.api.v1.schemas_filament import ColorFilterStop
 from app.api.v1.schemas_spool import (
     AdjustmentRequest,
     BulkSpoolDeleteRequest,
@@ -32,15 +31,16 @@ from app.api.v1.schemas_spool import (
     SpoolCreate,
     SpoolEventColor,
     SpoolEventResponse,
-    SpoolResponse,
     SpoolMetrics,
+    SpoolResponse,
     SpoolStatusResponse,
     SpoolUpdate,
     StatusChangeRequest,
 )
-from app.api.v1.schemas_filament import ColorFilterStop
+from app.core.cache import response_cache
+from app.core.db_utils import get_next_available_id, get_next_available_ids
 from app.core.event_bus import event_bus
-from app.services.color_search import filament_color_filter, filament_has_named_color
+from app.core.security import Principal
 from app.models import (
     Color,
     Filament,
@@ -51,12 +51,13 @@ from app.models import (
     SpoolEvent,
     SpoolStatus,
 )
+from app.services.color_search import filament_color_filter, filament_has_named_color
 from app.services.custom_field_search import (
     any_custom_field_matches,
     searchable_custom_field_keys,
 )
-from app.services.spool_service import SpoolService
 from app.services.spool_metrics import spool_metric_expressions
+from app.services.spool_service import SpoolService
 from app.utils.query_params import parse_multi_int, parse_multi_str
 
 
@@ -147,7 +148,7 @@ async def list_locations(
 async def create_location(
     data: LocationCreate,
     db: DBSession,
-    principal=RequirePermission("locations:create"),
+    principal: Annotated[Principal, RequirePermission("locations:create")],
 ):
     location = Location(**data.model_dump())
     db.add(location)
@@ -174,7 +175,7 @@ async def update_location(
     location_id: int,
     data: LocationUpdate,
     db: DBSession,
-    principal=RequirePermission("locations:update"),
+    principal: Annotated[Principal, RequirePermission("locations:update")],
 ):
     result = await db.execute(select(Location).where(Location.id == location_id))
     location = result.scalar_one_or_none()
@@ -197,7 +198,7 @@ async def update_location(
 async def delete_location(
     location_id: int,
     db: DBSession,
-    principal=RequirePermission("locations:delete"),
+    principal: Annotated[Principal, RequirePermission("locations:delete")],
 ):
     result = await db.execute(select(Location).where(Location.id == location_id))
     location = result.scalar_one_or_none()
@@ -397,15 +398,15 @@ async def list_spools(
     principal: PrincipalDep,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    filament_id: list[str] | None = Query(None),
-    status_id: list[str] | None = Query(None),
-    location_id: list[str] | None = Query(None),
+    filament_id: Annotated[list[str] | None, Query()] = None,
+    status_id: Annotated[list[str] | None, Query()] = None,
+    location_id: Annotated[list[str] | None, Query()] = None,
     location_unassigned: bool = Query(False),
-    manufacturer_id: list[str] | None = Query(None),
-    color_name: list[str] | None = Query(None),
-    color_id: list[int] | None = Query(None),
+    manufacturer_id: Annotated[list[str] | None, Query()] = None,
+    color_name: Annotated[list[str] | None, Query()] = None,
+    color_id: Annotated[list[int] | None, Query()] = None,
     color_unassigned: bool = Query(False),
-    type: list[str] | None = Query(None),
+    type: Annotated[list[str] | None, Query()] = None,
     include_archived: bool = Query(False),
     include_metrics: bool = Query(False),
     low_or_empty: bool = False,
@@ -612,7 +613,7 @@ async def list_spools(
 async def create_spool(
     data: SpoolCreate,
     db: DBSession,
-    principal=RequirePermission("spools:create"),
+    principal: Annotated[Principal, RequirePermission("spools:create")],
 ):
     result = await db.execute(select(Filament).where(Filament.id == data.filament_id))
     filament = result.scalar_one_or_none()
@@ -709,7 +710,7 @@ async def create_spool(
 async def create_spools_bulk(
     data: SpoolBulkCreate,
     db: DBSession,
-    principal=RequirePermission("spools:create"),
+    principal: Annotated[Principal, RequirePermission("spools:create")],
 ):
     result = await db.execute(select(Filament).where(Filament.id == data.filament_id))
     filament = result.scalar_one_or_none()
@@ -796,7 +797,7 @@ async def create_spools_bulk(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "bulk_create_error", "message": str(e)},
-        )
+        ) from e
     await event_bus.publish({"event": "spools_changed"})
 
     # Reload all spools with relationships
@@ -817,7 +818,7 @@ async def create_spools_bulk(
 async def update_spools_bulk(
     data: BulkSpoolUpdateRequest,
     db: DBSession,
-    principal=RequirePermission("spools:update"),
+    principal: Annotated[Principal, RequirePermission("spools:update")],
 ):
     """Bulk update fields on multiple spools (location, threshold, empty weight, price)."""
     result = await db.execute(select(Spool).where(Spool.id.in_(data.spool_ids)))
@@ -852,7 +853,7 @@ async def update_spools_bulk(
 async def delete_spools_bulk(
     data: BulkSpoolDeleteRequest,
     db: DBSession,
-    principal=RequirePermission("spools:delete"),
+    principal: Annotated[Principal, RequirePermission("spools:delete")],
 ):
     """Bulk archive or permanently delete multiple spools."""
     if data.permanent:
@@ -883,7 +884,7 @@ async def delete_spools_bulk(
 @router_spools.get("/all-events", response_model=PaginatedResponse[SpoolEventResponse])
 async def list_all_spool_events(
     db: DBSession,
-    principal=RequirePermission("spool_events:read"),
+    principal: Annotated[Principal, RequirePermission("spool_events:read")],
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     search: str | None = Query(None, max_length=200),
@@ -1011,7 +1012,7 @@ async def update_spool(
     spool_id: int,
     data: SpoolUpdate,
     db: DBSession,
-    principal=RequirePermission("spools:update"),
+    principal: Annotated[Principal, RequirePermission("spools:update")],
 ):
     result = await db.execute(select(Spool).where(Spool.id == spool_id))
     spool = result.scalar_one_or_none()
@@ -1087,7 +1088,7 @@ async def update_spool(
         await service._create_event(
             spool_id=spool.id,
             event_type="manual_adjust",
-            event_at=datetime.now(timezone.utc),
+            event_at=datetime.now(UTC),
             user_id=user_id,
             device_id=device_id,
             source="ui",
@@ -1117,7 +1118,7 @@ async def update_spool(
 async def delete_spool(
     spool_id: int,
     db: DBSession,
-    principal=RequirePermission("spools:delete"),
+    principal: Annotated[Principal, RequirePermission("spools:delete")],
 ):
     result = await db.execute(select(Spool).where(Spool.id == spool_id))
     spool = result.scalar_one_or_none()
@@ -1140,7 +1141,7 @@ async def delete_spool(
 async def permanently_delete_spool(
     spool_id: int,
     db: DBSession,
-    principal=RequirePermission("spools:delete"),
+    principal: Annotated[Principal, RequirePermission("spools:delete")],
 ):
     """Permanently delete a spool and all its data (including events) from the database."""
     result = await db.execute(select(Spool).where(Spool.id == spool_id))
@@ -1160,7 +1161,7 @@ async def permanently_delete_spool(
 async def change_statuses_bulk(
     data: BulkStatusChangeRequest,
     db: DBSession,
-    principal=RequirePermission("spool_events:create_status"),
+    principal: Annotated[Principal, RequirePermission("spool_events:create_status")],
 ):
     """Change status for multiple spools (e.g. bulk archiving).
 
@@ -1184,7 +1185,7 @@ async def record_measurement(
     spool_id: int,
     data: MeasurementRequest,
     db: DBSession,
-    principal=RequirePermission("spool_events:create_measurement"),
+    principal: Annotated[Principal, RequirePermission("spool_events:create_measurement")],
 ):
     service = SpoolService(db)
     spool = await service.get_spool(spool_id)
@@ -1194,7 +1195,7 @@ async def record_measurement(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.now(timezone.utc)
+    event_at = data.event_at or datetime.now(UTC)
     event, _ = await service.record_measurement(
         spool=spool,
         measured_weight_g=data.measured_weight_g,
@@ -1211,7 +1212,7 @@ async def record_adjustment(
     spool_id: int,
     data: AdjustmentRequest,
     db: DBSession,
-    principal=RequirePermission("spool_events:create_adjustment"),
+    principal: Annotated[Principal, RequirePermission("spool_events:create_adjustment")],
 ):
     service = SpoolService(db)
     spool = await service.get_spool(spool_id)
@@ -1221,7 +1222,7 @@ async def record_adjustment(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.now(timezone.utc)
+    event_at = data.event_at or datetime.now(UTC)
     event, _ = await service.record_adjustment(
         spool=spool,
         adjustment_type=data.adjustment_type,
@@ -1240,7 +1241,7 @@ async def record_consumption(
     spool_id: int,
     data: ConsumptionRequest,
     db: DBSession,
-    principal=RequirePermission("spool_events:create_consumption"),
+    principal: Annotated[Principal, RequirePermission("spool_events:create_consumption")],
 ):
     service = SpoolService(db)
     spool = await service.get_spool(spool_id)
@@ -1250,7 +1251,7 @@ async def record_consumption(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.now(timezone.utc)
+    event_at = data.event_at or datetime.now(UTC)
     try:
         event, _ = await service.record_consumption(
             spool=spool,
@@ -1273,7 +1274,7 @@ async def change_status(
     spool_id: int,
     data: StatusChangeRequest,
     db: DBSession,
-    principal=RequirePermission("spool_events:create_status"),
+    principal: Annotated[Principal, RequirePermission("spool_events:create_status")],
 ):
     service = SpoolService(db)
     spool = await service.get_spool(spool_id)
@@ -1283,7 +1284,7 @@ async def change_status(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.now(timezone.utc)
+    event_at = data.event_at or datetime.now(UTC)
     event = await service.change_status(
         spool=spool,
         status_key=data.status,
@@ -1301,7 +1302,7 @@ async def move_location(
     spool_id: int,
     data: MoveLocationRequest,
     db: DBSession,
-    principal=RequirePermission("spool_events:create_move_location"),
+    principal: Annotated[Principal, RequirePermission("spool_events:create_move_location")],
 ):
     service = SpoolService(db)
     spool = await service.get_spool(spool_id)
@@ -1311,7 +1312,7 @@ async def move_location(
             detail={"code": "not_found", "message": "Spool not found"},
         )
 
-    event_at = data.event_at or datetime.now(timezone.utc)
+    event_at = data.event_at or datetime.now(UTC)
     event = await service.move_location(
         spool=spool,
         to_location_id=data.location_id,
@@ -1329,7 +1330,7 @@ async def move_location(
 async def list_spool_events(
     spool_id: int,
     db: DBSession,
-    principal=RequirePermission("spool_events:read"),
+    principal: Annotated[Principal, RequirePermission("spool_events:read")],
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
@@ -1361,7 +1362,7 @@ router_spool_measurements = APIRouter(tags=["spool-measurements"])
 async def device_measurement(
     data: DeviceMeasurementRequest,
     db: DBSession,
-    principal=RequirePermission("spool_events:create_measurement"),
+    principal: Annotated[Principal, RequirePermission("spool_events:create_measurement")],
 ):
     if not data.rfid_uid and not data.external_id:
         raise HTTPException(
@@ -1381,7 +1382,7 @@ async def device_measurement(
             detail={"code": "not_found", "message": "Spool not found by identifier"},
         )
 
-    event_at = data.event_at or datetime.now(timezone.utc)
+    event_at = data.event_at or datetime.now(UTC)
     event, _ = await service.record_measurement(
         spool=spool,
         measured_weight_g=data.measured_weight_g,

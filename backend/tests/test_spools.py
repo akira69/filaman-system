@@ -1,6 +1,4 @@
 import pytest
-from sqlalchemy import select
-
 from app.models import (
     Color,
     Filament,
@@ -12,6 +10,7 @@ from app.models import (
     SpoolStatus,
     SystemExtraField,
 )
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio

@@ -140,14 +140,12 @@ export async function fetchAllPages<T = unknown>(baseUrl: string, signal = getAb
     const totalPages = Math.ceil(total / 200)
     for (let p = 2; p <= totalPages; p += 2) {
       signal.throwIfAborted()
-      const additionalPages = await Promise.all(Array.from({ length: Math.min(2, totalPages - p + 1) }, (_, index) => {
+      const additionalPages = await Promise.all(Array.from({ length: Math.min(2, totalPages - p + 1) }, async (_, index) => {
         const pageUrl = `${baseUrl}${separator}page=${p + index}&page_size=200`
-        return fetch(pageUrl, { credentials: 'include', signal })
-          .then(res => {
-            if (!res.ok) throw new Error(`Failed to fetch ${baseUrl}`)
-            return res.json()
-          })
-          .then(d => d.items as T[])
+        const res = await fetch(pageUrl, { credentials: 'include', signal })
+        if (!res.ok) throw new Error(`Failed to fetch ${baseUrl}`)
+        const { items }: { items: T[] } = await res.json()
+        return items
       }))
       additionalPages.forEach(pageItems => { items.push(...pageItems) })
     }

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
-from sqlalchemy import func, select, case
 from pydantic import BaseModel, Field
+from sqlalchemy import case, func, select
 
 from app.api.deps import DBSession, PrincipalDep
 from app.models import Filament, Location, Manufacturer, Spool, SpoolStatus
