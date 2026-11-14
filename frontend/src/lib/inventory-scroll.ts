@@ -5,6 +5,19 @@ const batchSize = 50
 type Batch<T> = { items: T[], total: number, hasMore: boolean }
 type Source<T> = (page: number) => Batch<T> | Promise<Batch<T>>
 type Render<T> = (items: T[], append: boolean) => void
+type InventoryScroll = { nextPage: number; top: number; windowTop: number; search?: string }
+
+// On Back/Forward, history.state already points at the destination when Astro
+// prepares the swap. Keep the outgoing panel's snapshot until it is revisited.
+const traversedScroll = new Map<number, InventoryScroll>()
+if (typeof document !== 'undefined') {
+  document.addEventListener('astro:before-swap', event => {
+    if (event.navigationType !== 'push') return
+    for (const index of traversedScroll.keys()) {
+      if (index > history.state?.index) traversedScroll.delete(index)
+    }
+  })
+}
 
 export function inventoryApiPages<T>(path: string, query: URLSearchParams): Source<T> {
   return async page => {
@@ -45,9 +58,11 @@ export function initInventoryScroll<T extends { id: number }>(
   let source: Source<T> | undefined
   let drawRows = render
   const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
-  const historyIndex = history.state?.index
-  const restored: { nextPage: number, top: number, windowTop: number, search?: string } | undefined =
-    navigation?.type === 'back_forward' || history.state?.index !== undefined ? history.state?.inventoryScroll : undefined
+  const historyIndex: number | undefined = history.state?.index
+  const restored: InventoryScroll | undefined = historyIndex === undefined
+    ? navigation?.type === 'back_forward' ? history.state?.inventoryScroll : undefined
+    : traversedScroll.get(historyIndex) ?? history.state?.inventoryScroll
+  if (historyIndex !== undefined) traversedScroll.delete(historyIndex)
   const main = tbody.closest('main')
   const search = document.querySelector<HTMLInputElement>('#filter-search')
   if (search && restored?.search) search.value = restored.search
@@ -59,21 +74,16 @@ export function initInventoryScroll<T extends { id: number }>(
   let generation = 0
   button.addEventListener('click', () => { void loadMore() })
   function saveScroll() {
-    if (!main || history.state?.index !== historyIndex) return
-    history.replaceState({
-      ...history.state,
-      inventoryScroll: { nextPage, top: main.scrollTop, windowTop: window.scrollY, search: search?.value },
-    }, '')
+    if (!main) return
+    const snapshot = { nextPage, top: main.scrollTop, windowTop: window.scrollY, search: search?.value }
+    if (history.state?.index === historyIndex) {
+      history.replaceState({ ...history.state, inventoryScroll: snapshot }, '')
+    } else if (historyIndex !== undefined) {
+      traversedScroll.set(historyIndex, snapshot)
+    }
   }
   window.addEventListener('pagehide', saveScroll, { signal })
-  document.addEventListener('astro:before-preparation', event => {
-    if (event.navigationType !== 'traverse') saveScroll()
-  }, { signal })
-  if (historyIndex !== undefined) {
-    main?.addEventListener('scrollend', saveScroll, { signal })
-    window.addEventListener('scrollend', saveScroll, { signal })
-    search?.addEventListener('change', saveScroll, { signal })
-  }
+  document.addEventListener('astro:before-preparation', saveScroll, { signal })
   signal?.addEventListener('abort', () => { pause(); observer.disconnect() }, { once: true })
 
   function updateControls() {

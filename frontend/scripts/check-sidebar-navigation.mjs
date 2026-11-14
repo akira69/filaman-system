@@ -11,6 +11,7 @@ try {
   const problemSpools = []
   let sessionExpired = false
   let authFailure
+  let versionCheckAvailable = false
   let showOtherPlugin = true
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => {
@@ -33,7 +34,7 @@ try {
     if (url.pathname === '/api/v1/plugin-nav' && requests.filter(path => path === url.pathname).length === 1) {
       return route.fulfill({ status: 503 })
     }
-    if (url.pathname === '/api/v1/admin/system/version-check' && page.url() === origin + '/') {
+    if (url.pathname === '/api/v1/admin/system/version-check' && !versionCheckAvailable) {
       return route.fulfill({ status: 503 })
     }
     if (url.pathname.startsWith('/plugin-page/')) return route.fulfill({ contentType: 'text/html', body: '<title>Example plugin</title>' })
@@ -57,6 +58,7 @@ try {
     const data = {
       '/api/v1/me': user,
       '/auth/me': user,
+      '/api/v1/me/label-presets/migrate': [],
       '/api/v1/me/preferences': { dashboard_hidden_widgets: [] },
       '/api/v1/app-settings/public-info': { currency: 'EUR' },
       '/api/v1/admin/system/version-check': { update_available: true, latest_version: '9.0.0' },
@@ -119,7 +121,10 @@ try {
   await page.evaluate(() => { window.sidebarBefore = document.querySelector('.fm-sidebar') })
   const updateBadge = sidebar.locator('#sidebar-version-update')
   assert.equal(await updateBadge.isVisible(), false)
+  versionCheckAvailable = true
+  const versionResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/admin/system/version-check' && response.ok())
   await clickNav('/spools')
+  await versionResponse
   await updateBadge.waitFor()
   assert.equal(await updateBadge.getAttribute('target'), '_blank')
   assert.equal(await page.evaluate(() => typeof window.archiveSpool), 'undefined')
@@ -169,6 +174,12 @@ try {
   await page.waitForURL(/\/spools/)
   await sidebar.locator('a[href="/spools"].active').waitFor()
   await page.waitForFunction(() => document.querySelector('#filter-search')?.value === 'red')
+  await search.fill('blue')
+  await page.evaluate(() => history.back())
+  await page.locator('main[data-panel="printers"]').waitFor()
+  await page.goForward()
+  await search.waitFor()
+  assert.equal(await search.inputValue(), 'blue')
   for (const path of ['/manufacturers', '/locations', '/printers', '/settings', '/admin', '/admin/system/filamentdb-import']) {
     await clickNav(path)
     if (path === '/settings') {
@@ -195,6 +206,14 @@ try {
     await page.waitForURL(url => url.pathname.replace(/\/$/, '') === path)
     await rows.nth(49).waitFor({ state: 'attached' })
     assert.equal(await page.evaluate(() => window.scrollY), 800, path)
+    await page.evaluate(() => {
+      window.scrollTo(0, 1200)
+      history.forward()
+    })
+    await page.locator('main[data-panel="settings"]').waitFor()
+    await page.goBack()
+    await rows.nth(49).waitFor({ state: 'attached' })
+    assert.equal(await page.evaluate(() => window.scrollY), 1200, path)
   }
   await clickNav('/display')
   await page.locator('#ams-printers .ams-note').waitFor()
