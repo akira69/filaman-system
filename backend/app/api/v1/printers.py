@@ -1,31 +1,44 @@
-import logging
+import asyncio
 import inspect
+import logging
 from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.core.security import Principal
-from app.api.deps import DBSession, PrincipalDep, RequirePermission, ensure_any_permission
+from app.api.deps import (
+    DBSession,
+    PrincipalDep,
+    RequirePermission,
+    ensure_any_permission,
+)
 from app.api.v1.schemas import PaginatedResponse
+from app.core import shared_health
+from app.core.primary_socket import primary_socket_path
+from app.core.security import Principal
 from app.models import (
+    Filament,
+    FilamentColor,
     Location,
     Printer,
     PrinterSlot,
     PrinterSlotAssignment,
     Spool,
-    Filament,
-    FilamentColor,
 )
-from app.core.primary_socket import primary_socket_path
-from app.core.shared_health import shared_display_store, shared_health_store
 from app.plugins.manager import plugin_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/printers", tags=["printers"])
+
+shared_health_store, shared_display_store = shared_health.shared_health_store, shared_health.shared_display_store
+
+_PRINTER_CREATE = RequirePermission("printers:create")
+_PRINTER_UPDATE = RequirePermission("printers:update")
+_PRINTER_DELETE = RequirePermission("printers:delete")
 
 # Changing one of these restarts the printer's driver, and drivers live on the
 # primary worker only.  A request touching them has to be handled there.
@@ -34,12 +47,9 @@ _DRIVER_LIFECYCLE_FIELDS = frozenset({"driver_key", "driver_config", "is_active"
 
 def _is_primary_worker() -> bool:
     """Resolve primary worker state lazily to avoid import cycles."""
-    try:
-        from app import main as app_main
+    from app import main as app_main
 
-        return bool(getattr(app_main, "_is_primary", False))
-    except Exception:
-        return False
+    return app_main._is_primary
 
 
 def _ensure_primary_worker() -> None:
@@ -221,7 +231,7 @@ async def create_printer(
     data: PrinterCreate,
     request: Request,
     db: DBSession,
-    principal=RequirePermission("printers:create"),
+    principal=_PRINTER_CREATE,
 ):
     if data.location_id:
         result = await db.execute(
@@ -369,7 +379,7 @@ async def update_printer(
     data: PrinterUpdate,
     request: Request,
     db: DBSession,
-    principal=RequirePermission("printers:update"),
+    principal=_PRINTER_UPDATE,
 ):
     updates = data.model_dump(exclude_unset=True)
 
@@ -427,7 +437,7 @@ async def delete_printer(
     printer_id: int,
     request: Request,
     db: DBSession,
-    principal=RequirePermission("printers:delete"),
+    principal=_PRINTER_DELETE,
     delete_params: bool = Query(
         False, description="Also hard-delete printer_params for this printer"
     ),
@@ -658,7 +668,7 @@ async def _driver_lifecycle_via_primary(
             method="POST",
             path=f"/api/v1/printers/{printer_id}/driver/{action}",
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - best-effort remote cleanup
         logger.warning(
             f"Could not {action} the driver for printer {printer_id} on the "
             f"primary worker: {exc}"
@@ -756,8 +766,6 @@ async def driver_action(
     try:
         result: Any = None
         if callable(method):
-            import asyncio
-
             if asyncio.iscoroutinefunction(method):
                 result = await method(**params)
             else:
@@ -772,7 +780,7 @@ async def driver_action(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "invalid_params", "message": str(e)},
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - third-party driver call
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "action_failed", "message": str(e)},
@@ -808,7 +816,7 @@ async def driver_connected_models(
         return await _invoke_driver_method(driver, "list_connected_models")
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - third-party driver call
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "action_failed", "message": str(e)},
@@ -851,7 +859,7 @@ async def driver_profile_coverage(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - third-party driver call
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "action_failed", "message": str(e)},
@@ -875,36 +883,23 @@ async def driver_health(
         if isinstance(payload, dict):
             return payload
 
-    driver = plugin_manager.drivers.get(printer_id)
-    if driver:
-        if refresh:
-            refresh_status = getattr(driver, "refresh_status", None)
-            if callable(refresh_status):
-                try:
-                    refresh_payload = refresh_status()
-                    if inspect.isawaitable(refresh_payload):
-                        refresh_payload = await refresh_payload
-                    if isinstance(refresh_payload, dict):
-                        active_spool_id = refresh_payload.get("active_spool_id")
-                        await plugin_manager._handle_slots_update(
-                            printer_id,
-                            [],
-                            None,
-                            active_spool_id,
-                        )
-                except Exception:
-                    logger.debug(
-                        "driver_health refresh failed for printer %s",
-                        printer_id,
-                        exc_info=True,
-                    )
+    from contextlib import nullcontext
 
-        health = driver.health()
-        # Primary worker: update shared memory so secondaries stay in sync
-        shared_health_store.publish({printer_id: health})
-        return health
+    # Refresh can write slot data, so it must finish before a replacement can take over.
+    async with plugin_manager._printer_lock(printer_id) if refresh else nullcontext():
+        driver = plugin_manager.drivers.get(printer_id)
+        if driver:
+            if refresh:
+                await plugin_manager.refresh_driver_slots(printer_id, driver)
 
-    # No local driver – check shared memory from primary worker
+            from app.plugins.manager import PluginManager
+
+            health = PluginManager.read_driver_health(printer_id, driver)
+            # Primary worker: update the snapshot so secondaries stay in sync
+            shared_health_store.publish({printer_id: health})
+            return health
+
+    # No local driver – check the snapshot from the primary worker
     shared = shared_health_store.read(printer_id)
     if shared is not None:
         return shared
@@ -970,7 +965,7 @@ async def driver_cloud_presets(
         if isinstance(result, dict):
             return result
         return {"presets": result or [], "count": len(result or [])}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - third-party driver call
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"code": "action_failed", "message": str(e)},
@@ -981,7 +976,7 @@ async def driver_cloud_presets(
 async def reconnect_all_printers(
     request: Request,
     db: DBSession,
-    principal=RequirePermission("printers:update"),
+    principal=_PRINTER_UPDATE,
 ):
     """Force reconnect for all active printers."""
     if not _is_primary_worker():
@@ -1031,7 +1026,7 @@ async def start_driver(
     printer_id: int,
     request: Request,
     db: DBSession,
-    principal=RequirePermission("printers:update"),
+    principal=_PRINTER_UPDATE,
 ):
     if not _is_primary_worker():
         payload = await _proxy_to_primary(
@@ -1064,13 +1059,10 @@ async def start_driver(
             detail={"code": "start_failed", "message": "Driver could not be started"},
         )
 
-    # Publish immediately so all workers see the new state
-    driver = plugin_manager.drivers.get(printer_id)
-    if driver:
-        shared_health_store.publish({printer_id: driver.health()})
-        state = await plugin_manager.get_display_state(printer_id)
-        if state is not None:
-            shared_display_store.publish({printer_id: state})
+    # Publish health immediately. The Display loop owns live snapshot writes.
+    health = plugin_manager.health_status.get(printer_id)
+    if health is not None:
+        shared_health_store.publish({printer_id: health})
 
     return DriverActionResponse(success=True, message="Driver started")
 
@@ -1080,7 +1072,7 @@ async def stop_driver(
     printer_id: int,
     request: Request,
     db: DBSession,
-    principal=RequirePermission("printers:update"),
+    principal=_PRINTER_UPDATE,
 ):
     if not _is_primary_worker():
         payload = await _proxy_to_primary(
@@ -1104,11 +1096,6 @@ async def stop_driver(
         )
 
     await plugin_manager.stop_printer(printer_id)
-
-    # Clear shared state so secondaries immediately see running=False and the
-    # AMS View stops showing a stopped driver as live.
-    shared_health_store.clear(printer_id)
-    shared_display_store.clear(printer_id)
 
     return DriverActionResponse(success=True, message="Driver stopped")
 
@@ -1189,7 +1176,7 @@ async def import_printer_params(
     printer_id: int,
     body: PrinterParamsImportData,
     db: DBSession,
-    principal=RequirePermission("printers:update"),
+    principal=_PRINTER_UPDATE,
 ):
     """Import printer-specific params from JSON. Upserts all entries."""
     result = await db.execute(
