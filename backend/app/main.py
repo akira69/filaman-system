@@ -27,12 +27,16 @@ from app.core.database import async_session_maker
 from app.core.logging_config import setup_logging
 from app.core.middleware import AuthMiddleware, CsrfMiddleware, RequestIdMiddleware
 from app.core.primary_socket import serve_primary_socket
-from app.core.worker_reload import worker_is_draining
 from app.core.seeds import run_all_seeds
 from app.core.shared_health import shared_display_store, shared_health_store
+from app.core.worker_reload import worker_is_draining
 from app.models.plugin import InstalledPlugin
 from app.plugins.manager import plugin_manager
-from app.services.plugin_service import PLUGINS_DIR, is_integration_slug
+from app.services.plugin_service import (
+    PLUGINS_DIR,
+    is_integration_slug,
+    provision_installed_plugin_dependencies,
+)
 
 setup_logging()
 logger = __import__("logging").getLogger(__name__)
@@ -126,9 +130,8 @@ def run_migrations() -> None:
     automatisch ein synchroner DB-Treiber verwendet, auch wenn die App
     asynchron konfiguriert ist.
     """
-    from alembic.config import Config
-
     from alembic import command
+    from alembic.config import Config
 
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option(
@@ -151,8 +154,6 @@ def run_migrations() -> None:
 # ---------------------------------------------------------------------------
 async def _driver_watchdog() -> None:
     """Background task: monitors driver health and handles primary failover."""
-    global _is_primary, _lock_fd
-
     if _is_primary:
         # Delay maintenance while the freshly started drivers connect.
         await asyncio.sleep(30)
@@ -315,6 +316,11 @@ async def _watchdog_health_check() -> None:
                 )
 
 
+def _open_startup_lock():
+    # The elected worker keeps this descriptor open until _release_primary_lock().
+    return _STARTUP_LOCK_PATH.open("a")
+
+
 async def _watchdog_try_takeover() -> None:
     """Secondary worker: try to become primary if the lock is available."""
     global _lock_fd
@@ -322,7 +328,7 @@ async def _watchdog_try_takeover() -> None:
     if worker_is_draining():
         return
 
-    fd = open(_STARTUP_LOCK_PATH, "a")
+    fd = _open_startup_lock()
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -351,6 +357,20 @@ def _release_primary_lock() -> None:
 
 async def _start_primary_drivers(app: FastAPI, *, initial: bool = False) -> None:
     global _is_primary
+    if initial and not os.environ.get("FILAMAN_GUNICORN_INSTANCE"):
+        # App servers without the master hook still need dependencies before driver startup.
+        try:
+            from app.api.v1.router import mount_plugin_router_on_app
+
+            availability = await provision_installed_plugin_dependencies()
+            mounted = getattr(app.state, "plugin_routes", {})
+            for key, available in availability.items():
+                if (key in mounted) != available:
+                    mount_plugin_router_on_app(app, key)
+        except BaseException:
+            _release_primary_lock()
+            raise
+
     async with AsyncExitStack() as rollback:
         rollback.callback(_release_primary_lock)
         rollback.push_async_callback(plugin_manager.stop_all)
@@ -394,9 +414,7 @@ async def lifespan(app: FastAPI):
             logger.info("Database migrations checked/applied")
         except Exception as e:
             logger.error(f"Error running migrations in app startup: {e}")
-            # We don't raise here to allow app to try starting, or we could raise to fail hard.
-            # Given entrypoint handles it in prod, this is mostly for dev safety.
-            raise e
+            raise
     else:
         logger.info("Skipping in-app migrations (RUN_MIGRATIONS_IN_APP is false)")
 
@@ -406,7 +424,7 @@ async def lifespan(app: FastAPI):
     # We use an exclusive file-lock: the first worker wins and runs the
     # one-time tasks; the others skip them.
     try:
-        _lock_fd = open(_STARTUP_LOCK_PATH, "a")
+        _lock_fd = _open_startup_lock()
         fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         _is_primary = True
         logger.info("Primary worker – running seeds and starting plugins")
@@ -415,7 +433,7 @@ async def lifespan(app: FastAPI):
         _release_primary_lock()
         logger.info("Secondary worker – skipping seeds and plugin start")
     except Exception as exc:
-        logger.warning(f"Startup lock failed ({exc}), running seeds as fallback")
+        logger.warning("Startup lock failed; running seeds as fallback", exc_info=exc)
         _is_primary = True
 
     if _is_primary:
@@ -589,7 +607,7 @@ async def allow_iframe_embedding(request, call_next):
 @app.middleware("http")
 async def add_cache_control_header(request, call_next):
     path = request.url.path
-    is_api = path.startswith("/api/") or path.startswith("/auth/")
+    is_api = path.startswith(("/api/", "/auth/"))
     is_label_render = path.startswith(("/api/v1/labels/spool/", "/api/v1/labels/filament/")) and path.rstrip("/").endswith("/render")
     try:
         response = await call_next(request)
@@ -622,8 +640,7 @@ async def add_cache_control_header(request, call_next):
         # Sprite v=2 is a one-time cache reset; future deployments revalidate.
         response.headers["Cache-Control"] = "no-cache"
     elif not is_api and (
-        path.startswith("/_astro/")
-        or path.startswith("/img/")
+        path.startswith(("/_astro/", "/img/"))
         or path.endswith((".js", ".css", ".png", ".jpg", ".svg", ".woff2", ".ico"))
     ):
         # Cache hashed static assets for 1 year
@@ -683,7 +700,7 @@ async def serve_plugin_page(plugin_slug: str):
         except HTTPException:
             raise
         except Exception:
-            continue
+            logger.debug("Could not inspect plugin page in %s", entry.name, exc_info=True)
 
     raise HTTPException(status_code=404, detail="Plugin page not found")
 
@@ -700,12 +717,12 @@ async def health_ready():
         async with async_session_maker() as db:
             await db.execute(text("SELECT 1"))
         db_ok = True
-    except Exception as e:
-        logger.error(f"DB health check failed: {e}")
+    except Exception:
+        logger.exception("DB health check failed")
 
     plugins_ok = True
     plugin_health = plugin_manager.get_health()
-    for printer_id, health in plugin_health.items():
+    for health in plugin_health.values():
         if health.get("status") == "error":
             plugins_ok = False
             break
