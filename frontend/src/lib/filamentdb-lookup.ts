@@ -33,11 +33,12 @@ export async function checkFilamentDbActive(): Promise<boolean> {
       const data = await request<{ active: boolean }>('/filamentdb/status')
       _pluginActiveCache = data.active
       return _pluginActiveCache
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return false
       _pluginActiveCache = false
       return false
     }
-  })()
+  })().finally(() => { _pluginActivePromise = null })
 
   return _pluginActivePromise
 }

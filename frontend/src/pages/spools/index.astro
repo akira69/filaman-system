@@ -4,7 +4,7 @@ import InventoryLoadMore from '../../components/InventoryLoadMore.astro'
 import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
 ---
 
-<Layout title="FilaMan - Spools">
+<Layout panel="spools" title="FilaMan - Spools">
   <style>
     .spinner {
       display: inline-block;
@@ -205,6 +205,9 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
     import { initInventoryScroll, inventoryApiPages, inventoryLocalPages } from '../../lib/inventory-scroll'
     import { colorFilterParams, fetchAllPages } from '../../lib/api'
     import type { AppDialogs } from '../../lib/form-dialog'
+    import { mountPanel } from '../../lib/panel-navigation'
+
+    mountPanel('spools', async (panelSignal) => {
     const dialogWindow = window as unknown as AppDialogs
     await initI18n()
 
@@ -252,7 +255,7 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
       [key: string]: unknown
     }
     const spoolList = initInventoryScroll<Spool>(
-      document.getElementById('spools-table')!, 'spools.spoolCount', renderSpools, updateBulkBar,
+      document.getElementById('spools-table')!, 'spools.spoolCount', renderSpools, updateBulkBar, panelSignal,
     )
     let activeDevices: { id: number; name: string; ip_address: string }[] = []
     let sortKey: string | null = null
@@ -1043,7 +1046,7 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
       ]
       columnFilters = sanitizeColumnFilters(columnFilters, definitions)
       definitions.forEach((definition) => { definition.initialValue = columnFilters[definition.key] })
-      splHeaderFilters = initHeaderColumnFilters(table, definitions)
+      splHeaderFilters = initHeaderColumnFilters(table, definitions, panelSignal)
       updateFilterResets()
       updateSortIndicators()
     }
@@ -1066,10 +1069,11 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
           changed = true
         }
       })
-      if (changed) window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+      if (changed) window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
     }
 
     const updateFilterResets = bindTableFilterControls({
+      signal: panelSignal,
       hasColumnFilters: () => splHeaderFilters !== null && Object.values(columnFilters).some(isColumnFilterActive),
       onApply: applyFiltersAndRender,
       onClearColumns: () => {
@@ -1112,6 +1116,7 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
       },
     ]
     const splPicker = initColumnPicker({
+      signal: panelSignal,
       storageKey: 'filaman-columns-spools',
       defaultVisible: ['id', 'manufacturer', 'logo', 'material', 'colors', 'status', 'remaining', 'location'],
       compactVisible: ['status', 'remaining'],
@@ -1183,16 +1188,22 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
     }
     Promise.all([initCurrency(), loadSpoolExtraFieldColumns(), loadActiveDevices()])
       .then(async () => {
+        if (panelSignal.aborted) return
         setupHeaderFilters()
         await loadSpoolStatuses()
-        return loadFilters()
+        if (!panelSignal.aborted) return loadFilters()
       })
-      .then(() => loadSpools())
+      .then(() => { if (!panelSignal.aborted) return loadSpools() })
     window.addEventListener('pageshow', event => {
       if (event.persisted) void loadSpools()
-    })
+    }, { signal: panelSignal })
     // Live-Update via SSE: Spulen automatisch neu laden
     let _spoolsReloadTimer: ReturnType<typeof setTimeout> | null = null
+    panelSignal.addEventListener('abort', () => {
+      clearTimeout(_spoolsReloadTimer ?? undefined)
+      splReorder.destroy()
+      splResize.destroy()
+    }, { once: true })
     window.addEventListener('filaman:data-changed', (e: Event) => {
       const { event } = (e as CustomEvent).detail ?? {}
       if (event === 'spools_changed' || event === 'filaments_changed' || event === 'manufacturers_changed' || event === 'locations_changed' || event === 'colors_changed') {
@@ -1200,11 +1211,15 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
         invalidateCache(CACHE_KEYS.FILAMENT_FILTER_OPTIONS)
         if (_spoolsReloadTimer) clearTimeout(_spoolsReloadTimer)
         _spoolsReloadTimer = setTimeout(async () => {
-          await refreshSpoolFilterOptions()
-          await loadSpools()
+          try {
+            await refreshSpoolFilterOptions()
+            if (!panelSignal.aborted) await loadSpools()
+          } catch (error) {
+            if (!isAbortError(error)) throw error
+          }
         }, 300)
       }
-    })
+    }, { signal: panelSignal })
 
     // ── Bulk Selection & Actions ──────────────────────────────
     function updateBulkBar() {
@@ -1309,13 +1324,14 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
           body: JSON.stringify({ spool_ids: [...selectedSpoolIds], ...body })
         })
         if (!res.ok) throw new Error('API error')
+        if (panelSignal.aborted) return
         await dialogWindow.__fmSuccess(t('spools.bulkSuccess', { count }))
+        if (panelSignal.aborted) return
         selectedSpoolIds.clear()
         updateBulkBar()
         loadSpools()
       } catch {
-        // user-initiated action — show error even on abort
-        dialogWindow.__fmAlert(t('spools.bulkError'))
+        if (!panelSignal.aborted) dialogWindow.__fmAlert(t('spools.bulkError'))
       }
     }
 
@@ -1342,13 +1358,14 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
           body: JSON.stringify({ spool_ids: [...selectedSpoolIds], permanent: result.checked })
         })
         if (!res.ok) throw new Error('API error')
+        if (panelSignal.aborted) return
         await dialogWindow.__fmSuccess(t('spools.bulkDeleteSuccess', { count }))
+        if (panelSignal.aborted) return
         selectedSpoolIds.clear()
         updateBulkBar()
         loadSpools()
       } catch {
-        // user-initiated action — show error even on abort
-        dialogWindow.__fmAlert(t('spools.bulkError'))
+        if (!panelSignal.aborted) dialogWindow.__fmAlert(t('spools.bulkError'))
       }
     })
 
@@ -1606,7 +1623,7 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
           let attempts = 0
           
           const pollForResult = async () => {
-            if (!isPolling) return
+            if (!isPolling || panelSignal.aborted) return
             
             attempts++
             
@@ -1651,6 +1668,7 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
                   loadSpools()
                   
                   setTimeout(() => {
+                    if (panelSignal.aborted) return
                     document.getElementById('rfid-modal')!.classList.remove('open')
                     confirmBtn.disabled = false
                   }, 3000) // Longer visibility for cleanup message
@@ -1837,7 +1855,7 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
   })
   document.addEventListener('click', (e) => {
     if (emptySpoolDropdownOpen && !fromEmptyDropdownEl.contains(e.target as Node)) closeEmptyDropdown()
-  })
+  }, { signal: panelSignal })
 
   fromEmptyCancelBtn.addEventListener('click', () => fromEmptyModal.classList.remove('open'))
   fromEmptyModal.addEventListener('click', (e) => {
@@ -1874,5 +1892,6 @@ import InventoryFilterReset from '../../components/InventoryFilterReset.astro'
   })
 
   document.getElementById('btn-add-from-empty')?.addEventListener('click', openFromEmptyModal)
+    })
   </script>
 </Layout>

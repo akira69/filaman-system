@@ -4,7 +4,7 @@ import { transpileModule, ScriptTarget } from 'typescript'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const layout = readFileSync('src/layouts/Layout.astro', 'utf8')
-const source = layout.split('/* ── Sidebar toggle')[1].split('/* ── SSE live-update')[0].replace(/^[\s\S]*?\*\//, '')
+const source = layout.split('/* ── Sidebar toggle')[1].split('/* ── Main panel navigation')[0].replace(/^[\s\S]*?\*\//, '')
 const bootstrap = layout.match(/<script is:inline>([\s\S]*?)<\/script>/)![1]
 const start = new Function(bootstrap + transpileModule(source, { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText)
 const cleanups: (() => void)[] = []

@@ -32,7 +32,7 @@ export function inventoryLocalPages<T>(getItems: () => T[] | Promise<T[]>, group
 }
 
 export function initInventoryScroll<T extends { id: number }>(
-  tbody: HTMLElement, countKey: string, render: Render<T>, afterRender?: () => void,
+  tbody: HTMLElement, countKey: string, render: Render<T>, afterRender?: () => void, signal?: AbortSignal,
 ) {
   const count = document.querySelector<HTMLElement>('[data-inventory-count]')!
   const more = document.querySelector<HTMLElement>('.fm-inventory-more')!
@@ -46,7 +46,7 @@ export function initInventoryScroll<T extends { id: number }>(
   let drawRows = render
   const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
   const restored: { nextPage: number, top: number, windowTop: number, search?: string } | undefined =
-    navigation?.type === 'back_forward' ? history.state?.inventoryScroll : undefined
+    navigation?.type === 'back_forward' || history.state?.index !== undefined ? history.state?.inventoryScroll : undefined
   const main = tbody.closest('main')
   const search = document.querySelector<HTMLInputElement>('#filter-search')
   if (search && restored?.search) search.value = restored.search
@@ -57,12 +57,18 @@ export function initInventoryScroll<T extends { id: number }>(
   let failed = false
   let generation = 0
   button.addEventListener('click', () => { void loadMore() })
-  if (main) window.addEventListener('pagehide', () => {
+  function saveScroll() {
+    if (!main) return
     history.replaceState({
       ...history.state,
       inventoryScroll: { nextPage, top: main.scrollTop, windowTop: window.scrollY, search: search?.value },
     }, '')
-  })
+  }
+  window.addEventListener('pagehide', saveScroll, { signal })
+  document.addEventListener('astro:before-preparation', event => {
+    if (event.navigationType !== 'traverse') saveScroll()
+  }, { signal })
+  signal?.addEventListener('abort', () => { pause(); observer.disconnect() }, { once: true })
 
   function updateControls() {
     count.textContent = loaded.size > 0 && loaded.size < total

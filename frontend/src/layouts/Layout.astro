@@ -1,19 +1,21 @@
 ---
 import '../styles/global.css'
+import { ClientRouter } from 'astro:transitions'
 import { VERSION } from '../version.js'
 
 interface Props {
   title: string
+  panel?: string
   /** When true, removes main padding so the content can fill edge-to-edge.
    *  Used by plugin-view pages that embed a full-height iframe. */
   noPadding?: boolean
   embedded?: boolean
 }
 
-const { title, noPadding = false, embedded = false } = Astro.props
+const { title, panel, noPadding = false, embedded = false } = Astro.props
 ---
 
-<html lang="en" data-theme="brand">
+<html lang="en" data-theme="brand" transition:animate="none">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
@@ -25,6 +27,7 @@ const { title, noPadding = false, embedded = false } = Astro.props
     />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+    {panel && <ClientRouter fallback="swap" />}
     <script is:inline>
       (function() {
         const t = localStorage.getItem('theme') || 'brand';
@@ -123,6 +126,7 @@ const { title, noPadding = false, embedded = false } = Astro.props
               <div style="display: flex; gap: 4px; flex-shrink: 0;">
                 <a
                   href="/settings"
+                  data-sidebar-link
                   class="fm-btn fm-btn-outline"
                   style="padding: 6px; line-height: 0; border-radius: 8px; flex-shrink: 0;"
                   data-i18n-title="nav.settings"
@@ -178,7 +182,7 @@ const { title, noPadding = false, embedded = false } = Astro.props
       </aside>
       <div id="sidebar-backdrop" class="fm-sidebar-backdrop"></div>
 
-      <main class:list={['fm-main', { 'fm-main--flush': noPadding }]}>
+      <main class:list={['fm-main', { 'fm-main--flush': noPadding }]} data-panel={panel} tabindex={panel ? -1 : undefined}>
         <slot />
       </main>
     </div>
@@ -230,7 +234,7 @@ const { title, noPadding = false, embedded = false } = Astro.props
 
     <script>
       import { t, initI18n, syncLangFromUser, translatePage } from '../lib/i18n'
-      import { getAbortSignal } from '../lib/abort'
+      import { abortAllRequests, getAbortSignal } from '../lib/abort'
       import type { User } from '../lib/auth'
       import type { AppDialogs } from '../lib/form-dialog'
       import { clearLabelPresetBrowserStorage, ensureLabelPresetBrowserMigration } from '../lib/label-preset-storage'
@@ -371,6 +375,9 @@ const { title, noPadding = false, embedded = false } = Astro.props
           e.preventDefault()
           closeModal(false)
         })
+        document.addEventListener('astro:before-swap', () => {
+          if (overlay.open) closeModal(false)
+        })
 
         // fmConfirm(message, options?) – replacement for window.confirm()
         type ConfirmOptions = { title?: string; okLabel?: string; isDanger?: boolean }
@@ -423,13 +430,17 @@ const { title, noPadding = false, embedded = false } = Astro.props
       const userRole = document.getElementById('user-role')!
       const logoutBtn = document.getElementById('logout-btn')!
       const adminNav = document.getElementById('admin-nav')!
+      let sidebarAccess: string | undefined
 
       async function checkAuth() {
+        const main = document.querySelector<HTMLElement>('main')!
+        const signal = getAbortSignal()
         try {
           const response = await fetch('/api/v1/me', {
             credentials: 'include',
-            signal: getAbortSignal(),
+            signal,
           })
+          if (signal.aborted) return
 
           if (!response.ok) {
             // Server explicitly rejected auth — clear cookies and redirect
@@ -441,26 +452,30 @@ const { title, noPadding = false, embedded = false } = Astro.props
 
           const user: User = await response.json()
           await ensureLabelPresetBrowserMigration(user.id).catch(error => {
-            console.warn('Could not migrate label presets to the database', error)
+            if (!signal.aborted) console.warn('Could not migrate label presets to the database', error)
           })
+          if (signal.aborted) return
 
           // Sync language from user profile
           syncLangFromUser(user.language)
 
 
-          userName.innerHTML = user.display_name || user.email
-          userRole.innerHTML = user.roles.join(', ')
+          userName.textContent = user.display_name || user.email
+          userRole.textContent = user.roles.join(', ')
           userRole.classList.remove('invisible');
 
-          if (user.is_superadmin || user.permissions.some((p: string) => p.startsWith('admin:'))) {
-            adminNav.classList.remove('invisible')
+          adminNav.classList.toggle('invisible', !user.is_superadmin && !user.permissions.some(p => p.startsWith('admin:')))
+          const access = JSON.stringify([user.id, user.is_superadmin, [...user.permissions].sort()])
+          if (sidebarAccess !== access) {
+            sidebarAccess = access
+            void loadPluginNav(access)
+            checkSystemVersion(user)
           }
-
-          loadPluginNav()
-          checkSystemVersion(user)
 
           // Auth succeeded — reveal page content
           document.getElementById('fm-page')!.style.visibility = 'visible'
+          main.style.removeProperty('visibility')
+          return true
         } catch (err) {
           // Network abort (e.g. fast page switch) — do NOT clear cookies
           if (err instanceof DOMException && err.name === 'AbortError') return
@@ -472,8 +487,6 @@ const { title, noPadding = false, embedded = false } = Astro.props
           window.location.href = loginUrlWithNext(window.location)
         }
       }
-
-      checkAuth()
 
       /* ── System version check ────────────────────────────────── */
       type VersionStatus = { update_available: boolean; latest_version: string | null }
@@ -491,10 +504,7 @@ const { title, noPadding = false, embedded = false } = Astro.props
             } catch { /* ignore corrupted cache */ }
           }
 
-          const resp = await fetch('/api/v1/admin/system/version-check', {
-            credentials: 'include',
-            signal: getAbortSignal(),
-          })
+          const resp = await fetch('/api/v1/admin/system/version-check', { credentials: 'include' })
           if (!resp.ok) return
           const data: VersionStatus = await resp.json()
           sessionStorage.setItem('fm_version_check', JSON.stringify({ ts: Date.now(), data }))
@@ -526,11 +536,14 @@ const { title, noPadding = false, embedded = false } = Astro.props
       /* ── Plugin navigation ───────────────────────────────────── */
       const pluginNav = document.getElementById('plugin-nav')!
 
-      async function loadPluginNav() {
+      async function loadPluginNav(access: string) {
+        pluginNav.replaceChildren()
+        pluginNav.classList.add('invisible')
         try {
-          const resp = await fetch('/api/v1/plugin-nav', { credentials: 'include', signal: getAbortSignal() })
-          if (!resp.ok) return
+          const resp = await fetch('/api/v1/plugin-nav', { credentials: 'include' })
+          if (!resp.ok) throw new Error(`Plugin navigation returned ${resp.status}`)
           const plugins: { plugin_key: string; name: string; page_url: string; icon_url?: string | null }[] = await resp.json()
+          if (access !== sidebarAccess) return
           if (!plugins.length) return
 
           const hr = document.createElement('hr')
@@ -561,7 +574,10 @@ const { title, noPadding = false, embedded = false } = Astro.props
           // Re-run active-highlighting now that plugin links are in the DOM,
           // so the longest-prefix match wins across all nav items (including plugins).
           highlightActiveNav()
-        } catch { /* Plugin nav is non-critical */ }
+        } catch {
+          // Retry on the next authenticated navigation.
+          if (access === sidebarAccess) sidebarAccess = undefined
+        }
       }
 
       logoutBtn.addEventListener('click', async () => {
@@ -588,25 +604,28 @@ const { title, noPadding = false, embedded = false } = Astro.props
 
       /* ── Active nav highlighting ─────────────────────────────── */
       function highlightActiveNav() {
-        const currentPath = window.location.pathname
+        const currentPath = window.location.pathname.replace(/\/$/, '') || '/'
         // Plugin pages are told apart by their query, so the entry for the one
         // currently open is only found with it.
         const currentTarget = currentPath + window.location.search
-        let bestNavMatch: Element | null = null
+        let bestNavMatch: HTMLAnchorElement | undefined
         let bestNavLen = 0
-        const items = document.querySelectorAll('.fm-nav-item')
-        items.forEach(item => {
+        for (const item of document.querySelectorAll<HTMLAnchorElement>('aside a.fm-nav-item, aside a[data-sidebar-link]')) {
           item.classList.remove('active')
-          const href = item.getAttribute('href')
-          if (!href) return
-          if (href === currentPath || href === currentTarget || (href !== '/' && currentPath.startsWith(href + '/'))) {
-            if (href.length > bestNavLen) {
-              bestNavLen = href.length
-              bestNavMatch = item
-            }
+          item.removeAttribute('aria-current')
+          if (item.origin !== window.location.origin) continue
+          const path = item.pathname.replace(/\/$/, '') || '/'
+          const matches = item.search
+            ? path + item.search === currentTarget
+            : path === currentPath || (path !== '/' && currentPath.startsWith(path + '/'))
+          const length = path.length + item.search.length
+          if (matches && length > bestNavLen) {
+            bestNavLen = length
+            bestNavMatch = item
           }
-        })
-        if (bestNavMatch) (bestNavMatch as Element).classList.add('active')
+        }
+        bestNavMatch?.classList.add('active')
+        bestNavMatch?.setAttribute('aria-current', 'page')
       }
       highlightActiveNav()
 
@@ -620,7 +639,6 @@ const { title, noPadding = false, embedded = false } = Astro.props
 
       const mobileSidebar = window.matchMedia('(max-width: 599px)')
       const compactSidebar = window.matchMedia('(max-width: 1279px)')
-      const main = document.querySelector<HTMLElement>('main')!
       const sidebarContent = document.getElementById('sidebar-content')!
 
       function setSidebarCollapsed(collapsed: boolean, persist = true) {
@@ -633,7 +651,7 @@ const { title, noPadding = false, embedded = false } = Astro.props
         }
         sidebarToggle.setAttribute('aria-expanded', String(!collapsed))
         sidebarContent.inert = mobileSidebar.matches && collapsed
-        main.inert = mobileSidebar.matches && !collapsed
+        document.querySelector<HTMLElement>('main')!.inert = mobileSidebar.matches && !collapsed
         // Only persist sidebar state on desktop
         if (persist && !mobileSidebar.matches) {
           localStorage.setItem('sidebar-collapsed', collapsed ? 'true' : 'false')
@@ -674,6 +692,36 @@ const { title, noPadding = false, embedded = false } = Astro.props
         setSidebarCollapsed(true)
         sidebarToggle.focus()
       })
+
+      /* ── Main panel navigation ───────────────────────────────── */
+      if (page.querySelector('main[data-panel]')) {
+        const { swapFunctions } = await import('astro:transitions/client')
+        document.addEventListener('astro:before-swap', event => {
+          const nextMain = event.newDocument.querySelector<HTMLElement>('main[data-panel]')
+          const main = page.querySelector<HTMLElement>('main[data-panel]')
+          if (!main || !nextMain) return
+
+          event.swap = () => {
+            abortAllRequests()
+            swapFunctions.deselectScripts(event.newDocument)
+            swapFunctions.swapHeadElements(event.newDocument)
+            document.querySelector('.astro-route-announcer')?.remove()
+            nextMain.style.visibility = 'hidden'
+            main.replaceWith(nextMain)
+          }
+        })
+        document.addEventListener('astro:after-swap', () => {
+          const main = page.querySelector<HTMLElement>('main[data-panel]')
+          if (!main) return
+          setSidebarCollapsed(mobileSidebar.matches || html.classList.contains('sidebar-collapsed'), false)
+          highlightActiveNav()
+          translatePage()
+          void checkAuth().then(authorized => {
+            if (authorized && main.isConnected) main.focus({ preventScroll: true })
+          })
+        })
+      }
+      void checkAuth()
 
       /* ── SSE live-update connection ──────────────────────────── */
       ;(function setupSSE() {

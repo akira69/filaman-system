@@ -4,7 +4,7 @@ import AdminHeader from '../../../components/AdminHeader.astro'
 import FormSection from '../../../components/FormSection.astro'
 ---
 
-<Layout title="FilaMan - FilamentDB Import">
+<Layout panel="filamentdb-import" title="FilaMan - FilamentDB Import">
   <div class="fm-admin-page">
   <a href="/admin/system" class="fm-admin-back">&larr; <span data-i18n="admin.backToSystem">Back to System</span></a>
   <AdminHeader titleKey="filamentdb.title" title="FilamentDB Import" back={false} />
@@ -101,13 +101,17 @@ import FormSection from '../../../components/FormSection.astro'
     import { getAbortSignal, isAbortError } from '../../../lib/abort'
     import { checkFilamentDbActive } from '../../../lib/filamentdb-lookup'
     import { toColorSwatchBackground } from '../../../lib/colors'
+    import { mountPanel } from '../../../lib/panel-navigation'
+
+    mountPanel('filamentdb-import', async (panelSignal) => {
     await initI18n()
 
     // Check if plugin is active — redirect to system page if disabled
     const pluginActive = await checkFilamentDbActive()
+    if (panelSignal.aborted) return
     if (!pluginActive) {
       window.location.href = '/admin/system'
-      throw new Error('Plugin disabled')  // Stop further script execution
+      return
     }
 
     // ---- State ----
@@ -128,6 +132,10 @@ import FormSection from '../../../components/FormSection.astro'
     let filamentDebounceTimer: ReturnType<typeof setTimeout> | null = null
     /** AbortController for filament fetch */
     let filamentAbortCtrl: AbortController | null = null
+    panelSignal.addEventListener('abort', () => {
+      clearTimeout(filamentDebounceTimer ?? undefined)
+      filamentAbortCtrl?.abort()
+    }, { once: true })
     /** Track whether filaments are currently loading */
     let filamentLoading = false
     /** Snapshot ID from server cache — reused across all steps to avoid redundant fetches */
@@ -1038,6 +1046,7 @@ import FormSection from '../../../components/FormSection.astro'
         </div>
       `
     }
+    })
   </script>
   <style>
     @keyframes spin {
