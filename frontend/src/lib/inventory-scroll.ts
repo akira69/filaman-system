@@ -5,6 +5,19 @@ const batchSize = 50
 type Batch<T> = { items: T[], total: number, hasMore: boolean }
 type Source<T> = (page: number) => Batch<T> | Promise<Batch<T>>
 type Render<T> = (items: T[], append: boolean) => void
+type InventoryScroll = { nextPage: number; top: number; windowTop: number; search?: string }
+
+// On Back/Forward, history.state already points at the destination when Astro
+// prepares the swap. Keep the outgoing panel's snapshot until it is revisited.
+const traversedScroll = new Map<number, InventoryScroll>()
+if (typeof document !== 'undefined') {
+  document.addEventListener('astro:before-swap', event => {
+    if (event.navigationType !== 'push') return
+    for (const index of traversedScroll.keys()) {
+      if (index > history.state?.index) traversedScroll.delete(index)
+    }
+  })
+}
 
 export function inventoryApiPages<T>(path: string, query: URLSearchParams): Source<T> {
   return async page => {
@@ -32,7 +45,7 @@ export function inventoryLocalPages<T>(getItems: () => T[] | Promise<T[]>, group
 }
 
 export function initInventoryScroll<T extends { id: number }>(
-  tbody: HTMLElement, countKey: string, render: Render<T>, afterRender?: () => void,
+  tbody: HTMLElement, countKey: string, render: Render<T>, afterRender?: () => void, signal?: AbortSignal,
 ) {
   const count = document.querySelector<HTMLElement>('[data-inventory-count]')!
   const more = document.querySelector<HTMLElement>('.fm-inventory-more')!
@@ -45,8 +58,11 @@ export function initInventoryScroll<T extends { id: number }>(
   let source: Source<T> | undefined
   let drawRows = render
   const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
-  const restored: { nextPage: number, top: number, windowTop: number, search?: string } | undefined =
-    navigation?.type === 'back_forward' ? history.state?.inventoryScroll : undefined
+  const historyIndex: number | undefined = history.state?.index
+  const restored: InventoryScroll | undefined = historyIndex === undefined
+    ? navigation?.type === 'back_forward' ? history.state?.inventoryScroll : undefined
+    : traversedScroll.get(historyIndex) ?? history.state?.inventoryScroll
+  if (historyIndex !== undefined) traversedScroll.delete(historyIndex)
   const main = tbody.closest('main')
   const search = document.querySelector<HTMLInputElement>('#filter-search')
   if (search && restored?.search) search.value = restored.search
@@ -57,12 +73,18 @@ export function initInventoryScroll<T extends { id: number }>(
   let failed = false
   let generation = 0
   button.addEventListener('click', () => { void loadMore() })
-  if (main) window.addEventListener('pagehide', () => {
-    history.replaceState({
-      ...history.state,
-      inventoryScroll: { nextPage, top: main.scrollTop, windowTop: window.scrollY, search: search?.value },
-    }, '')
-  })
+  function saveScroll() {
+    if (!main) return
+    const snapshot = { nextPage, top: main.scrollTop, windowTop: window.scrollY, search: search?.value }
+    if (history.state?.index === historyIndex) {
+      history.replaceState({ ...history.state, inventoryScroll: snapshot }, '')
+    } else if (historyIndex !== undefined) {
+      traversedScroll.set(historyIndex, snapshot)
+    }
+  }
+  window.addEventListener('pagehide', saveScroll, { signal })
+  document.addEventListener('astro:before-preparation', saveScroll, { signal })
+  signal?.addEventListener('abort', () => { pause(); observer.disconnect() }, { once: true })
 
   function updateControls() {
     count.textContent = loaded.size > 0 && loaded.size < total
@@ -75,6 +97,7 @@ export function initInventoryScroll<T extends { id: number }>(
     button.setAttribute('aria-disabled', String(loading))
     status.textContent = loading ? t('common.loading') : failed ? t('common.errorLoadingData') : ''
     if (hasMore && !loading && !failed) observer.observe(more)
+    if (historyIndex !== undefined) saveScroll()
   }
 
   function pause() {

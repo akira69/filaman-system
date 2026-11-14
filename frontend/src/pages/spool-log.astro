@@ -2,7 +2,7 @@
 import Layout from '../layouts/Layout.astro'
 ---
 
-<Layout title="FilaMan - Spool Log">
+<Layout panel="spool-log" title="FilaMan - Spool Log">
   <style is:global>
     .fm-table .col-spool-id { width: 8rem; white-space: nowrap; }
   </style>
@@ -52,7 +52,9 @@ import Layout from '../layouts/Layout.astro'
     import { toColorSwatchBackground } from '../lib/colors'
     import { escapeHtml } from '../lib/extra-fields'
     import { bindTableFilterControls, initHeaderColumnFilters, isColumnFilterActive, syncHeaderSortButtons, type ColumnFilterValue, type HeaderFilterDefinition } from '../lib/table-column-filters'
+    import { mountPanel } from '../lib/panel-navigation'
 
+    mountPanel('spool-log', async (panelSignal) => {
     await initI18n()
 
     interface EventColor { name: string; hex_code: string }
@@ -289,7 +291,7 @@ import Layout from '../layouts/Layout.astro'
         applyFilters()
       },
     }))
-    const headerFilters = initHeaderColumnFilters(table, definitions)
+    const headerFilters = initHeaderColumnFilters(table, definitions, panelSignal)
     function syncSort() {
       table.querySelectorAll('th[data-sort]').forEach(cell => {
         cell.classList.toggle('sort-asc', cell.getAttribute('data-sort') === sortKey && sortDirection === 'asc')
@@ -307,9 +309,10 @@ import Layout from '../layouts/Layout.astro'
       applyFilters()
     })
     function clearColumns() { columnFilters = {}; headerFilters.resetAll(); applyFilters() }
-    bindTableFilterControls({ onApply: applyFilters, onClearColumns: clearColumns, onClearAll: clearColumns })
+    bindTableFilterControls({ signal: panelSignal, onApply: applyFilters, onClearColumns: clearColumns, onClearAll: clearColumns })
     syncSort()
     translatePage()
     loadEvents()
+    })
   </script>
 </Layout>

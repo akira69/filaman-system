@@ -20,7 +20,7 @@ type Hook =
 
 type PluginHook = { name: string; page_url: string }
 
-export function mountFilamentPluginHooks(host: HTMLElement, hook: Hook) {
+export function mountFilamentPluginHooks(host: HTMLElement, hook: Hook, signal?: AbortSignal) {
   const actions = host.querySelector<HTMLElement>('[data-plugin-hook-actions]')!
   const dialog = host.querySelector<HTMLDialogElement>('dialog')!
   const heading = dialog.querySelector('h2')!
@@ -43,7 +43,8 @@ export function mountFilamentPluginHooks(host: HTMLElement, hook: Hook) {
 
   dialog.querySelector('button')!.addEventListener('click', close)
   dialog.addEventListener('cancel', event => { event.preventDefault(); close() })
-  window.addEventListener('pagehide', close)
+  window.addEventListener('pagehide', close, { signal })
+  signal?.addEventListener('abort', close, { once: true })
 
   window.addEventListener('message', event => {
     const sender = frame?.contentWindow
@@ -66,10 +67,10 @@ export function mountFilamentPluginHooks(host: HTMLElement, hook: Hook) {
     if (type === 'filaman:filament-stage' && hook.mode !== 'selection' && draft) {
       sender.postMessage({ type, request_id, ...hook.form.stagePluginDraft(message.units, draft) }, origin)
     }
-  })
+  }, { signal })
 
-  void api.get<PluginHook[]>(`/filament-plugin-hooks?surface=${hook.mode}`).then(plugins => {
-    if (!Array.isArray(plugins)) return
+  void api.get<PluginHook[]>(`/filament-plugin-hooks?surface=${hook.mode}`, { signal }).then(plugins => {
+    if (signal?.aborted || !Array.isArray(plugins)) return
     for (const plugin of plugins) {
       if (typeof plugin?.name !== 'string' || typeof plugin.page_url !== 'string' ||
           !plugin.page_url.startsWith(PLUGIN_PAGE_PREFIX) || !isValidPluginSlug(plugin.page_url.slice(PLUGIN_PAGE_PREFIX.length))) continue
