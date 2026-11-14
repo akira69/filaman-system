@@ -67,6 +67,20 @@ class SharedStateStore:
         except (OSError, KeyError, TypeError, ValueError):
             logger.warning("Could not publish printer snapshot", exc_info=True)
 
+    def read_all(self) -> dict[int, dict[str, Any]]:
+        try:
+            now = time.time()
+            return {
+                int(key): value["state"]
+                for key, value in self._load(self._path()).items()
+                if self._is_fresh(value, now)
+            }
+        except FileNotFoundError:
+            return {}
+        except (OSError, KeyError, TypeError, ValueError):
+            logger.warning("Could not open printer snapshot", exc_info=True)
+            return {}
+
     def read(self, printer_id: int) -> dict[str, Any] | None:
         try:
             value = self._load(self._path()).get(str(printer_id))

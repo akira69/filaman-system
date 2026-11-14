@@ -397,3 +397,55 @@ async def test_cancelled_takeover_interrupts_startup_then_waits_for_cleanup(tmp_
 
     with lock.open("a") as successor:
         main.fcntl.flock(successor, main.fcntl.LOCK_EX | main.fcntl.LOCK_NB)
+
+
+async def test_display_snapshots_remain_live_across_standby_only_polls(tmp_path, monkeypatch):
+    from app.core import shared_health
+
+    path = tmp_path / "display.json"
+    primary = shared_health.SharedStateStore(lambda: path, stale_seconds=45)
+    standby = shared_health.SharedStateStore(lambda: path, stale_seconds=45)
+    clock = 1000
+    polls = []
+
+    async def sleep(seconds):
+        nonlocal clock
+        clock += seconds
+        polls.append(standby.read(1))
+        if len(polls) == 5:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(shared_health.time, "time", lambda: clock)
+    monkeypatch.setattr(main, "_is_primary", True)
+    monkeypatch.setattr(main, "shared_display_store", primary)
+    monkeypatch.setattr(main.plugin_manager, "get_display_states", AsyncMock(return_value={1: {"connected": True}}))
+    monkeypatch.setattr(main.asyncio, "sleep", sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main._display_snapshot_loop()
+
+    assert clock - 1000 > 45
+    assert polls == [{"connected": True}] * 5
+
+
+async def test_display_failure_does_not_skip_watchdog_reconciliation(db_session, monkeypatch):
+    from app.models import Printer
+
+    printer = Printer(name="Needs a driver", driver_key="fixture", is_active=True)
+    db_session.add(printer)
+    await db_session.flush()
+
+    @asynccontextmanager
+    async def session():
+        yield db_session
+
+    monkeypatch.setattr(main, "async_session_maker", session)
+    monkeypatch.setattr(main.plugin_manager, "drivers", {})
+    monkeypatch.setattr(main.plugin_manager, "get_display_states", AsyncMock(side_effect=RuntimeError("display failed")))
+    start = AsyncMock(return_value=True)
+    monkeypatch.setattr(main.plugin_manager, "start_printer", start)
+    monkeypatch.setattr(main.shared_health_store, "publish", Mock())
+
+    await main._watchdog_health_check()
+
+    start.assert_awaited_once_with(printer)

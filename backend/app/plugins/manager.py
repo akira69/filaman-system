@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 _EVENT_DRAIN_TIMEOUT = 5
 _DRIVER_START_TIMEOUT = 10
 _DRIVER_REFRESH_TIMEOUT = 5
+_DISPLAY_STATE_TIMEOUT = 0.4
 
 # Built-in plugins ship with the image and live alongside this file
 BUILTIN_PLUGINS_DIR = Path(__file__).parent
@@ -771,23 +772,34 @@ class PluginManager:
         self.health_status = health
         return dict(health)
 
-    async def get_display_states(self) -> dict[int, dict[str, Any]]:
+    async def get_display_states(
+        self, printer_ids: Iterable[int] | None = None
+    ) -> dict[int, dict[str, Any]]:
         """Live state of every local driver, for the Display API.
 
         A driver without ``get_display_state()`` falls back to ``health()``:
         that already carries ``connected`` and the AMS ``ams_units``, which is
         what the display service needs for the online badge and the climate.
         """
-        states: dict[int, dict[str, Any]] = {}
-        for printer_id, driver in self.drivers.items():
+        ids = list(self.drivers if printer_ids is None else printer_ids)
+        drivers = {printer_id: self.drivers[printer_id] for printer_id in ids if printer_id in self.drivers}
+
+        async def collect(printer_id: int) -> dict[str, Any] | None:
             try:
-                state = await self.get_display_state(printer_id)
+                async with asyncio.timeout(_DISPLAY_STATE_TIMEOUT):
+                    state = await self.get_display_state(printer_id)
+                    return json.loads(json.dumps(state, allow_nan=False))
             except Exception:
-                logger.debug(
-                    "get_display_state failed for printer %s", printer_id, exc_info=True
-                )
-                continue
-            if state is not None:
+                logger.debug("get_display_state failed for printer %s", printer_id, exc_info=True)
+                return None
+
+        # A cancelled getter is local to that printer. Cancelling this gather still stops them all.
+        results = await asyncio.gather(*(collect(printer_id) for printer_id in drivers), return_exceptions=True)
+        states = {}
+        for (printer_id, driver), state in zip(drivers.items(), results):
+            if isinstance(state, BaseException) and not isinstance(state, asyncio.CancelledError):
+                raise state
+            if isinstance(state, dict) and self.drivers.get(printer_id) is driver:
                 states[printer_id] = state
         return states
 

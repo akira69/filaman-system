@@ -47,6 +47,7 @@ _STARTUP_LOCK_PATH = Path(tempfile.gettempdir()) / "filaman-startup.lock"
 _is_primary = False
 _lock_fd = None
 _primary_socket = AsyncExitStack()
+_DISPLAY_REFRESH_INTERVAL = 15
 _WATCHDOG_INTERVAL = 60  # seconds
 _TAKEOVER_INTERVAL = 1  # seconds
 _LABEL_ASSET_CLEANUP_INTERVAL = 24 * 60 * 60
@@ -178,6 +179,19 @@ async def _driver_watchdog() -> None:
         await asyncio.sleep(_WATCHDOG_INTERVAL if _is_primary else _TAKEOVER_INTERVAL)
 
 
+async def _display_snapshot_loop() -> None:
+    while True:
+        if _is_primary and not worker_is_draining():
+            try:
+                async with asyncio.timeout(5):
+                    states = await plugin_manager.get_display_states()
+                if states:
+                    shared_display_store.publish(states)
+            except Exception:
+                logger.exception("Display snapshot refresh failed")
+        await asyncio.sleep(_DISPLAY_REFRESH_INTERVAL)
+
+
 async def _cleanup_stale_label_assets() -> None:
     """Delete label images that have remained unreferenced for 30 days."""
     global _next_label_asset_cleanup
@@ -207,11 +221,6 @@ async def _watchdog_health_check() -> None:
     # Publish current health so secondary workers
     # can return accurate status to the frontend.
     shared_health_store.publish(health, replace=True)
-
-    # Same for the Display API: a board whose polls never land on the primary
-    # would otherwise show nothing at all.
-    display_states = await plugin_manager.get_display_states()
-    shared_display_store.publish(display_states, replace=True)
 
     # Deaktivierte Plugins ermitteln
     async with async_session_maker() as db:
@@ -421,17 +430,15 @@ async def lifespan(app: FastAPI):
     # Start the driver watchdog in every worker (handles health checks
     # for the primary and automatic takeover for secondary workers).
     watchdog_task = asyncio.create_task(_driver_watchdog())
+    display_task = asyncio.create_task(_display_snapshot_loop())
 
     logger.info("FilaMan backend started")
     yield
     logger.info("Shutting down FilaMan backend...")
 
-    # Cancel the watchdog first
     watchdog_task.cancel()
-    try:
-        await watchdog_task
-    except asyncio.CancelledError:
-        pass
+    display_task.cancel()
+    await asyncio.gather(watchdog_task, display_task, return_exceptions=True)
 
     if _is_primary:
         await _primary_socket.aclose()

@@ -1084,13 +1084,10 @@ async def start_driver(
             detail={"code": "start_failed", "message": "Driver could not be started"},
         )
 
-    # Publish immediately so all workers see the new state
+    # Publish health immediately. The Display loop owns live snapshot writes.
     driver = plugin_manager.drivers.get(printer_id)
     if driver:
         shared_health_store.publish({printer_id: driver.health()})
-        state = await plugin_manager.get_display_state(printer_id)
-        if state is not None:
-            shared_display_store.publish({printer_id: state})
 
     return DriverActionResponse(success=True, message="Driver started")
 
