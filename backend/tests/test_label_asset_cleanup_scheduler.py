@@ -217,6 +217,76 @@ async def test_startup_collects_display_state_before_opening_driver_routes(monke
     published.assert_called_once()
 
 
+async def test_driver_events_finish_before_primary_releases_election_lock(tmp_path, monkeypatch):
+    from app.plugins.manager import PluginManager
+
+    manager = PluginManager()
+    started, release = asyncio.Event(), asyncio.Event()
+    seen = []
+
+    async def write_event(_printer_id, event):
+        started.set()
+        await release.wait()
+        seen.append(event["value"])
+
+    monkeypatch.setattr(manager, "_handle_event", write_event)
+    emitter = manager._create_event_handler(1)
+    emitter({"event_type": "slots_update", "value": "admitted"})
+    await asyncio.wait_for(started.wait(), 1)
+
+    lock_path = tmp_path / "election.lock"
+    with lock_path.open("a") as current, lock_path.open("a") as successor:
+        main.fcntl.flock(current, main.fcntl.LOCK_EX | main.fcntl.LOCK_NB)
+
+        async def shutdown():
+            await manager.stop_all()
+            current.close()
+
+        stopping = asyncio.create_task(shutdown())
+        try:
+            await asyncio.sleep(0)
+            with pytest.raises(BlockingIOError):
+                main.fcntl.flock(successor, main.fcntl.LOCK_EX | main.fcntl.LOCK_NB)
+            emitter({"event_type": "slots_update", "value": "late"})
+        finally:
+            release.set()
+            await asyncio.wait_for(stopping, 1)
+            await asyncio.sleep(0)
+
+        assert seen == ["admitted"]
+        main.fcntl.flock(successor, main.fcntl.LOCK_EX | main.fcntl.LOCK_NB)
+
+
+async def test_driver_event_timeout_waits_for_cancellation_cleanup(monkeypatch):
+    from app.plugins import manager as plugin_manager_module
+
+    manager = plugin_manager_module.PluginManager()
+    started, cancelling, cleaned = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def write_event(*_args):
+        started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            cancelling.set()
+            await cleaned.wait()
+
+    monkeypatch.setattr(plugin_manager_module, "_EVENT_DRAIN_TIMEOUT", 0)
+    monkeypatch.setattr(manager, "_handle_event", write_event)
+    manager._create_event_handler(1)({"event_type": "slots_update"})
+    await asyncio.wait_for(started.wait(), 1)
+
+    stopping = asyncio.create_task(manager.stop_all())
+    try:
+        await asyncio.wait_for(cancelling.wait(), 1)
+        assert not stopping.done()
+    finally:
+        cleaned.set()
+        await asyncio.wait_for(stopping, 1)
+
+    assert not manager._event_tasks
+
+
 async def test_slow_display_snapshot_does_not_block_primary_publication(monkeypatch):
     published = Mock()
     health_snapshot = Mock()
@@ -243,3 +313,87 @@ async def test_slow_display_snapshot_does_not_block_primary_publication(monkeypa
 
     published.assert_called_once()
     display_snapshot.assert_called_once_with({}, replace=True)
+
+
+async def test_primary_publication_survives_one_driver_health_failure(monkeypatch):
+    from app.plugins.manager import PluginManager
+
+    manager = PluginManager()
+    manager.drivers.update({
+        1: Mock(driver_key="fixture", health=Mock(side_effect=RuntimeError("driver still connecting")), stop=AsyncMock()),
+        2: Mock(health=Mock(return_value={"connected": True}), stop=AsyncMock()),
+    })
+    published = Mock()
+    health_snapshot = Mock()
+
+    @asynccontextmanager
+    async def private_socket(_app):
+        yield published
+
+    monkeypatch.setattr(main, "_is_primary", False)
+    monkeypatch.setattr(main, "serve_primary_socket", private_socket)
+    monkeypatch.setattr(main, "plugin_manager", manager)
+    monkeypatch.setattr(manager, "start_all", AsyncMock())
+    monkeypatch.setattr(manager, "get_display_states", AsyncMock(return_value={}))
+    monkeypatch.setattr(main.shared_health_store, "publish", health_snapshot)
+    monkeypatch.setattr(main.shared_display_store, "publish", Mock())
+
+    async with AsyncExitStack() as listeners:
+        monkeypatch.setattr(main, "_primary_socket", listeners)
+        await main._start_primary_drivers(main.app)
+
+    published.assert_called_once()
+    assert health_snapshot.call_args.args[0][2] == {"connected": True}
+
+
+def test_initial_driver_failure_is_visible_in_health_snapshot():
+    from app.plugins.manager import PluginManager
+
+    manager = PluginManager()
+    manager.health_status[1] = {"status": "error", "message": "Driver unavailable"}
+    manager.drivers[2] = Mock(health=Mock(return_value={"connected": True}))
+
+    health = manager.get_health()
+
+    assert health[1]["status"] == "error"
+    assert health[2]["connected"] is True
+
+
+async def test_cancelled_takeover_interrupts_startup_then_waits_for_cleanup(tmp_path, monkeypatch):
+    lock = tmp_path / "startup.lock"
+    starting, interrupted, stopping, release = (asyncio.Event() for _ in range(4))
+    monkeypatch.setattr(main, "_STARTUP_LOCK_PATH", lock)
+    monkeypatch.setattr(main, "_lock_fd", None)
+    monkeypatch.setattr(main, "_is_primary", False)
+
+    startup_gate = asyncio.Event()
+
+    async def start():
+        starting.set()
+        try:
+            await startup_gate.wait()
+        finally:
+            interrupted.set()
+
+    async def stop():
+        stopping.set()
+        await release.wait()
+
+    monkeypatch.setattr(main.plugin_manager, "start_all", start)
+    monkeypatch.setattr(main.plugin_manager, "stop_all", stop)
+    takeover = asyncio.create_task(main._watchdog_try_takeover())
+    try:
+        await asyncio.wait_for(starting.wait(), 1)
+        takeover.cancel()
+        await asyncio.wait_for(interrupted.wait(), 0.1)
+        await asyncio.wait_for(stopping.wait(), 1)
+        with lock.open("a") as successor, pytest.raises(BlockingIOError):
+            main.fcntl.flock(successor, main.fcntl.LOCK_EX | main.fcntl.LOCK_NB)
+    finally:
+        release.set()
+        startup_gate.set()
+        with pytest.raises(asyncio.CancelledError):
+            await takeover
+
+    with lock.open("a") as successor:
+        main.fcntl.flock(successor, main.fcntl.LOCK_EX | main.fcntl.LOCK_NB)

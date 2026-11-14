@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
@@ -539,3 +539,120 @@ class TestSingleSlotHealthReconciliation:
         }
         assert [item["event"] for item in published] == ["slots_update", "printer_update"]
         assert commits.call_count == 1
+
+
+async def test_cancelled_initial_refresh_stops_the_driver(monkeypatch):
+    manager = PluginManager()
+    refreshing = asyncio.Event()
+    driver = Mock()
+    driver.start = AsyncMock()
+    driver.stop = AsyncMock()
+
+    async def refresh():
+        refreshing.set()
+        await asyncio.Future()
+
+    driver.refresh_status = refresh
+    monkeypatch.setattr(manager, "load_driver", lambda _key: Mock(return_value=driver))
+    monkeypatch.setattr(manager, "_ensure_plugin_extra_fields", AsyncMock())
+    monkeypatch.setattr(manager, "_migrate_spoolman_bambu_fields", AsyncMock())
+    monkeypatch.setattr(manager, "_copy_params_to_new_printer", AsyncMock())
+
+    start = asyncio.create_task(manager.start_printer(Printer(id=1, driver_key="fixture")))
+    await asyncio.wait_for(refreshing.wait(), 1)
+    start.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await start
+
+    driver.stop.assert_awaited_once()
+    assert not manager.drivers
+
+
+async def test_cancelled_driver_stop_finishes_stopping_the_driver():
+    manager = PluginManager()
+    stopping, release, stopped = (asyncio.Event() for _ in range(3))
+
+    async def stop():
+        stopping.set()
+        await release.wait()
+        stopped.set()
+
+    manager.drivers[1] = Mock(stop=stop)
+    task = asyncio.create_task(manager.stop_printer(1))
+    try:
+        await asyncio.wait_for(stopping.wait(), 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert stopped.is_set()
+    assert not manager.drivers
+
+
+@pytest.mark.parametrize("phase", ["start", "refresh_status"])
+@pytest.mark.parametrize("failure", ["timeout", "cancelled"])
+async def test_driver_startup_isolates_unresponsive_plugins(monkeypatch, phase, failure):
+    from app.plugins import manager as plugin_manager_module
+
+    manager = PluginManager()
+    driver = Mock(start=AsyncMock(), stop=AsyncMock())
+    driver.health.return_value = {"running": True}
+    driver.refresh_status = AsyncMock()
+
+    async def fail():
+        if failure == "cancelled":
+            raise asyncio.CancelledError
+        await asyncio.Future()
+
+    setattr(driver, phase, fail)
+    monkeypatch.setattr(plugin_manager_module, "_DRIVER_START_TIMEOUT", 0.01, raising=False)
+    monkeypatch.setattr(plugin_manager_module, "_DRIVER_REFRESH_TIMEOUT", 0.01, raising=False)
+    monkeypatch.setattr(manager, "load_driver", lambda _key: Mock(return_value=driver))
+    for method in ("_ensure_plugin_extra_fields", "_migrate_spoolman_bambu_fields", "_copy_params_to_new_printer"):
+        monkeypatch.setattr(manager, method, AsyncMock())
+
+    started = await asyncio.wait_for(manager.start_printer(Printer(id=1, driver_key="fixture")), 0.2)
+
+    if phase == "start":
+        assert not started and not manager.drivers
+        driver.stop.assert_awaited_once()
+    else:
+        assert started and manager.drivers[1] is driver
+        driver.stop.assert_not_awaited()
+
+
+async def test_self_cancelled_driver_does_not_abort_other_driver_stops():
+    async def stop():
+        raise asyncio.CancelledError
+
+    manager = PluginManager()
+    healthy = Mock(stop=AsyncMock())
+    manager.drivers.update({1: Mock(stop=stop), 2: healthy})
+
+    await manager.stop_all()
+
+    healthy.stop.assert_awaited_once()
+    assert not manager.drivers
+
+
+async def test_driver_stop_failure_does_not_replace_caller_cancellation():
+    manager = PluginManager()
+    stopping, release = asyncio.Event(), asyncio.Event()
+
+    async def stop():
+        stopping.set()
+        await release.wait()
+        raise ValueError("fixture stop failed")
+
+    manager.drivers[1] = Mock(stop=stop)
+    task = asyncio.create_task(manager.stop_printer(1))
+    await asyncio.wait_for(stopping.wait(), 1)
+    task.cancel()
+    await asyncio.sleep(0)
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task

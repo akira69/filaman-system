@@ -22,6 +22,7 @@ from app.api.auth_oidc import router as auth_oidc_router
 from app.api.deps import DBSession
 from app.api.mcp_server import router as mcp_router
 from app.api.v1.router import api_router, mount_deferred_plugin_routers
+from app.core.async_tasks import finish_on_cancel
 from app.core.config import MANUFACTURER_LOGO_DIR, settings
 from app.core.database import async_session_maker
 from app.core.logging_config import setup_logging
@@ -328,13 +329,7 @@ async def _watchdog_try_takeover() -> None:
         return
 
     _lock_fd = fd
-    promotion = asyncio.create_task(_start_primary_drivers(app))
-    try:
-        await asyncio.shield(promotion)
-    except asyncio.CancelledError:
-        # Keep the election lock until promotion has committed or finished rolling back.
-        await asyncio.gather(promotion, return_exceptions=True)
-        raise
+    await _start_primary_drivers(app)
     if _is_primary:
         logger.info("Watchdog: acquired lock and started drivers as primary worker")
 
@@ -353,7 +348,7 @@ async def _start_primary_drivers(app: FastAPI) -> None:
         rollback.callback(_release_primary_lock)
         rollback.callback(shared_health_store.cleanup)
         rollback.callback(shared_display_store.cleanup)
-        rollback.push_async_callback(plugin_manager.stop_all)
+        rollback.push_async_callback(lambda: finish_on_cancel(plugin_manager.stop_all()))
         await plugin_manager.start_all()
         if worker_is_draining():
             return
