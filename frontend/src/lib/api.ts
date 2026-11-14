@@ -127,8 +127,7 @@ export function colorFilterParams(filter: ColumnFilterValue | undefined, basePar
 }
 
 /** Fetch all pages with bounded concurrency and navigation cleanup. */
-export async function fetchAllPages<T = unknown>(baseUrl: string): Promise<{ items: T[], total: number }> {
-  const signal = getAbortSignal()
+export async function fetchAllPages<T = unknown>(baseUrl: string, signal = getAbortSignal()): Promise<{ items: T[], total: number }> {
   const separator = baseUrl.includes('?') ? '&' : '?'
   const firstUrl = `${baseUrl}${separator}page=1&page_size=200`
   const response = await fetch(firstUrl, { credentials: 'include', signal })
